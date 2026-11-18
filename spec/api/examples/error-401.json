@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "UNAUTHENTICATED",
+    "message": "Valid device credential required."
+  }
+}

@@ -1,0 +1,3717 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ratatoss controller control protocol",
+    "version": "1.0.0",
+    "description": "HTTPS, UTF-8 JSON. Retry network failures, 429 and 5xx with jittered 1–30 second backoff and honor Retry-After. Display consent and permission failures. Never log credentials or codes."
+  },
+  "servers": [
+    {
+      "url": "https://controller.example.invalid"
+    }
+  ],
+  "paths": {
+    "/v1/devices/enroll": {
+      "post": {
+        "operationId": "enrollDevice",
+        "summary": "Enroll a device with a one-time code",
+        "description": "Use an administrator-issued 256-bit code, with a 10-minute TTL. Consume the code atomically when issuing the device token. This endpoint has no bearer or idempotency key. If the response is lost after consumption, an operator must revoke the orphaned device/token before issuing a replacement code.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollRequest"
+              },
+              "examples": {
+                "enroll-source-request": {
+                  "x-example-file": "examples/enroll-source-request.json",
+                  "value": {
+                    "enrollment_code": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "display_name": "Atlas"
+                  }
+                },
+                "enroll-target-request": {
+                  "x-example-file": "examples/enroll-target-request.json",
+                  "value": {
+                    "enrollment_code": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "display_name": "Birch"
+                  }
+                },
+                "enroll-peer-request": {
+                  "x-example-file": "examples/enroll-peer-request.json",
+                  "value": {
+                    "enrollment_code": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "display_name": "Cedar"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollResult"
+                },
+                "examples": {
+                  "enroll-source-response": {
+                    "x-example-file": "examples/enroll-source-response.json",
+                    "value": {
+                      "device_id": "00000000-0000-4000-8000-000000000001",
+                      "display_name": "Atlas",
+                      "device_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  },
+                  "enroll-target-response": {
+                    "x-example-file": "examples/enroll-target-response.json",
+                    "value": {
+                      "device_id": "00000000-0000-4000-8000-000000000002",
+                      "display_name": "Birch",
+                      "device_token": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    }
+                  },
+                  "enroll-peer-response": {
+                    "x-example-file": "examples/enroll-peer-response.json",
+                    "value": {
+                      "device_id": "00000000-0000-4000-8000-000000000003",
+                      "display_name": "Cedar",
+                      "device_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Responses may contain secrets."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/v1/devices/me": {
+      "get": {
+        "operationId": "getDevice",
+        "summary": "Read the authenticated device profile",
+        "description": "Returns only the caller identity.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Device"
+                },
+                "examples": {
+                  "device-me-response": {
+                    "x-example-file": "examples/device-me-response.json",
+                    "value": {
+                      "device_id": "00000000-0000-4000-8000-000000000001",
+                      "display_name": "Atlas"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/pairs": {
+      "post": {
+        "operationId": "createPair",
+        "summary": "Open a pairing session as an enrolled device",
+        "description": "Issue a one-time 128-bit pairing code with a 10-minute TTL. Share it out of band. On identical replay while the unclaimed code is still usable, return the original code and deadline. Once claimed or expired, omit the secret by returning the applicable conflict or expiry error. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key. The request has no body.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairCreated"
+                },
+                "examples": {
+                  "pair-create-response": {
+                    "x-example-file": "examples/pair-create-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000004",
+                      "expires_at": "2026-11-18T12:06:00Z",
+                      "pair_code": "dddddddddddddddddddddddddddddddd"
+                    }
+                  },
+                  "pair-create-peer-response": {
+                    "x-example-file": "examples/pair-create-peer-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000005",
+                      "expires_at": "2026-11-18T12:06:00Z",
+                      "pair_code": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Responses may contain secrets."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listPairs",
+        "summary": "List the caller’s pairing sessions and peers",
+        "description": "Only show sessions involving the caller. Pending comparison uses the same six-digit string on both devices, including leading zeros. Active pairs expose the counterpart device ID for selection as a job target. Connection state is independent of the pair state.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pairs"
+                },
+                "examples": {
+                  "pairs-claimed-response": {
+                    "x-example-file": "examples/pairs-claimed-response.json",
+                    "value": {
+                      "pairs": [
+                        {
+                          "pair_id": "00000000-0000-4000-8000-000000000004",
+                          "expires_at": "2026-11-18T12:06:00Z",
+                          "initiator": {
+                            "display_name": "Atlas",
+                            "device_id_suffix": "000001",
+                            "confirmed": false,
+                            "connection": "ONLINE"
+                          },
+                          "claimant": {
+                            "display_name": "Birch",
+                            "device_id_suffix": "000002",
+                            "confirmed": false,
+                            "connection": "OFFLINE"
+                          },
+                          "comparison_code": "004681",
+                          "state": "CLAIMED"
+                        }
+                      ]
+                    }
+                  },
+                  "pairs-active-response": {
+                    "x-example-file": "examples/pairs-active-response.json",
+                    "value": {
+                      "pairs": [
+                        {
+                          "pair_id": "00000000-0000-4000-8000-000000000004",
+                          "expires_at": "2026-11-18T12:06:00Z",
+                          "state": "ACTIVE",
+                          "initiator": {
+                            "display_name": "Atlas",
+                            "device_id_suffix": "000001",
+                            "confirmed": true,
+                            "connection": "ONLINE"
+                          },
+                          "claimant": {
+                            "display_name": "Birch",
+                            "device_id_suffix": "000002",
+                            "confirmed": true,
+                            "connection": "ONLINE"
+                          },
+                          "peer_device_id": "00000000-0000-4000-8000-000000000002"
+                        },
+                        {
+                          "pair_id": "00000000-0000-4000-8000-000000000005",
+                          "expires_at": "2026-11-18T12:06:00Z",
+                          "state": "ACTIVE",
+                          "initiator": {
+                            "display_name": "Atlas",
+                            "device_id_suffix": "000001",
+                            "confirmed": true,
+                            "connection": "ONLINE"
+                          },
+                          "claimant": {
+                            "display_name": "Cedar",
+                            "device_id_suffix": "000003",
+                            "confirmed": true,
+                            "connection": "ONLINE"
+                          },
+                          "peer_device_id": "00000000-0000-4000-8000-000000000003"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Responses may contain secrets."
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/pairs/claim": {
+      "post": {
+        "operationId": "claimPair",
+        "summary": "Claim a session as a different enrolled device",
+        "description": "Atomically consume a valid pairing code. No authority is granted until both parties confirm. Check the idempotency record before rejecting reuse of the code. Self-pairing is prohibited. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairClaimRequest"
+              },
+              "examples": {
+                "pair-claim-request": {
+                  "x-example-file": "examples/pair-claim-request.json",
+                  "value": {
+                    "pair_code": "dddddddddddddddddddddddddddddddd"
+                  }
+                },
+                "pair-claim-peer-request": {
+                  "x-example-file": "examples/pair-claim-peer-request.json",
+                  "value": {
+                    "pair_code": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairClaimResult"
+                },
+                "examples": {
+                  "pair-claim-response": {
+                    "x-example-file": "examples/pair-claim-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000004"
+                    }
+                  },
+                  "pair-claim-peer-response": {
+                    "x-example-file": "examples/pair-claim-peer-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000005"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/v1/pairs/{pair_id}/decision": {
+      "post": {
+        "operationId": "decidePair",
+        "summary": "Confirm or reject a claimed pair as a participant",
+        "description": "Compare the six-digit code out of band before confirming. Both parties must confirm before the deadline. Any rejection terminates the session. At most one ACTIVE pair may exist for an unordered device pair. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairDecision"
+              },
+              "examples": {
+                "pair-decision-request": {
+                  "x-example-file": "examples/pair-decision-request.json",
+                  "value": {
+                    "decision": "CONFIRM"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pair"
+                },
+                "examples": {
+                  "pair-first-decision-response": {
+                    "x-example-file": "examples/pair-first-decision-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000004",
+                      "expires_at": "2026-11-18T12:06:00Z",
+                      "initiator": {
+                        "display_name": "Atlas",
+                        "device_id_suffix": "000001",
+                        "confirmed": true,
+                        "connection": "ONLINE"
+                      },
+                      "claimant": {
+                        "display_name": "Birch",
+                        "device_id_suffix": "000002",
+                        "confirmed": false,
+                        "connection": "OFFLINE"
+                      },
+                      "comparison_code": "004681",
+                      "state": "CLAIMED"
+                    }
+                  },
+                  "pair-active-response": {
+                    "x-example-file": "examples/pair-active-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000004",
+                      "expires_at": "2026-11-18T12:06:00Z",
+                      "state": "ACTIVE",
+                      "initiator": {
+                        "display_name": "Atlas",
+                        "device_id_suffix": "000001",
+                        "confirmed": true,
+                        "connection": "ONLINE"
+                      },
+                      "claimant": {
+                        "display_name": "Birch",
+                        "device_id_suffix": "000002",
+                        "confirmed": true,
+                        "connection": "ONLINE"
+                      },
+                      "peer_device_id": "00000000-0000-4000-8000-000000000001"
+                    }
+                  },
+                  "pair-peer-first-decision-response": {
+                    "x-example-file": "examples/pair-peer-first-decision-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000005",
+                      "expires_at": "2026-11-18T12:06:00Z",
+                      "initiator": {
+                        "display_name": "Atlas",
+                        "device_id_suffix": "000001",
+                        "confirmed": true,
+                        "connection": "ONLINE"
+                      },
+                      "claimant": {
+                        "display_name": "Cedar",
+                        "device_id_suffix": "000003",
+                        "confirmed": false,
+                        "connection": "ONLINE"
+                      },
+                      "comparison_code": "089357",
+                      "state": "CLAIMED"
+                    }
+                  },
+                  "pair-peer-active-response": {
+                    "x-example-file": "examples/pair-peer-active-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000005",
+                      "expires_at": "2026-11-18T12:06:00Z",
+                      "state": "ACTIVE",
+                      "initiator": {
+                        "display_name": "Atlas",
+                        "device_id_suffix": "000001",
+                        "confirmed": true,
+                        "connection": "ONLINE"
+                      },
+                      "claimant": {
+                        "display_name": "Cedar",
+                        "device_id_suffix": "000003",
+                        "confirmed": true,
+                        "connection": "ONLINE"
+                      },
+                      "peer_device_id": "00000000-0000-4000-8000-000000000001"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Responses may contain secrets."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          }
+        }
+      }
+    },
+    "/v1/pairs/{pair_id}": {
+      "delete": {
+        "operationId": "revokePair",
+        "summary": "Unpair as an active pair participant",
+        "description": "Block new offers and revoke pending offers atomically. Previously accepted offers continue subject to their own withdrawal controls. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key. The request has no body.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairRevoked"
+                },
+                "examples": {
+                  "pair-revoke-response": {
+                    "x-example-file": "examples/pair-revoke-response.json",
+                    "value": {
+                      "pair_id": "00000000-0000-4000-8000-000000000004",
+                      "state": "REVOKED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "operationId": "createJob",
+        "summary": "Create a job as the file source",
+        "description": "Register the source’s durably stored immutable manifest and one pending offer per distinct ACTIVE paired target. Validate all targets, configured manifest limits and layout before committing. Compute the canonical digest and set the offer TTL from commit (default 24 hours). Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRequest"
+              },
+              "examples": {
+                "job-create-request": {
+                  "x-example-file": "examples/job-create-request.json",
+                  "value": {
+                    "manifest": {
+                      "version": 1,
+                      "name": "sample.txt",
+                      "size": 17,
+                      "piece_size": 4194304,
+                      "batch_size": 67108864,
+                      "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                      "pieces": [
+                        {
+                          "index": 0,
+                          "offset": 0,
+                          "size": 17,
+                          "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+                        }
+                      ],
+                      "batches": [
+                        {
+                          "index": 0,
+                          "offset": 0,
+                          "size": 17,
+                          "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+                        }
+                      ]
+                    },
+                    "target_device_ids": [
+                      "00000000-0000-4000-8000-000000000002",
+                      "00000000-0000-4000-8000-000000000003"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreated"
+                },
+                "examples": {
+                  "job-create-response": {
+                    "x-example-file": "examples/job-create-response.json",
+                    "value": {
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "created_at": "2026-11-18T12:00:00Z",
+                      "offers": [
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000007",
+                          "target_device_id": "00000000-0000-4000-8000-000000000002",
+                          "expires_at": "2026-11-19T12:00:00Z",
+                          "state": "PENDING"
+                        },
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000008",
+                          "target_device_id": "00000000-0000-4000-8000-000000000003",
+                          "expires_at": "2026-11-19T12:00:00Z",
+                          "state": "PENDING"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/offers": {
+      "get": {
+        "operationId": "listOffers",
+        "summary": "List offers addressed to the caller",
+        "description": "The list includes pending and terminal states. Each record contains source name, file name, size and deadline.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Offers"
+                },
+                "examples": {
+                  "offers-list-response": {
+                    "x-example-file": "examples/offers-list-response.json",
+                    "value": {
+                      "offers": [
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000007",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "source_display_name": "Atlas",
+                          "file_name": "sample.txt",
+                          "size": 17,
+                          "expires_at": "2026-11-19T12:00:00Z",
+                          "state": "PENDING"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/offers/{offer_id}": {
+      "get": {
+        "operationId": "getOffer",
+        "summary": "Read a detailed offer as its target",
+        "description": "Obtain the canonical manifest and digest for local storage preparation and consent.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferDetail"
+                },
+                "examples": {
+                  "offer-detail-response": {
+                    "x-example-file": "examples/offer-detail-response.json",
+                    "value": {
+                      "offer_id": "00000000-0000-4000-8000-000000000007",
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "source_display_name": "Atlas",
+                      "file_name": "sample.txt",
+                      "size": 17,
+                      "expires_at": "2026-11-19T12:00:00Z",
+                      "state": "PENDING",
+                      "manifest": {
+                        "version": 1,
+                        "name": "sample.txt",
+                        "size": 17,
+                        "piece_size": 4194304,
+                        "batch_size": 67108864,
+                        "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                        "pieces": [
+                          {
+                            "index": 0,
+                            "offset": 0,
+                            "size": 17,
+                            "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+                          }
+                        ],
+                        "batches": [
+                          {
+                            "index": 0,
+                            "offset": 0,
+                            "size": 17,
+                            "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+                          }
+                        ]
+                      },
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/offers/{offer_id}/decision": {
+      "post": {
+        "operationId": "decideOffer",
+        "summary": "Accept or decline an offer as its target",
+        "description": "A decision applies to PENDING before expiry. Before ACCEPT, persist local consent and the destination, and supply the matching canonical digest and explicit permission to forward. The local destination path stays on the node. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferDecision"
+              },
+              "examples": {
+                "offer-accept-request": {
+                  "x-example-file": "examples/offer-accept-request.json",
+                  "value": {
+                    "decision": "ACCEPT",
+                    "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                    "allow_forward": false
+                  }
+                },
+                "offer-peer-accept-request": {
+                  "x-example-file": "examples/offer-peer-accept-request.json",
+                  "value": {
+                    "decision": "ACCEPT",
+                    "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                    "allow_forward": true
+                  }
+                },
+                "offer-decline-request": {
+                  "x-example-file": "examples/offer-decline-request.json",
+                  "value": {
+                    "decision": "DECLINE"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferDecisionResult"
+                },
+                "examples": {
+                  "offer-accept-response": {
+                    "x-example-file": "examples/offer-accept-response.json",
+                    "value": {
+                      "offer_id": "00000000-0000-4000-8000-000000000007",
+                      "state": "ACCEPTED"
+                    }
+                  },
+                  "offer-peer-accept-response": {
+                    "x-example-file": "examples/offer-peer-accept-response.json",
+                    "value": {
+                      "offer_id": "00000000-0000-4000-8000-000000000008",
+                      "state": "ACCEPTED"
+                    }
+                  },
+                  "offer-decline-response": {
+                    "x-example-file": "examples/offer-decline-response.json",
+                    "value": {
+                      "offer_id": "00000000-0000-4000-8000-000000000008",
+                      "state": "DECLINED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          }
+        }
+      }
+    },
+    "/v1/offers/{offer_id}/withdraw": {
+      "post": {
+        "operationId": "withdrawOffer",
+        "summary": "Withdraw an accepted unfinished offer as its target",
+        "description": "Block future scheduling and cancel live assignments for this participant at both endpoints (RX or TX). Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key. The request has no body.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferWithdrawn"
+                },
+                "examples": {
+                  "offer-withdraw-response": {
+                    "x-example-file": "examples/offer-withdraw-response.json",
+                    "value": {
+                      "offer_id": "00000000-0000-4000-8000-000000000008",
+                      "state": "WITHDRAWN"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancelJob",
+        "summary": "Cancel an open job as its original source",
+        "description": "Revoke pending offers, cancel unfinished accepted offers and stop assignments. Preserve all previously committed receipts. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key. The request has no body.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCanceled"
+                },
+                "examples": {
+                  "job-cancel-response": {
+                    "x-example-file": "examples/job-cancel-response.json",
+                    "value": {
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "file_name": "sample.txt",
+                      "size": 17,
+                      "view": "SOURCE",
+                      "state": "CANCELED",
+                      "targets": [
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000007",
+                          "device_id": "00000000-0000-4000-8000-000000000002",
+                          "display_name": "Birch",
+                          "state": "VERIFIED",
+                          "connection": "ONLINE",
+                          "verified_bytes": 17,
+                          "receipt": {
+                            "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                            "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                            "size": 17,
+                            "job_id": "00000000-0000-4000-8000-000000000006",
+                            "target_device_id": "00000000-0000-4000-8000-000000000002",
+                            "verified_at": "2026-11-18T12:03:13Z"
+                          }
+                        },
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000008",
+                          "device_id": "00000000-0000-4000-8000-000000000003",
+                          "display_name": "Cedar",
+                          "state": "CANCELED",
+                          "connection": "ONLINE",
+                          "verified_bytes": 0,
+                          "receipt": null
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/status": {
+      "get": {
+        "operationId": "getJobStatus",
+        "summary": "Read the job as its source or addressed target",
+        "description": "The SOURCE view contains all destinations; TARGET contains only the caller’s offer and required job metadata. OPEN persists while an accepted target is offline. After all offers are terminal, COMPLETE means every target has a receipt, PARTIAL means some do, and NO_DELIVERY means none do. CANCELED is explicit source termination. Verified bytes count only registered verified batches.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                },
+                "examples": {
+                  "job-source-status-response": {
+                    "x-example-file": "examples/job-source-status-response.json",
+                    "value": {
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "file_name": "sample.txt",
+                      "size": 17,
+                      "view": "SOURCE",
+                      "state": "COMPLETE",
+                      "targets": [
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000007",
+                          "device_id": "00000000-0000-4000-8000-000000000002",
+                          "display_name": "Birch",
+                          "state": "VERIFIED",
+                          "connection": "ONLINE",
+                          "verified_bytes": 17,
+                          "receipt": {
+                            "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                            "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                            "size": 17,
+                            "job_id": "00000000-0000-4000-8000-000000000006",
+                            "target_device_id": "00000000-0000-4000-8000-000000000002",
+                            "verified_at": "2026-11-18T12:03:13Z"
+                          }
+                        },
+                        {
+                          "offer_id": "00000000-0000-4000-8000-000000000008",
+                          "device_id": "00000000-0000-4000-8000-000000000003",
+                          "display_name": "Cedar",
+                          "state": "VERIFIED",
+                          "connection": "ONLINE",
+                          "verified_bytes": 17,
+                          "receipt": {
+                            "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                            "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                            "size": 17,
+                            "job_id": "00000000-0000-4000-8000-000000000006",
+                            "target_device_id": "00000000-0000-4000-8000-000000000003",
+                            "verified_at": "2026-11-18T12:03:14Z"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "job-target-status-response": {
+                    "x-example-file": "examples/job-target-status-response.json",
+                    "value": {
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "file_name": "sample.txt",
+                      "size": 17,
+                      "view": "TARGET",
+                      "state": "COMPLETE",
+                      "target": {
+                        "offer_id": "00000000-0000-4000-8000-000000000007",
+                        "device_id": "00000000-0000-4000-8000-000000000002",
+                        "display_name": "Birch",
+                        "state": "VERIFIED",
+                        "connection": "ONLINE",
+                        "verified_bytes": 17,
+                        "receipt": {
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                          "size": 17,
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "target_device_id": "00000000-0000-4000-8000-000000000002",
+                          "verified_at": "2026-11-18T12:03:13Z"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/devices/me/heartbeat": {
+      "post": {
+        "operationId": "heartbeat",
+        "summary": "Report current boot and available slots as the caller",
+        "description": "Send every five seconds. After 20 seconds without heartbeat mark the device offline and invalidate its assignments. A changed boot or offline reconnect requires reconciliation before scheduling. Heartbeats are transient and use no idempotency key; send a fresh snapshot on retry.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Heartbeat"
+              },
+              "examples": {
+                "heartbeat-request": {
+                  "x-example-file": "examples/heartbeat-request.json",
+                  "value": {
+                    "boot_id": "00000000-0000-4000-8000-000000000009",
+                    "free_rx_slots": 1,
+                    "free_tx_slots": 2,
+                    "active_assignment_ids": []
+                  }
+                },
+                "heartbeat-target-request": {
+                  "x-example-file": "examples/heartbeat-target-request.json",
+                  "value": {
+                    "boot_id": "00000000-0000-4000-8000-00000000000a",
+                    "free_rx_slots": 1,
+                    "free_tx_slots": 1,
+                    "active_assignment_ids": []
+                  }
+                },
+                "heartbeat-peer-request": {
+                  "x-example-file": "examples/heartbeat-peer-request.json",
+                  "value": {
+                    "boot_id": "00000000-0000-4000-8000-00000000000b",
+                    "free_rx_slots": 1,
+                    "free_tx_slots": 1,
+                    "active_assignment_ids": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatResult"
+                },
+                "examples": {
+                  "heartbeat-response": {
+                    "x-example-file": "examples/heartbeat-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:02Z",
+                      "connection": "ONLINE"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/reconcile": {
+      "post": {
+        "operationId": "reconcileJob",
+        "summary": "Replace verified availability as source or consenting target",
+        "description": "Validate boot against the current heartbeat and range-check batch IDs; atomically replace the caller’s full verified inventory. Clear removed availability before replaying ACKs. Serialize snapshots and outbox per job, discard pending ACKs for lost or corrupt batches, and reject stale boot snapshots. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reconcile"
+              },
+              "examples": {
+                "reconcile-request": {
+                  "x-example-file": "examples/reconcile-request.json",
+                  "value": {
+                    "boot_id": "00000000-0000-4000-8000-000000000009",
+                    "verified_batch_ids": [
+                      0
+                    ]
+                  }
+                },
+                "reconcile-target-request": {
+                  "x-example-file": "examples/reconcile-target-request.json",
+                  "value": {
+                    "boot_id": "00000000-0000-4000-8000-00000000000a",
+                    "verified_batch_ids": []
+                  }
+                },
+                "reconcile-peer-request": {
+                  "x-example-file": "examples/reconcile-peer-request.json",
+                  "value": {
+                    "boot_id": "00000000-0000-4000-8000-00000000000b",
+                    "verified_batch_ids": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResult"
+                },
+                "examples": {
+                  "reconcile-response": {
+                    "x-example-file": "examples/reconcile-response.json",
+                    "value": {
+                      "boot_id": "00000000-0000-4000-8000-000000000009",
+                      "verified_batch_ids": [
+                        0
+                      ],
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "device_id": "00000000-0000-4000-8000-000000000001"
+                    }
+                  },
+                  "reconcile-target-response": {
+                    "x-example-file": "examples/reconcile-target-response.json",
+                    "value": {
+                      "boot_id": "00000000-0000-4000-8000-00000000000a",
+                      "verified_batch_ids": [],
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "device_id": "00000000-0000-4000-8000-000000000002"
+                    }
+                  },
+                  "reconcile-peer-response": {
+                    "x-example-file": "examples/reconcile-peer-response.json",
+                    "value": {
+                      "boot_id": "00000000-0000-4000-8000-00000000000b",
+                      "verified_batch_ids": [],
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "device_id": "00000000-0000-4000-8000-000000000003"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/devices/me/assignments": {
+      "get": {
+        "operationId": "listAssignments",
+        "summary": "Poll the caller’s complete assignment snapshot",
+        "description": "Poll every second while working or with free slots. Only live OFFERED or RUNNING leases involving the caller appear. Omission invalidates local work. OFFERED never contains a code. RUNNING TX includes its code so the sender can start. RUNNING RX uses the code already returned by ready. Default prepare/run leases are 30/180 seconds, configurable; use the shorter adapter or monotonic lease deadline.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Assignments"
+                },
+                "examples": {
+                  "assignment-rx-offered-response": {
+                    "x-example-file": "examples/assignment-rx-offered-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:10Z",
+                      "assignments": [
+                        {
+                          "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "batch_id": 0,
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "target_device_id": "00000000-0000-4000-8000-000000000002",
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "relay_profile": "fixture-relay",
+                          "role": "RX",
+                          "state": "OFFERED",
+                          "lease_expires_at": "2026-11-18T12:00:40Z",
+                          "lease_remaining_ms": 30000
+                        }
+                      ]
+                    }
+                  },
+                  "assignment-tx-offered-response": {
+                    "x-example-file": "examples/assignment-tx-offered-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:10Z",
+                      "assignments": [
+                        {
+                          "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "batch_id": 0,
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "target_device_id": "00000000-0000-4000-8000-000000000002",
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "relay_profile": "fixture-relay",
+                          "role": "TX",
+                          "state": "OFFERED",
+                          "lease_expires_at": "2026-11-18T12:00:40Z",
+                          "lease_remaining_ms": 30000
+                        }
+                      ]
+                    }
+                  },
+                  "assignment-rx-running-response": {
+                    "x-example-file": "examples/assignment-rx-running-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:13Z",
+                      "assignments": [
+                        {
+                          "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "batch_id": 0,
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "target_device_id": "00000000-0000-4000-8000-000000000002",
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "relay_profile": "fixture-relay",
+                          "role": "RX",
+                          "state": "RUNNING",
+                          "lease_expires_at": "2026-11-18T12:03:11Z",
+                          "lease_remaining_ms": 178000
+                        }
+                      ]
+                    }
+                  },
+                  "assignment-tx-running-response": {
+                    "x-example-file": "examples/assignment-tx-running-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:13Z",
+                      "assignments": [
+                        {
+                          "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "batch_id": 0,
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "target_device_id": "00000000-0000-4000-8000-000000000002",
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "relay_profile": "fixture-relay",
+                          "role": "TX",
+                          "state": "RUNNING",
+                          "lease_expires_at": "2026-11-18T12:03:11Z",
+                          "lease_remaining_ms": 178000,
+                          "croc_code": "0-SYNTHETIC-RATATOSS-FIXTURE"
+                        }
+                      ]
+                    }
+                  },
+                  "assignment-peer-rx-offered-response": {
+                    "x-example-file": "examples/assignment-peer-rx-offered-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:15Z",
+                      "assignments": [
+                        {
+                          "assignment_id": "00000000-0000-4000-8000-00000000000e",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "batch_id": 0,
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "target_device_id": "00000000-0000-4000-8000-000000000003",
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "relay_profile": "fixture-relay",
+                          "role": "RX",
+                          "state": "OFFERED",
+                          "lease_expires_at": "2026-11-18T12:00:45Z",
+                          "lease_remaining_ms": 30000
+                        }
+                      ]
+                    }
+                  },
+                  "assignment-peer-tx-running-response": {
+                    "x-example-file": "examples/assignment-peer-tx-running-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:00:17Z",
+                      "assignments": [
+                        {
+                          "assignment_id": "00000000-0000-4000-8000-00000000000e",
+                          "job_id": "00000000-0000-4000-8000-000000000006",
+                          "batch_id": 0,
+                          "source_device_id": "00000000-0000-4000-8000-000000000001",
+                          "target_device_id": "00000000-0000-4000-8000-000000000003",
+                          "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                          "relay_profile": "fixture-relay",
+                          "role": "TX",
+                          "state": "RUNNING",
+                          "lease_expires_at": "2026-11-18T12:03:16Z",
+                          "lease_remaining_ms": 179000,
+                          "croc_code": "0-SYNTHETIC-RATATOSS-PEER"
+                        }
+                      ]
+                    }
+                  },
+                  "assignment-clear-response": {
+                    "x-example-file": "examples/assignment-clear-response.json",
+                    "value": {
+                      "server_time": "2026-11-18T12:03:13Z",
+                      "assignments": []
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Responses may contain secrets."
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/assignments/{id}/ready": {
+      "post": {
+        "operationId": "readyAssignment",
+        "summary": "Reserve the staging and slot as the assigned RX",
+        "description": "Transition OFFERED to RUNNING and return the Croc code, enabling the same code in the next TX poll. A matching replay returns the same code only while the lease is live and reports the remaining duration at replay time; it never renews the lease. Expired leases return 410. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key. The request has no body.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                },
+                "examples": {
+                  "assignment-ready-response": {
+                    "x-example-file": "examples/assignment-ready-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "batch_id": 0,
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "target_device_id": "00000000-0000-4000-8000-000000000002",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "relay_profile": "fixture-relay",
+                      "role": "RX",
+                      "state": "RUNNING",
+                      "lease_expires_at": "2026-11-18T12:03:11Z",
+                      "lease_remaining_ms": 180000,
+                      "croc_code": "0-SYNTHETIC-RATATOSS-FIXTURE"
+                    }
+                  },
+                  "assignment-ready-replay-response": {
+                    "x-example-file": "examples/assignment-ready-replay-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "batch_id": 0,
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "target_device_id": "00000000-0000-4000-8000-000000000002",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "relay_profile": "fixture-relay",
+                      "role": "RX",
+                      "state": "RUNNING",
+                      "lease_expires_at": "2026-11-18T12:03:11Z",
+                      "lease_remaining_ms": 179000,
+                      "croc_code": "0-SYNTHETIC-RATATOSS-FIXTURE"
+                    }
+                  },
+                  "assignment-peer-ready-response": {
+                    "x-example-file": "examples/assignment-peer-ready-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000e",
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "batch_id": 0,
+                      "source_device_id": "00000000-0000-4000-8000-000000000001",
+                      "target_device_id": "00000000-0000-4000-8000-000000000003",
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "relay_profile": "fixture-relay",
+                      "role": "RX",
+                      "state": "RUNNING",
+                      "lease_expires_at": "2026-11-18T12:03:16Z",
+                      "lease_remaining_ms": 180000,
+                      "croc_code": "0-SYNTHETIC-RATATOSS-PEER"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Responses may contain secrets."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          }
+        }
+      }
+    },
+    "/v1/assignments/{id}/ack": {
+      "post": {
+        "operationId": "ackAssignment",
+        "summary": "Acknowledge a durably verified batch as its assigned RX",
+        "description": "Verify the batch digest and consent. If the lease is still live, mark that attempt successful and record availability atomically. An otherwise valid late ACK may record availability while participation is authorized, without changing the terminal attempt. Cancel a redundant replacement independently. Replay of an already processed ACK returns its prior result without restoring availability removed by reconcile. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Ack"
+              },
+              "examples": {
+                "ack-request": {
+                  "x-example-file": "examples/ack-request.json",
+                  "value": {
+                    "batch_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AckResult"
+                },
+                "examples": {
+                  "ack-late-response": {
+                    "x-example-file": "examples/ack-late-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                      "outcome": "LATE_ACKNOWLEDGED"
+                    }
+                  },
+                  "ack-response": {
+                    "x-example-file": "examples/ack-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                      "outcome": "ACKED"
+                    }
+                  },
+                  "ack-peer-response": {
+                    "x-example-file": "examples/ack-peer-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000e",
+                      "outcome": "ACKED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/assignments/{id}/fail": {
+      "post": {
+        "operationId": "failAssignment",
+        "summary": "Report assignment failure as either assigned endpoint",
+        "description": "Validate the live attempt before ending it and releasing slots. Report structured failures without local paths or secrets. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Fail"
+              },
+              "examples": {
+                "assignment-fail-request": {
+                  "x-example-file": "examples/assignment-fail-request.json",
+                  "value": {
+                    "code": "NO_SLOT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailResult"
+                },
+                "examples": {
+                  "assignment-fail-response": {
+                    "x-example-file": "examples/assignment-fail-response.json",
+                    "value": {
+                      "assignment_id": "00000000-0000-4000-8000-00000000000c",
+                      "state": "FAILED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/receipt": {
+      "post": {
+        "operationId": "submitReceipt",
+        "summary": "Record a verified final delivery as its consenting target",
+        "description": "Submit only after verifying and durably publishing the final file. Check all values against the manifest and require all batches in the caller’s registry. Record one immutable receipt per job and target. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "security": [
+          {
+            "DeviceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptRequest"
+              },
+              "examples": {
+                "receipt-request": {
+                  "x-example-file": "examples/receipt-request.json",
+                  "value": {
+                    "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                    "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                    "size": 17
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                },
+                "examples": {
+                  "receipt-response": {
+                    "x-example-file": "examples/receipt-response.json",
+                    "value": {
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                      "size": 17,
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "target_device_id": "00000000-0000-4000-8000-000000000002",
+                      "verified_at": "2026-11-18T12:03:13Z"
+                    }
+                  },
+                  "receipt-peer-response": {
+                    "x-example-file": "examples/receipt-peer-response.json",
+                    "value": {
+                      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+                      "file_sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+                      "size": 17,
+                      "job_id": "00000000-0000-4000-8000-000000000006",
+                      "target_device_id": "00000000-0000-4000-8000-000000000003",
+                      "verified_at": "2026-11-18T12:03:14Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Id": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      },
+      "Sha256": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "Utc": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "Z$"
+      },
+      "FileName": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!\\.{1,2}$)[^/\\\\\\u0000]+$"
+      },
+      "EnrollmentCode": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64,
+        "writeOnly": true
+      },
+      "DeviceToken": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "PairCode": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$",
+        "minLength": 32,
+        "maxLength": 32
+      },
+      "CrocCode": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Opaque session secret. Only deliver to the assigned endpoints as described."
+      },
+      "Segment": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          }
+        },
+        "required": [
+          "index",
+          "offset",
+          "size",
+          "sha256"
+        ],
+        "additionalProperties": false
+      },
+      "Manifest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "const": 1
+          },
+          "name": {
+            "$ref": "#/components/schemas/FileName"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "piece_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "pieces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            }
+          },
+          "batches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "name",
+          "size",
+          "piece_size",
+          "batch_size",
+          "sha256",
+          "pieces",
+          "batches"
+        ],
+        "additionalProperties": false,
+        "description": "Validate configured limits and canonical digest outside JSON Schema. Arrays use zero-based consecutive indices and contiguous offsets and each covers exactly size bytes. All segments except the last use the full respective span. batch_size is a multiple of piece_size. Zero size means empty arrays and the SHA-256 of zero bytes. Reject duplicate keys, Unicode surrogates, and non-integer numeric tokens; preserve name code points and calculate manifest_sha256 on sorted-key compact UTF-8 without BOM or newline.",
+        "if": {
+          "properties": {
+            "size": {
+              "const": 0
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "pieces": {
+              "maxItems": 0
+            },
+            "batches": {
+              "maxItems": 0
+            },
+            "sha256": {
+              "const": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "pieces": {
+              "minItems": 1
+            },
+            "batches": {
+              "minItems": 1
+            }
+          }
+        }
+      },
+      "Device": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "device_id",
+          "display_name"
+        ],
+        "additionalProperties": false
+      },
+      "EnrollRequest": {
+        "type": "object",
+        "properties": {
+          "enrollment_code": {
+            "$ref": "#/components/schemas/EnrollmentCode"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "enrollment_code",
+          "display_name"
+        ],
+        "additionalProperties": false
+      },
+      "EnrollResult": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "device_token": {
+            "$ref": "#/components/schemas/DeviceToken"
+          }
+        },
+        "required": [
+          "device_id",
+          "display_name",
+          "device_token"
+        ],
+        "additionalProperties": false
+      },
+      "Connection": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "OFFLINE"
+        ]
+      },
+      "PairCreated": {
+        "type": "object",
+        "properties": {
+          "pair_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "pair_code": {
+            "$ref": "#/components/schemas/PairCode"
+          }
+        },
+        "required": [
+          "pair_id",
+          "expires_at",
+          "pair_code"
+        ],
+        "additionalProperties": false
+      },
+      "PairClaimRequest": {
+        "type": "object",
+        "properties": {
+          "pair_code": {
+            "$ref": "#/components/schemas/PairCode"
+          }
+        },
+        "required": [
+          "pair_code"
+        ],
+        "additionalProperties": false
+      },
+      "PairClaimResult": {
+        "type": "object",
+        "properties": {
+          "pair_id": {
+            "$ref": "#/components/schemas/Id"
+          }
+        },
+        "required": [
+          "pair_id"
+        ],
+        "additionalProperties": false
+      },
+      "PairDecision": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "CONFIRM",
+              "REJECT"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "additionalProperties": false
+      },
+      "PairParticipant": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "device_id_suffix": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{6}$",
+            "minLength": 6,
+            "maxLength": 6
+          },
+          "connection": {
+            "$ref": "#/components/schemas/Connection"
+          },
+          "confirmed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "display_name",
+          "device_id_suffix",
+          "connection",
+          "confirmed"
+        ],
+        "additionalProperties": false
+      },
+      "PairState": {
+        "type": "string",
+        "enum": [
+          "OPEN",
+          "CLAIMED",
+          "ACTIVE",
+          "DECLINED",
+          "EXPIRED",
+          "REVOKED"
+        ]
+      },
+      "Pairs": {
+        "type": "object",
+        "properties": {
+          "pairs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Pair"
+            }
+          }
+        },
+        "required": [
+          "pairs"
+        ],
+        "additionalProperties": false
+      },
+      "PairRevoked": {
+        "type": "object",
+        "properties": {
+          "pair_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "state": {
+            "type": "string",
+            "const": "REVOKED"
+          }
+        },
+        "required": [
+          "pair_id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "JobCreated": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreatedOffer"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "job_id",
+          "manifest_sha256",
+          "created_at",
+          "offers"
+        ],
+        "additionalProperties": false
+      },
+      "CreatedOffer": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "target_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "state": {
+            "type": "string",
+            "const": "PENDING"
+          }
+        },
+        "required": [
+          "offer_id",
+          "target_device_id",
+          "expires_at",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "JobRequest": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/Manifest"
+          },
+          "target_device_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "manifest",
+          "target_device_ids"
+        ],
+        "additionalProperties": false
+      },
+      "OfferState": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "ACCEPTED",
+          "DECLINED",
+          "EXPIRED",
+          "REVOKED",
+          "WITHDRAWN",
+          "VERIFIED",
+          "CANCELED"
+        ]
+      },
+      "OfferSummary": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "source_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "source_display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file_name": {
+            "$ref": "#/components/schemas/FileName"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OfferState"
+          }
+        },
+        "required": [
+          "offer_id",
+          "job_id",
+          "source_device_id",
+          "source_display_name",
+          "file_name",
+          "size",
+          "expires_at",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "Offers": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfferSummary"
+            }
+          }
+        },
+        "required": [
+          "offers"
+        ],
+        "additionalProperties": false
+      },
+      "OfferDetail": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "source_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "source_display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file_name": {
+            "$ref": "#/components/schemas/FileName"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OfferState"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/Manifest"
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          }
+        },
+        "required": [
+          "offer_id",
+          "job_id",
+          "source_device_id",
+          "source_display_name",
+          "file_name",
+          "size",
+          "expires_at",
+          "state",
+          "manifest",
+          "manifest_sha256"
+        ],
+        "additionalProperties": false
+      },
+      "OfferDecision": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "const": "ACCEPT"
+              },
+              "manifest_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              "allow_forward": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "decision",
+              "manifest_sha256",
+              "allow_forward"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "const": "DECLINE"
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "OfferDecisionResult": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ACCEPTED",
+              "DECLINED"
+            ]
+          }
+        },
+        "required": [
+          "offer_id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "OfferWithdrawn": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "state": {
+            "type": "string",
+            "const": "WITHDRAWN"
+          }
+        },
+        "required": [
+          "offer_id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "JobState": {
+        "type": "string",
+        "enum": [
+          "OPEN",
+          "COMPLETE",
+          "PARTIAL",
+          "NO_DELIVERY",
+          "CANCELED"
+        ]
+      },
+      "TargetStatus": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "$ref": "#/components/schemas/OfferState"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/Connection"
+          },
+          "verified_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Receipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "offer_id",
+          "device_id",
+          "display_name",
+          "state",
+          "connection",
+          "verified_bytes",
+          "receipt"
+        ],
+        "additionalProperties": false
+      },
+      "Heartbeat": {
+        "type": "object",
+        "properties": {
+          "boot_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "free_rx_slots": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "free_tx_slots": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "active_assignment_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "boot_id",
+          "free_rx_slots",
+          "free_tx_slots",
+          "active_assignment_ids"
+        ],
+        "additionalProperties": false
+      },
+      "HeartbeatResult": {
+        "type": "object",
+        "properties": {
+          "server_time": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "connection": {
+            "type": "string",
+            "const": "ONLINE"
+          }
+        },
+        "required": [
+          "server_time",
+          "connection"
+        ],
+        "additionalProperties": false
+      },
+      "Reconcile": {
+        "type": "object",
+        "properties": {
+          "boot_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "verified_batch_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "boot_id",
+          "verified_batch_ids"
+        ],
+        "additionalProperties": false
+      },
+      "ReconcileResult": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "boot_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "verified_batch_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "job_id",
+          "device_id",
+          "boot_id",
+          "verified_batch_ids"
+        ],
+        "additionalProperties": false
+      },
+      "Assignment": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "assignment_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "job_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "batch_id": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "target_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "lease_expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "lease_remaining_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "manifest_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              "relay_profile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "RX",
+                  "TX"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "const": "OFFERED"
+              }
+            },
+            "required": [
+              "assignment_id",
+              "job_id",
+              "batch_id",
+              "source_device_id",
+              "target_device_id",
+              "lease_expires_at",
+              "lease_remaining_ms",
+              "manifest_sha256",
+              "relay_profile",
+              "role",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "assignment_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "job_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "batch_id": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "target_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "lease_expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "lease_remaining_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "manifest_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              "relay_profile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "const": "RX"
+              },
+              "state": {
+                "type": "string",
+                "const": "RUNNING"
+              }
+            },
+            "required": [
+              "assignment_id",
+              "job_id",
+              "batch_id",
+              "source_device_id",
+              "target_device_id",
+              "lease_expires_at",
+              "lease_remaining_ms",
+              "manifest_sha256",
+              "relay_profile",
+              "role",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "assignment_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "job_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "batch_id": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "target_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "lease_expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "lease_remaining_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "manifest_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              "relay_profile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "const": "TX"
+              },
+              "state": {
+                "type": "string",
+                "const": "RUNNING"
+              },
+              "croc_code": {
+                "$ref": "#/components/schemas/CrocCode"
+              }
+            },
+            "required": [
+              "assignment_id",
+              "job_id",
+              "batch_id",
+              "source_device_id",
+              "target_device_id",
+              "lease_expires_at",
+              "lease_remaining_ms",
+              "manifest_sha256",
+              "relay_profile",
+              "role",
+              "state",
+              "croc_code"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Assignments": {
+        "type": "object",
+        "properties": {
+          "server_time": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Assignment"
+            }
+          }
+        },
+        "required": [
+          "server_time",
+          "assignments"
+        ],
+        "additionalProperties": false
+      },
+      "Ready": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "batch_id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "target_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "lease_expires_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "lease_remaining_ms": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "relay_profile": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "const": "RX"
+          },
+          "state": {
+            "type": "string",
+            "const": "RUNNING"
+          },
+          "croc_code": {
+            "$ref": "#/components/schemas/CrocCode"
+          }
+        },
+        "required": [
+          "assignment_id",
+          "job_id",
+          "batch_id",
+          "source_device_id",
+          "target_device_id",
+          "lease_expires_at",
+          "lease_remaining_ms",
+          "manifest_sha256",
+          "relay_profile",
+          "role",
+          "state",
+          "croc_code"
+        ],
+        "additionalProperties": false
+      },
+      "Ack": {
+        "type": "object",
+        "properties": {
+          "batch_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          }
+        },
+        "required": [
+          "batch_sha256"
+        ],
+        "additionalProperties": false
+      },
+      "AckResult": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ACKED",
+              "LATE_ACKNOWLEDGED"
+            ]
+          }
+        },
+        "required": [
+          "assignment_id",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "Fail": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "NO_SLOT",
+              "NO_SPACE",
+              "TRANSPORT_TIMEOUT",
+              "CORRUPT"
+            ]
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "FailResult": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "state": {
+            "type": "string",
+            "const": "FAILED"
+          }
+        },
+        "required": [
+          "assignment_id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptRequest": {
+        "type": "object",
+        "properties": {
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "file_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "manifest_sha256",
+          "file_sha256",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "Receipt": {
+        "type": "object",
+        "properties": {
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "file_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "target_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "verified_at": {
+            "$ref": "#/components/schemas/Utc"
+          }
+        },
+        "required": [
+          "manifest_sha256",
+          "file_sha256",
+          "size",
+          "job_id",
+          "target_device_id",
+          "verified_at"
+        ],
+        "additionalProperties": false
+      },
+      "Pair": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "pair_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "initiator": {
+                "$ref": "#/components/schemas/PairParticipant"
+              },
+              "state": {
+                "type": "string",
+                "const": "OPEN"
+              }
+            },
+            "required": [
+              "pair_id",
+              "expires_at",
+              "initiator",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "pair_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "initiator": {
+                "$ref": "#/components/schemas/PairParticipant"
+              },
+              "claimant": {
+                "$ref": "#/components/schemas/PairParticipant"
+              },
+              "comparison_code": {
+                "type": "string",
+                "pattern": "^[0-9]{6}$",
+                "minLength": 6,
+                "maxLength": 6
+              },
+              "state": {
+                "type": "string",
+                "const": "CLAIMED"
+              }
+            },
+            "required": [
+              "pair_id",
+              "expires_at",
+              "initiator",
+              "claimant",
+              "comparison_code",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "pair_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "initiator": {
+                "$ref": "#/components/schemas/PairParticipant"
+              },
+              "claimant": {
+                "$ref": "#/components/schemas/PairParticipant"
+              },
+              "peer_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "state": {
+                "type": "string",
+                "const": "ACTIVE"
+              }
+            },
+            "required": [
+              "pair_id",
+              "expires_at",
+              "initiator",
+              "claimant",
+              "peer_device_id",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "pair_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "expires_at": {
+                "$ref": "#/components/schemas/Utc"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "DECLINED",
+                  "EXPIRED",
+                  "REVOKED"
+                ]
+              }
+            },
+            "required": [
+              "pair_id",
+              "expires_at",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "JobStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "source_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "manifest_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              "file_name": {
+                "$ref": "#/components/schemas/FileName"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "view": {
+                "type": "string",
+                "const": "SOURCE"
+              },
+              "state": {
+                "$ref": "#/components/schemas/JobState"
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TargetStatus"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "job_id",
+              "source_device_id",
+              "manifest_sha256",
+              "file_name",
+              "size",
+              "view",
+              "state",
+              "targets"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "source_device_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "manifest_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              "file_name": {
+                "$ref": "#/components/schemas/FileName"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "view": {
+                "type": "string",
+                "const": "TARGET"
+              },
+              "state": {
+                "$ref": "#/components/schemas/JobState"
+              },
+              "target": {
+                "$ref": "#/components/schemas/TargetStatus"
+              }
+            },
+            "required": [
+              "job_id",
+              "source_device_id",
+              "manifest_sha256",
+              "file_name",
+              "size",
+              "view",
+              "state",
+              "target"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "JobCanceled": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "source_device_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "file_name": {
+            "$ref": "#/components/schemas/FileName"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "view": {
+            "type": "string",
+            "const": "SOURCE"
+          },
+          "state": {
+            "type": "string",
+            "const": "CANCELED"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TargetStatus"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "job_id",
+          "source_device_id",
+          "manifest_sha256",
+          "file_name",
+          "size",
+          "view",
+          "state",
+          "targets"
+        ],
+        "additionalProperties": false
+      },
+      "BadRequest": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "INVALID_REQUEST"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Unauthorized": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "UNAUTHENTICATED"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "NotFound": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "NOT_FOUND"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Conflict": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "STATE_CONFLICT"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Gone": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "EXPIRED"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "RateLimited": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "RATE_LIMITED"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed or invalid request, including a missing or malformed idempotency key when required.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/BadRequest"
+            },
+            "examples": {
+              "error-400": {
+                "x-example-file": "examples/error-400.json",
+                "value": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid request."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid or revoked device credential.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Unauthorized"
+            },
+            "examples": {
+              "error-401": {
+                "x-example-file": "examples/error-401.json",
+                "value": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Valid device credential required."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource does not exist or is outside the caller scope. Enrollment and claim codes that are invalid, expired or consumed have the same generic failure within each operation.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotFound"
+            },
+            "examples": {
+              "error-404": {
+                "x-example-file": "examples/error-404.json",
+                "value": {
+                  "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Resource or code unavailable."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Lifecycle, consent, integrity or idempotency conflict.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "examples": {
+              "error-idempotency": {
+                "x-example-file": "examples/error-idempotency.json",
+                "value": {
+                  "error": {
+                    "code": "STATE_CONFLICT",
+                    "message": "Idempotency key was already used with a different payload."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Gone": {
+        "description": "Offer deadline or lease expired.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Gone"
+            },
+            "examples": {
+              "error-410": {
+                "x-example-file": "examples/error-410.json",
+                "value": {
+                  "error": {
+                    "code": "EXPIRED",
+                    "message": "Offer or lease has expired."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RateLimited"
+            },
+            "examples": {
+              "error-429": {
+                "x-example-file": "examples/error-429.json",
+                "value": {
+                  "error": {
+                    "code": "RATE_LIMITED",
+                    "message": "Too many requests."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds or an HTTP date. Honor this value when present.",
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "minLength": 1
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Id"
+        },
+        "description": "Agent-generated UUID. Keep the same key and payload on retries."
+      }
+    },
+    "securitySchemes": {
+      "DeviceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "256-bit opaque lowercase hex device token"
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "pair_id": "00000000-0000-4000-8000-000000000004",
+  "expires_at": "2026-11-18T12:06:00Z",
+  "state": "ACTIVE",
+  "initiator": {
+    "display_name": "Atlas",
+    "device_id_suffix": "000001",
+    "confirmed": true,
+    "connection": "ONLINE"
+  },
+  "claimant": {
+    "display_name": "Birch",
+    "device_id_suffix": "000002",
+    "confirmed": true,
+    "connection": "ONLINE"
+  },
+  "peer_device_id": "00000000-0000-4000-8000-000000000001"
+}

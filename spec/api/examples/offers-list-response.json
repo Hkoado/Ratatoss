@@ -1,0 +1,14 @@
+{
+  "offers": [
+    {
+      "offer_id": "00000000-0000-4000-8000-000000000007",
+      "job_id": "00000000-0000-4000-8000-000000000006",
+      "source_device_id": "00000000-0000-4000-8000-000000000001",
+      "source_display_name": "Atlas",
+      "file_name": "sample.txt",
+      "size": 17,
+      "expires_at": "2026-11-19T12:00:00Z",
+      "state": "PENDING"
+    }
+  ]
+}

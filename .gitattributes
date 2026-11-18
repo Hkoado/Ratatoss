@@ -1,0 +1,6 @@
+# Preserve byte-for-byte verification on Windows and other checkouts.
+docs/** -text
+plan/** -text
+spec/governance/originals.sha256.json -text
+spec/governance/verify_originals.py -text
+spec/ui-kit/** -text

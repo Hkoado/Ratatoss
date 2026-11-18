@@ -1,0 +1,1 @@
+run_id,gate,scenario,baseline,repeat,seed,commit,os,croc_version,croc_sha256,relay_config,network_profile,fixture_sha256,file_bytes,batch_mib,rx_slots,tx_slots,status,makespan_ms,source_payload_bytes,source_wire_bytes,wan_wire_bytes,wan_measurement_scope,retry_payload_bytes,recovery_ms,optional_replication_bytes,setup_p50_ms,setup_p95_ms,peer_utilization_ref,evidence_ref,notes

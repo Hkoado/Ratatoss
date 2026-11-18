@@ -1,0 +1,33 @@
+# Lưu trữ và phục hồi
+
+## Manifest và đối tượng trên đĩa
+
+Manifest v1 là JSON với các trường `version`, `name`, `size`, `piece_size`, `batch_size`, `sha256`, `pieces` và `batches`. Hai mảng có thứ tự offset tăng dần, mỗi phần tử gồm `index`, `offset`, `size` và `sha256`. Index bắt đầu từ 0. Mỗi mảng phủ toàn file, liên tục, không trùng. Phần tử cuối có thể ngắn hơn. File rỗng có hai mảng rỗng và hash SHA-256 của chuỗi byte rỗng. Khởi điểm 4 MiB/piece và 64 MiB/batch. `batch_size` phải chia hết cho `piece_size`. Sau khi tạo job, thay file, kích thước piece/batch hay tên hiển thị đều yêu cầu tạo job mới.
+
+Tính `manifest_sha256` bằng SHA-256 của JSON canonical UTF-8, không BOM và không newline kết thúc. Trong Python dùng `json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)` từ đối tượng đã validate. Wire từ chối khóa lặp, Unicode surrogate và trường lạ. Giữ nguyên code point của tên, chỉ cho phép số nguyên không âm ở các trường số. Lưu canonical bytes lúc đăng ký job và có thể tái tính digest từ object JSON nhận được. `manifest.sha256` là SHA-256 của payload toàn file.
+
+Kho nằm dưới root riêng của Node. Sinh đường dẫn từ UUID job/assignment và chỉ số batch đã kiểm. Tên hiển thị không tham gia định vị file staging hay batch. Lưu bản nguồn bất biến bằng cách nhập theo luồng vào tmp, kiểm dung lượng (kèm dự trù và giới hạn upload), tính manifest từ bản đã nhập, flush và publish rồi mới đăng ký. Tác vụ TX từ nguồn trích đoạn đúng offset vào staging TX với bộ đệm hữu hạn. Peer TX dùng batch đã commit và giữ reference đến khi tiến trình kết thúc. Không dùng symlink/reparse point hoặc file từ thư mục làm việc của người dùng làm input cho worker.
+
+## SQLite và thứ tự commit
+
+Node và controller dùng DB riêng, bật foreign keys, WAL và `synchronous=FULL`. Ghi giao dịch ngắn, bật busy timeout, giữ đúng một scheduler controller MVP. Không giữ transaction trong lúc chạy Croc, hash, ghi dữ liệu lớn hoặc chờ mạng.
+
+| Nơi lưu | Bảng tối thiểu và ràng buộc |
+|---|---|
+| Controller | `devices`, `enrollments`; `pairs` với cặp ID chuẩn hóa và unique cho ACTIVE; `jobs` chứa canonical manifest và digest; `offers` unique `(job_id, target_device_id)`; `inventory` unique `(job_id, device_id, batch_id)`; `assignments`; `receipts` unique `(job_id, target_device_id)`; sổ idempotency và audit. |
+| Node | `local_jobs` chứa manifest, consent, vị trí lưu; `local_batches` unique `(job_id,batch_id)`; `local_attempts` theo assignment ID; `outbox` cho ACK, reconcile và receipt; `delivery` theo job chứa đường dẫn đích dự kiến và trạng thái công bố. |
+
+Controller dùng `BEGIN IMMEDIATE` khi tạo/hết hạn/ACK lần giao và khi đổi quyền tham gia. Transaction tạo lần giao kiểm lại consent, availability, online, reconcile, slot, hạn và thiếu batch đích. Unique partial index trên `(job_id,target_device_id,batch_id)` với `state IN ('OFFERED','RUNNING')` chống cấp hai lease đồng thời. Những lease quá hạn được chuyển sang terminal trước khi cấp thay thế. Mutation thành công và bản ghi idempotency cùng commit; phát quyết định scheduling sau commit. Chỉ đích được ACK; ACK hợp lệ cập nhật inventory và audit cùng transaction khi thực sự bổ sung một batch. Audit ghi job, batch, nguồn, đích, lần giao, mã kết quả và thời gian, lọc token/mã Croc.
+
+1. RX ghi một file batch theo luồng trong staging riêng theo assignment, nằm cùng filesystem với kho batch. Giới hạn dung lượng và chỉ kiểm khi cây tiến trình RX đã dừng. Kiểm chỉ có file thường dự kiến, đúng kích thước và SHA-256 batch lẫn từng piece. Kết quả Croc thành công là tín hiệu để bắt đầu kiểm.
+2. Khóa theo `(job_id,batch_id)`. Nếu đã có batch hợp lệ, bỏ staging và dùng lại batch sẵn có. Nếu chưa, flush/fsync file đã kiểm rồi publish nguyên tử vào kho bằng thao tác hỗ trợ trên HĐH. Đồng bộ metadata thư mục khi nền tảng hỗ trợ hoặc dùng giao thức publish bền vững tương đương đã được thử trên bản đóng gói. Không mở quyền TX hay báo ACK ở bước này.
+3. Commit hàng batch trạng thái `AVAILABLE` và ACK outbox trong một transaction. Node dựng bitmap piece từ các batch AVAILABLE. Scheduler có thể chọn node làm nguồn khi controller nhận ACK hoặc reconcile hợp lệ. Lỗi kiểm cho trạng thái `CORRUPT`, loại staging, báo fail và retry cả batch. Các bước `ASSIGNED → TRANSFERRING → RECEIVED → VERIFIED → AVAILABLE` là trạng thái xử lý; chỉ AVAILABLE sau commit được phát hành.
+4. Khi đủ batch, ghép theo offset vào file tạm trên volume đích, kiểm kích thước và SHA-256 toàn file, flush rồi publish nguyên tử không ghi đè. Ghi ý định và đường dẫn đích trước khi publish để nhận lại kết quả hợp lệ sau crash, kể cả với file rỗng. Nếu đường dẫn đã bị chiếm thì báo chọn tên/vị trí khác, giữ các batch. Commit `delivery` và receipt outbox chỉ sau khi publish bền vững. Gửi receipt sau khi controller đã nhận inventory đủ. Mốc hoàn thành là lúc nhận receipt xác minh, không phải lúc nhận xong byte.
+
+## Khởi động lại và mất kết nối
+
+- Mỗi lần chạy tạo `boot_id`. Không quảng bá availability hoặc chạy TX/RX mới trước khi đối chiếu xong. Hủy tiến trình cũ còn sót theo cơ chế quản lý tiến trình của HĐH rồi dọn staging của lần giao cũ. RX đang dở bị bỏ. Batch đã publish mà DB chưa commit được nhận lại sau khi kiểm đầy đủ theo manifest. Hàng DB mất file hoặc hash sai bị hạ khỏi AVAILABLE và xóa mọi ACK chờ của batch đó. Nếu final file đã publish mà receipt thiếu, đọc kiểm lại file và khôi phục receipt khi đúng.
+- Controller hủy lease cũ khi heartbeat quá hạn, boot đổi hoặc quyền bị thu hồi. Khi tất cả nguồn đã xác minh cho batch đều offline, hiển thị chờ nguồn. Đích online vẫn xử lý batch khác; khi một peer quay lại, chỉ giao phần thiếu từ nguồn AVAILABLE và còn slot.
+- Node tuần tự hóa reconcile và phát outbox theo job, gửi ảnh chụp đầy đủ khi phục hồi kết nối rồi phát lại sự kiện còn hợp lệ. Không để cùng membership nhận snapshot cũ sau ACK mới: giữ thứ tự request, retry cùng khóa idempotency, từ chối snapshot từ boot khác và hủy ACK chờ của batch bị loại. Khi phát hiện batch hỏng lúc đang chạy, khóa TX batch, hủy lần gửi liên quan và đẩy ảnh chụp sửa chữa.
+- Khi controller gián đoạn, UI đọc trạng thái local và hiện cảnh báo. Phiên đã cấp mã có thể kết thúc trong hạn, batch hợp lệ và receipt chờ được giữ. Khởi động lại controller với DB cũ cần đối chiếu online/lease trước mọi phân công mới. Mất DB controller cần xử lý vận hành, vì trạng thái đồng ý và danh tính không tự tái dựng từ các file.
+- Giữ bản nguồn và các batch đủ điều kiện chuyển tiếp cho đến lúc job đóng hoặc người dùng chủ động bỏ dữ liệu. Không dọn file đang có worker giữ reference. Dọn file tạm mồ côi khi startup và dọn theo thời hạn cấu hình sau khi job đóng, sau khi outbox đã được xử lý. File cuối đã công bố thuộc người dùng và nằm ngoài chính sách dọn kho.

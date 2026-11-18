@@ -1,0 +1,30 @@
+{
+  "manifest": {
+    "version": 1,
+    "name": "sample.txt",
+    "size": 17,
+    "piece_size": 4194304,
+    "batch_size": 67108864,
+    "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+    "pieces": [
+      {
+        "index": 0,
+        "offset": 0,
+        "size": 17,
+        "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+      }
+    ],
+    "batches": [
+      {
+        "index": 0,
+        "offset": 0,
+        "size": 17,
+        "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+      }
+    ]
+  },
+  "target_device_ids": [
+    "00000000-0000-4000-8000-000000000002",
+    "00000000-0000-4000-8000-000000000003"
+  ]
+}

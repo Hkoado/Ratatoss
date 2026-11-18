@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "EXPIRED",
+    "message": "Offer or lease has expired."
+  }
+}

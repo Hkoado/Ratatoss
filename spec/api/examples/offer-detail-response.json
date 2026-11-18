@@ -1,0 +1,35 @@
+{
+  "offer_id": "00000000-0000-4000-8000-000000000007",
+  "job_id": "00000000-0000-4000-8000-000000000006",
+  "source_device_id": "00000000-0000-4000-8000-000000000001",
+  "source_display_name": "Atlas",
+  "file_name": "sample.txt",
+  "size": 17,
+  "expires_at": "2026-11-19T12:00:00Z",
+  "state": "PENDING",
+  "manifest": {
+    "version": 1,
+    "name": "sample.txt",
+    "size": 17,
+    "piece_size": 4194304,
+    "batch_size": 67108864,
+    "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee",
+    "pieces": [
+      {
+        "index": 0,
+        "offset": 0,
+        "size": 17,
+        "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+      }
+    ],
+    "batches": [
+      {
+        "index": 0,
+        "offset": 0,
+        "size": 17,
+        "sha256": "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+      }
+    ]
+  },
+  "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756"
+}

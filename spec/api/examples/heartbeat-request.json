@@ -1,0 +1,6 @@
+{
+  "boot_id": "00000000-0000-4000-8000-000000000009",
+  "free_rx_slots": 1,
+  "free_tx_slots": 2,
+  "active_assignment_ids": []
+}

@@ -1,0 +1,19 @@
+{
+  "server_time": "2026-11-18T12:00:13Z",
+  "assignments": [
+    {
+      "assignment_id": "00000000-0000-4000-8000-00000000000c",
+      "job_id": "00000000-0000-4000-8000-000000000006",
+      "batch_id": 0,
+      "source_device_id": "00000000-0000-4000-8000-000000000001",
+      "target_device_id": "00000000-0000-4000-8000-000000000002",
+      "manifest_sha256": "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756",
+      "relay_profile": "fixture-relay",
+      "role": "TX",
+      "state": "RUNNING",
+      "lease_expires_at": "2026-11-18T12:03:11Z",
+      "lease_remaining_ms": 178000,
+      "croc_code": "0-SYNTHETIC-RATATOSS-FIXTURE"
+    }
+  ]
+}
