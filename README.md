@@ -1,10 +1,6 @@
-# Ratatoss
-
 <img src="spec/ui-kit/assets/ratatoss-logo.webp" alt="Logo sóc Ratatoss" width="144">
 
-[Logo gốc (PNG)](spec/ui-kit/assets/ratatoss-logo-original.png) · [Logo web (WebP)](spec/ui-kit/assets/ratatoss-logo.webp)
-
-**Giao diện tham chiếu:** mở [bản mẫu UI v1.2](spec/ui-kit/Ratatoss_UI_Preview.html) trong trình duyệt. Khi triển khai lên Node, đọc [hướng dẫn tích hợp UI](spec/ui-integration.md).
+# Ratatoss
 
 Ratatoss là dự án phân phối một tệp cho nhiều người nhận. Thiết kế dùng Croc để truyền từng batch và cho phép thiết bị chuyển tiếp batch đã xác minh trong khi vẫn nhận các batch khác. Mục tiêu là giảm thời gian đến khi người nhận cuối cùng xác minh xong tệp.
 
