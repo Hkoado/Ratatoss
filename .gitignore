@@ -9,3 +9,7 @@ tests/.tmp-*/
 .env
 .env.*
 !.env.example
+
+# Local Codex instructions and settings.
+/AGENTS.md
+/.codex/

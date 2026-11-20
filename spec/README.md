@@ -1,16 +1,18 @@
 # Đặc tả Ratatoss
 
-## Kế hoạch Astra
+## Chuẩn bị đặc tả
 
 1. Đối chiếu brief, thiết kế và kế hoạch gốc để xác định phạm vi của API, cơ sở dữ liệu và vận hành.
 2. Đặt đặc tả triển khai trong `spec/` và lập bộ đối chiếu SHA-256 cho toàn bộ tệp gốc trong `docs/` và `plan/`.
 3. Kiểm tra tính nhất quán của đặc tả với nguồn, ghi rõ điểm chưa có bằng chứng và xác minh các tệp gốc sau khi hoàn tất.
 
-## Triển khai Sol
+## Tài liệu triển khai
 
 | Mục | Phạm vi |
 | --- | --- |
 | [Quản trị](governance/README.md) | Thứ tự thẩm quyền, quy tắc bằng chứng, quy trình đề xuất thay đổi và kiểm tra tệp gốc |
+| [Phạm vi phát hành](governance/adr/0001-single-release.md) | Bản chính thức có PLARS, nghiệm thu và phần mở rộng |
+| [Sơ đồ hoạt động](flow-overview.md) · [PDF](../output/pdf/Ratatoss-so-do-luong-hoat-dong.pdf) | Ghép thiết bị, chọn tuyến, truyền batch và phục hồi |
 | [API](api/) | Hợp đồng giao tiếp |
 | [Cơ sở dữ liệu](db/) | Mô hình dữ liệu và các bất biến khi lưu trữ |
 | [Vận hành](operations/) | Cấu hình, triển khai và kiểm tra vận hành |

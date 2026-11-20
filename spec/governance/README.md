@@ -2,7 +2,7 @@
 
 ## Thẩm quyền của nguồn
 
-1. [Brief v1.3](../../docs/source/Ratatoss_Project_Brief_v1.3.md) quy định ý tưởng, phạm vi và tiêu chí sản phẩm. Với luồng ở mục 6.1, [giao thức điều khiển](../../docs/control-protocol.md) và [thiết kế UX](../../docs/ux.md) quy định phần cập nhật đã được [AGENTS.md](../../AGENTS.md) chỉ rõ. Node ghi danh, ghép hai chiều, chọn đích đã ghép và gửi offer để từng đích xác nhận.
+1. [Brief v1.3](../../docs/source/Ratatoss_Project_Brief_v1.3.md) quy định ý tưởng, phạm vi và tiêu chí sản phẩm. Với luồng ở mục 6.1, [giao thức điều khiển](../../docs/control-protocol.md) và [thiết kế UX](../../docs/ux.md) quy định phần cập nhật. Node ghi danh, ghép hai chiều, chọn đích đã ghép và gửi offer để từng đích xác nhận. Xem [ràng buộc khi triển khai](../../CONTRIBUTING.md#5-ràng-buộc-khi-triển-khai).
 2. Các tài liệu khác trong [docs/](../../docs/) cụ thể hóa kiến trúc, lưu trữ, phục hồi và thử nghiệm trong phạm vi brief. Trong [plan/](../../plan/), kế hoạch, backlog và lời nhắc điều phối quá trình triển khai. Tham số đề xuất trong kế hoạch cần số đo phù hợp hoặc cấu hình đã khóa cho ca thử.
 3. Đặc tả mới trong [spec/](../README.md) chi tiết hóa cách triển khai và dẫn nguồn đến mục liên quan. Một ADR chỉ có hiệu lực theo phạm vi chủ dự án đã phê duyệt. Khi tài liệu cùng cấp xung đột hoặc phạm vi của một cập nhật chưa rõ, ghi nhận xung đột và xin quyết định qua ADR.
 4. Mã, kiểm thử và quan sát thực tế là nguồn về hành vi hiện tại. Khi hành vi lệch đặc tả, ghi rõ sai lệch và nguồn bằng chứng rồi xử lý theo yêu cầu đã duyệt.
