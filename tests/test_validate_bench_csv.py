@@ -144,6 +144,16 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.assertTrue(any("invalid status" in err for err in errors))
         self.assertFalse(any("unknown_status" in err for err in errors))
 
+    def test_status_with_whitespace_fails(self):
+        run_row = [""] * len(RUNS_HEADER)
+        run_row[0] = "run_001"
+        run_row[17] = " pass "
+        run_row[-1] = "notes"
+
+        self.write_csvs([run_row], [])
+        errors = validate_csv(self.runs_file, self.transfers_file)
+        self.assertTrue(any("field 'status': invalid status" in err for err in errors))
+
     def test_missing_run_id_in_runs(self):
         run_row = [""] * len(RUNS_HEADER)
         run_row[0] = "run_001"
@@ -176,7 +186,6 @@ class TestValidateBenchCsv(unittest.TestCase):
             raise unittest.SkipTest("scripts/validate_bench_csv.py not found")
         script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
 
-        # Tạo file transfer hợp lệ độc lập trong thư mục tạm của test
         valid_transfers = self.tmp_path / "valid_transfers.csv"
         with valid_transfers.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
@@ -199,6 +208,56 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.assertNotIn(secret_status, res.stderr)
         self.assertNotIn(secret_run_id, res.stderr)
         self.assertIn("invalid status", res.stderr)
+
+    def test_subprocess_status_with_whitespace(self):
+        # Kiểm tra status có khoảng trắng (' pass ') qua subprocess
+        if REPO_ROOT is None:
+            raise unittest.SkipTest("scripts/validate_bench_csv.py not found")
+        script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
+
+        valid_transfers = self.tmp_path / "valid_transfers_ws.csv"
+        with valid_transfers.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(TRANSFERS_HEADER)
+
+        whitespace_runs = self.tmp_path / "whitespace_runs.csv"
+        with whitespace_runs.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(RUNS_HEADER)
+            row = [""] * len(RUNS_HEADER)
+            row[0] = "run_001"
+            row[17] = " pass "
+            row[-1] = "notes"
+            writer.writerow(row)
+
+        res = subprocess.run([sys.executable, str(script_path), str(whitespace_runs), str(valid_transfers)], capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("line 2: field 'status': invalid status", res.stderr)
+        self.assertNotIn(" pass ", res.stderr)
+
+    def test_subprocess_unclosed_quote(self):
+        # Kiểm tra lỗi cú pháp dấu ngoặc kép chưa đóng qua subprocess
+        if REPO_ROOT is None:
+            raise unittest.SkipTest("scripts/validate_bench_csv.py not found")
+        script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
+
+        valid_transfers = self.tmp_path / "valid_transfers_quote.csv"
+        with valid_transfers.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(TRANSFERS_HEADER)
+
+        unclosed_runs = self.tmp_path / "unclosed_runs.csv"
+        # Tạo hàng thứ 2 có trường notes mở ngoặc kép " nhưng không đóng ở cuối file
+        unclosed_runs.write_text(
+            ",".join(RUNS_HEADER) + "\n"
+            + "run_001," + "," * 16 + "blocked," + "," * 12 + '"unclosed quote at end',
+            encoding="utf-8-sig"
+        )
+
+        res = subprocess.run([sys.executable, str(script_path), str(unclosed_runs), str(valid_transfers)], capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("line 2: CSV syntax error", res.stderr)
+        self.assertNotIn("unclosed quote at end", res.stderr)
 
 
 if __name__ == "__main__":

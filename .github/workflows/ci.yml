@@ -86,7 +86,6 @@ jobs:
           $smoke = Join-Path $env:RUNNER_TEMP ratatoss-wheel-smoke
           New-Item -ItemType Directory -Path $smoke | Out-Null
           Copy-Item -LiteralPath tests -Destination $smoke -Recurse
-          Copy-Item -LiteralPath scripts -Destination $smoke -Recurse
           Set-Location -LiteralPath $smoke
 
           @'

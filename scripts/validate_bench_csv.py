@@ -53,7 +53,7 @@ def validate_csv(runs_path: Path, transfers_path: Path) -> list[str]:
     # Validate runs.csv
     try:
         with runs_path.open("r", encoding="utf-8-sig", newline="") as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, strict=True)
             try:
                 header = next(reader)
             except StopIteration:
@@ -78,7 +78,8 @@ def validate_csv(runs_path: Path, transfers_path: Path) -> list[str]:
                 else:
                     run_ids.add(run_id)
 
-                status = row_dict["status"].strip()
+                # Kiểm tra status CHÍNH XÁC, không dùng .strip()
+                status = row_dict["status"]
                 if status not in VALID_STATUSES:
                     errors.append(f"{runs_path.name} line {row_idx}: field 'status': invalid status")
 
@@ -87,13 +88,16 @@ def validate_csv(runs_path: Path, transfers_path: Path) -> list[str]:
                 if has_empty_measure and not notes:
                     errors.append(f"{runs_path.name} line {row_idx}: field 'notes': measurement fields are empty without notes justification")
 
+    except csv.Error:
+        line_num = getattr(reader, "line_num", 1) if "reader" in locals() else 1
+        errors.append(f"{runs_path.name} line {line_num}: CSV syntax error")
     except Exception as e:
         return [f"{runs_path.name}: error reading file: {e}"]
 
     # Validate transfers.csv
     try:
         with transfers_path.open("r", encoding="utf-8-sig", newline="") as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, strict=True)
             try:
                 header = next(reader)
             except StopIteration:
@@ -116,7 +120,8 @@ def validate_csv(runs_path: Path, transfers_path: Path) -> list[str]:
                 elif t_run_id not in run_ids:
                     errors.append(f"{transfers_path.name} line {transfer_row_idx}: field 'run_id': run_id not found in runs.csv")
 
-                t_status = row_dict["status"].strip()
+                # Kiểm tra status CHÍNH XÁC, không dùng .strip()
+                t_status = row_dict["status"]
                 if t_status not in VALID_STATUSES:
                     errors.append(f"{transfers_path.name} line {transfer_row_idx}: field 'status': invalid status")
 
@@ -125,6 +130,9 @@ def validate_csv(runs_path: Path, transfers_path: Path) -> list[str]:
                 if t_has_empty_measure and not t_notes:
                     errors.append(f"{transfers_path.name} line {transfer_row_idx}: field 'notes': measurement fields are empty without notes justification")
 
+    except csv.Error:
+        line_num = getattr(reader, "line_num", 1) if "reader" in locals() else 1
+        errors.append(f"{transfers_path.name} line {line_num}: CSV syntax error")
     except Exception as e:
         errors.append(f"{transfers_path.name}: error reading file: {e}")
 
@@ -149,7 +157,7 @@ def main() -> int:
     run_ids = set()
     try:
         with runs_path.open("r", encoding="utf-8-sig", newline="") as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, strict=True)
             next(reader, None)
             for row in reader:
                 if row:
