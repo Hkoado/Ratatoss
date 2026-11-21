@@ -36,7 +36,7 @@ Mở rộng sau R2.2 theo [backlog R3.1–R3.4](../../plan/BACKLOG.md) và [Brie
 
 ## Chuẩn bị song song và thứ tự nghiệm thu
 
-1. **Chuẩn bị.** Chủ dự án có thể giao R0.1 ngay khi đủ binary, relay và fixture. Trong lúc đó, thành viên phụ trách Store và Control có thể đọc schema, xác định ca lỗi và chuẩn bị Plan cho R1.1/R1.2. Nhóm Node/UI đọc UI Kit và hợp đồng quyền, nhóm Scheduler và Evaluation chuẩn bị profile và mẫu bằng chứng. Công việc triển khai theo đầu vào của từng ticket.
+1. **Chuẩn bị.** Đầu vào được kiểm cho R0.1 gồm Croc v11.6.5, relay Windows loopback và fixture có SHA-256 tái tạo được. [Hồ sơ lab Croc](croc-lab.md) Trong lúc đó, thành viên phụ trách Store và Control có thể đọc schema, xác định ca lỗi và chuẩn bị Plan cho R1.1/R1.2. Nhóm Node/UI đọc UI Kit và hợp đồng quyền, nhóm Scheduler và Evaluation chuẩn bị profile và mẫu bằng chứng. Công việc triển khai theo đầu vào của từng ticket.
 2. **Kiểm chứng transport.** Chạy R0.1 rồi R0.2. Chọn cỡ batch theo số đo trước khi khóa bài demo và đối chứng. R1.1 và R1.2 có thể thực hiện song song khi R0.2 hoàn tất. R1.3 nối ba phần adapter, Store và Control.
 3. **Tích hợp và demo.** Giữ ca thử phát triển lịch cố định ở R1.3. Tích hợp R2.1 sau R1.3 rồi mới nghiệm thu R1.4 toàn tuyến với PLARS. Lưu kết quả ca thử phát triển riêng và giữ lịch cố định trong các đối chứng. [Backlog](../../plan/BACKLOG.md) · [ADR 0002](../governance/adr/0002-plars-integration-order.md)
 4. **Đối chứng và mở rộng.** Sau PLARS và demo chính thức, chạy R2.2 trên cấu hình đã khóa. Chỉ giao từng mục R3.* khi đầu vào và mục tiêu riêng đã được chọn.
@@ -45,7 +45,7 @@ Mở rộng sau R2.2 theo [backlog R3.1–R3.4](../../plan/BACKLOG.md) và [Brie
 
 - Khi nhận issue, đọc [MAPDOCS](../../MAPDOCS.md), chỉ mục và quản trị đặc tả. Dùng Astra 6.2 để lập Plan, Sol 6.2 để thực thi sau khi có đầu vào và Astra 6.2 để rà lại phạm vi, hành vi và hiện vật. Luồng PR và quyền merge thuộc [quy trình nhóm](../../CONTRIBUTING.md#3-mở-pr-và-review). [Prompt Plan/Act](../../plan/PROMPTS.md)
 - Khi mở issue, xác nhận người phụ trách và số issue phụ thuộc. Thêm đầu mút A/B/C/D và cấu hình thử đã lược bí mật nếu ticket yêu cầu. Chủ dự án chốt relay và nơi lưu hiện vật, nghiệm thu từng cổng và duyệt thay đổi hợp đồng dùng chung theo [quản trị](../governance/README.md).
-- Cổng 0 **chưa chạy**. Môi trường chuẩn bị hiện thiếu Croc trên PATH và cấu hình relay thử nghiệm. Cổng 1–2 **chưa chạy**. Còn thiếu bản cài demo, phiên truyền nhiều Node, overlap, kết quả hash các đích và số đo so sánh. Cổng 3 **chưa chạy**. CSV dùng mẫu trống đến khi có kết quả thật. [Lưu bằng chứng](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng) · [Benchmark](../../bench/README.md)
+- Cổng 0 **chưa nghiệm thu**. Smoke chuẩn bị đã truyền 32 MiB qua relay loopback trên Windows và hash hai đầu khớp. Ca adapter R0.1 và phép đo A/B/C ở R0.2 vẫn **chưa chạy**. [Hồ sơ lab Croc](croc-lab.md) Cổng 1–2 **chưa chạy**. Còn thiếu bản cài demo, phiên truyền nhiều Node, overlap, kết quả hash các đích và số đo so sánh. Cổng 3 **chưa chạy**. CSV dùng mẫu trống đến khi có kết quả thật. [Lưu bằng chứng](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng) · [Benchmark](../../bench/README.md)
 - Các lệnh kiểm nền phát triển nằm trong [README](../../README.md#kiểm-tra-trước-khi-mở-pr). Các ca CLI/SQLite/HTTP dùng fixture cục bộ. Nghiệm thu truyền tải cần hiện vật thực trên cấu hình đã khóa.
 
 ## Bằng chứng kiểm tra nền
