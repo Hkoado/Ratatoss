@@ -1,4 +1,3 @@
-import csv
 import hashlib
 import json
 import subprocess
@@ -12,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from issue_readiness import (
-    CROC_VERSION, PREFLIGHT_FIXTURES, ROOT, WINDOWS_X64_SHA256, GitHub,
+    CROC_VERSION, ROOT, WINDOWS_X64_SHA256, GitHub,
     croc_smoke_passed, reconcile, transport_preflight_blocker,
 )
 
@@ -45,8 +44,14 @@ class GitHubFixture(GitHub):
                         "started_at": CHECKED_AT, "completed_at": CHECKED_AT}]
         self.writes = []
         self.fail_removal = False
+        self.graphql_merge_sha = squash_commit
 
     def request(self, url, *, method="GET", payload=None):
+        if url == self.graphql_url and method == "POST":
+            assert payload["variables"] == {"owner": OWNER, "repo": "Ratatoss", "number": 42}
+            assert "mergeCommit { oid }" in payload["query"]
+            commit = {"oid": self.graphql_merge_sha} if self.graphql_merge_sha else None
+            return {"data": {"repository": {"pullRequest": {"mergeCommit": commit}}}}
         parsed = urlsplit(url.removeprefix(self.repo_url))
         path = parsed.path
         match path, method:
@@ -153,6 +158,14 @@ class IssueReadinessTests(unittest.TestCase):
                 self.assert_blocked(reason)
                 self.github.merge.update(previous)
 
+    def test_missing_rest_merge_sha_is_checked_through_graphql(self):
+        del self.github.merge["merge_commit_sha"]
+        self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
+        self.github.graphql_merge_sha = "b" * 40
+        self.assert_blocked("needs a squash commit in main history")
+        self.github.graphql_merge_sha = None
+        self.assert_blocked("has no merge commit SHA in GitHub")
+
     def test_stale_dismissed_or_post_merge_review_blocks(self):
         for changes in ({"commit_id": "b" * 40}, {"state": "DISMISSED"},
                         {"submitted_at": "2026-01-01T12:00:00Z"}):
@@ -206,43 +219,29 @@ class IssueReadinessTests(unittest.TestCase):
         policy = json.loads((ROOT / ".github/issue-readiness.json").read_text(encoding="utf-8"))
         self.assertTrue(croc_smoke_passed(ROOT / policy["outputs"]["5"]["croc_smoke"]))
 
-    def test_transport_preflight_checks_hashes_overlap_and_distinct_nodes(self):
+    def test_transport_can_start_with_locked_inputs_before_measuring_overlap(self):
         with tempfile.TemporaryDirectory(dir=self.root) as directory:
             folder = Path(directory)
             name = folder.name
             self.assertIn("missing lab preflight", transport_preflight_blocker(self.root, name))
             inventory = folder / "endpoints.json"
             inventory.write_text(json.dumps({"A": "a" * 64, "B": "b" * 64, "C": "c" * 64}), encoding="utf-8")
-            for metadata in ("relay.json", "network.json", "trace.json"):
+            for metadata in ("relay.json", "network.json"):
                 (folder / metadata).write_text("fixture metadata", encoding="utf-8")
-            self.write_csv(folder / "runs.csv", [{
-                "run_id": "fixture", "status": "pass", "croc_version": CROC_VERSION,
+            profile = {
+                "croc_version": CROC_VERSION,
                 "croc_sha256": WINDOWS_X64_SHA256, "relay_config": "relay.json",
-                "network_profile": "network.json", "evidence_ref": "trace.json",
-            }])
-            rows = [{
-                "run_id": "fixture", "source_peer": source, "target_peer": target,
-                "observer_peer": "B", "status": "pass", "payload_bytes": "33554432",
-                "verified_sha256": digest, "first_byte_monotonic_ms": 100,
-                "last_byte_monotonic_ms": 200,
-            } for (source, target), digest in PREFLIGHT_FIXTURES.items()]
-            transfers = folder / "transfers.csv"
-            self.write_csv(transfers, rows)
+                "network_profile": "network.json",
+            }
+            profile_path = folder / "profile.json"
+            profile_path.write_text(json.dumps(profile), encoding="utf-8")
             self.assertIsNone(transport_preflight_blocker(self.root, name))
-            for changes in ({"verified_sha256": "f" * 64}, {"first_byte_monotonic_ms": 200},
-                            {"observer_peer": "C"}):
-                with self.subTest(changes=changes):
-                    self.write_csv(transfers, [rows[0], dict(rows[1], **changes)])
-                    self.assertIn("needs locked profiles and overlapping verified",
-                                  transport_preflight_blocker(self.root, name))
+            (folder / "network.json").unlink()
+            self.assertIn("needs the locked network_profile file", transport_preflight_blocker(self.root, name))
+            profile_path.write_text(json.dumps(dict(profile, croc_sha256="f" * 64)), encoding="utf-8")
+            self.assertIn("needs the pinned Croc version and SHA-256", transport_preflight_blocker(self.root, name))
             inventory.write_text(json.dumps({"A": "a" * 64, "B": "a" * 64, "C": "c" * 64}), encoding="utf-8")
             self.assertIn("needs three distinct endpoints", transport_preflight_blocker(self.root, name))
-
-    def write_csv(self, path, rows):
-        with path.open("w", encoding="utf-8", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
 
     def test_retry_can_complete_partial_label_update(self):
         self.github.fail_removal = True

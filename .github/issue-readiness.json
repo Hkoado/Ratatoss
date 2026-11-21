@@ -2,7 +2,7 @@
   "inputs": {
     "6": {
       "blocked_by": [5, 23],
-      "files": ["scripts/make_croc_lab_fixtures.py", "scripts/validate_bench_csv.py", "ratatoss/lease_profile.py"],
+      "files": ["scripts/make_croc_lab_fixtures.py", "scripts/validate_bench_csv.py", "ratatoss/lease_profile.py", "spec/operations/croc-lab.md"],
       "transport_preflight": "bench/artifacts/r02-preflight"
     },
     "7": {

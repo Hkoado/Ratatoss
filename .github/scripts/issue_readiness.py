@@ -1,6 +1,5 @@
 """Promote Ratatoss issues when GitHub records and reviewed inputs pass."""
 
-import csv
 import hashlib
 import json
 import os
@@ -22,17 +21,21 @@ from ratatoss.transport import CROC_VERSION, WINDOWS_X64_SHA256
 
 SHA256 = re.compile(r"[a-f0-9]{64}")
 SHA1 = re.compile(r"[a-f0-9]{40}")
-PREFLIGHT_FIXTURES = {
-    ("A", "B"): "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
-    ("B", "C"): "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679",
+MERGE_COMMIT = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) { mergeCommit { oid } }
+  }
 }
+"""
 
 
 class GitHub:
-    def __init__(self, api_url, repository, token):
+    def __init__(self, api_url, repository, token, *, graphql_url=None):
         self.repository = repository
         self.repo_url = f"{api_url}/repos/{repository}"
-        self.owner = repository.split("/")[0]
+        self.graphql_url = graphql_url or f"{api_url}/graphql"
+        self.owner, self.repo = repository.split("/")
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -87,6 +90,19 @@ class GitHub:
             if pr["title"].startswith(f"[#{number}]") or reference.search(pr.get("body") or ""):
                 if pr["state"] == "open" or pr["merged"]:
                     yield pr
+
+    def merge_commit_sha(self, pr):
+        if sha := pr.get("merge_commit_sha"):
+            return sha
+        # REST can omit the merge SHA even for a merged PR.
+        response = self.request(self.graphql_url, method="POST", payload={
+            "query": MERGE_COMMIT,
+            "variables": {"owner": self.owner, "repo": self.repo, "number": pr["number"]},
+        })
+        if response.get("errors"):
+            raise ValueError("GitHub could not verify the merge commit")
+        commit = response["data"]["repository"]["pullRequest"]["mergeCommit"]
+        return commit["oid"] if commit else None
 
     def promote(self, number, labels):
         path = f"{self.repo_url}/issues/{number}/labels"
@@ -153,48 +169,25 @@ def croc_smoke_passed(report):
             and cases["retry"]["attempt_id"] != partial["attempt_id"])
 
 
-def csv_rows(path):
-    with path.open(encoding="utf-8-sig", newline="") as stream:
-        return list(csv.DictReader(stream))
-
-
-def verified_transfer_windows(transfers, run_id, pair):
-    for row in transfers:
-        if (row["run_id"] != run_id or (row["source_peer"], row["target_peer"]) != pair
-                or row["observer_peer"] != "B" or row["status"] != "pass"
-                or row["payload_bytes"] != "33554432" or row["verified_sha256"] != PREFLIGHT_FIXTURES[pair]):
-            continue
-        first = int(row["first_byte_monotonic_ms"])
-        last = int(row["last_byte_monotonic_ms"])
-        if 0 <= first < last:
-            yield first, last
-
-
 def transport_preflight_blocker(root, folder):
-    expected = (f"{folder}/endpoints.json", f"{folder}/runs.csv", f"{folder}/transfers.csv")
+    expected = (f"{folder}/endpoints.json", f"{folder}/profile.json")
     paths = [repo_file(root, name) for name in expected]
     for name, path in zip(expected, paths):
         if path is None:
             return f"missing lab preflight {name}"
-    endpoint_path, run_path, transfer_path = paths
+    endpoint_path, profile_path = paths
     endpoints = json.loads(endpoint_path.read_text(encoding="utf-8"))
     if (set(endpoints) != {"A", "B", "C"} or len(set(endpoints.values())) != 3
             or not all(SHA256.fullmatch(value) for value in endpoints.values())):
         return "lab preflight needs three distinct endpoints A/B/C"
-    transfers = csv_rows(transfer_path)
-    for run in csv_rows(run_path):
-        if (run["status"] != "pass" or run["croc_version"] != CROC_VERSION
-                or run["croc_sha256"] != WINDOWS_X64_SHA256 or not run["run_id"]):
-            continue
-        metadata = [run["relay_config"], run["network_profile"], run["evidence_ref"]]
-        if not all(name and repo_file(run_path.parent, name) for name in metadata):
-            continue
-        rx = list(verified_transfer_windows(transfers, run["run_id"], ("A", "B")))
-        tx = list(verified_transfer_windows(transfers, run["run_id"], ("B", "C")))
-        if any(max(rx_start, tx_start) < min(rx_end, tx_end)
-               for rx_start, rx_end in rx for tx_start, tx_end in tx):
-            return None
-    return "lab preflight needs locked profiles and overlapping verified A→B/B→C transfers on B's clock"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    if profile.get("croc_version") != CROC_VERSION or profile.get("croc_sha256") != WINDOWS_X64_SHA256:
+        return "lab preflight needs the pinned Croc version and SHA-256"
+    for field in ("relay_config", "network_profile"):
+        name = profile.get(field)
+        if not isinstance(name, str) or not name or repo_file(profile_path.parent, name) is None:
+            return f"lab preflight needs the locked {field} file"
+    return None
 
 
 def input_blocker(root, rule):
@@ -278,7 +271,9 @@ def dependency_blocker(github, root, dependency, output, required):
         label = f"dependency #{number}, PR #{pr['number']}"
         if not pr["merged"] or pr["base"]["ref"] != "main" or not from_owner(pr["merged_by"], github.owner):
             return f"{label} needs a merge by the owner into main"
-        merge_sha = pr.get("merge_commit_sha")
+        merge_sha = github.merge_commit_sha(pr)
+        if not merge_sha:
+            return f"{label} has no merge commit SHA in GitHub"
         if merge_sha == pr["head"]["sha"] or not main_commit_has_one_parent(root, merge_sha):
             return f"{label} needs a squash commit in main history"
         if not has_approval(pr, github.items(f"/pulls/{pr['number']}/reviews"), github.owner):
@@ -366,7 +361,8 @@ def main():
     lines = []
     status = 0
     try:
-        github = GitHub(os.environ["GITHUB_API_URL"], os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
+        github = GitHub(os.environ["GITHUB_API_URL"], os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"],
+                        graphql_url=os.environ.get("GITHUB_GRAPHQL_URL"))
         policy = json.loads((ROOT / ".github/issue-readiness.json").read_text(encoding="utf-8"))
         lines.extend(reconcile(github, ROOT, policy, dry_run=os.environ.get("DRY_RUN") == "true"))
     except RuntimeError as error:
