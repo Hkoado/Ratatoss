@@ -4,7 +4,7 @@
 
 - Chủ dự án phân việc qua GitHub Issues. Mỗi issue có một người phụ trách, phạm vi tệp, phụ thuộc và điều kiện nghiệm thu. Nếu có ticket backlog, ghi mã ticket trong issue.
 - Dùng [mẫu issue](.github/ISSUE_TEMPLATE/ratatoss-task.md). Điền mã **Ticket** hoặc tên **Tuyến** cho việc ngoài backlog. Dùng [MAPDOCS](MAPDOCS.md) để chọn tài liệu khi bắt đầu.
-- Bắt đầu bằng R0.1 khi có binary Croc đã ghim, relay thử nghiệm và fixture SHA-256. Với các ticket sau, ghi issue phụ thuộc và đầu vào còn thiếu. Khi xếp lịch demo R1.4 và tích hợp R2.1, đối chiếu phụ thuộc trong backlog với ánh xạ đề xuất cho bản phát hành có PLARS. [Backlog](plan/BACKLOG.md) · [Ánh xạ phát hành](spec/governance/adr/0001-single-release.md#ánh-xạ-kế-hoạch-và-backlog)
+- Bắt đầu bằng R0.1 khi có binary Croc đã ghim, relay thử nghiệm và fixture SHA-256. Với các ticket sau, ghi issue phụ thuộc và đầu vào còn thiếu. Tích hợp PLARS ở R2.1 trước demo nghiệm thu R1.4 theo quyết định cho bản chính thức. [Backlog](plan/BACKLOG.md) · [Thứ tự đã chốt](spec/governance/adr/0002-plars-integration-order.md)
 - Dùng nhãn `blocked` khi còn thiếu phụ thuộc hoặc đầu vào và chỉ bắt đầu triển khai issue có nhãn `ready`. Trước khi đổi sang `ready`, chủ dự án kiểm tra các PR phụ thuộc đã được duyệt trên commit cuối, đạt các kiểm tra bắt buộc và được chủ dự án squash merge vào `main`. Issue phụ thuộc phải có bằng chứng nghiệm thu và đầu vào của issue kế tiếp phải được xác nhận. Việc đóng issue không thay thế các bước này.
 - Lấy `main` mới nhất và tạo nhánh riêng cho issue đã nhận. Nếu cần sửa ngoài phạm vi hoặc đụng tệp của issue khác, trao đổi trong issue trước.
 

@@ -1,6 +1,6 @@
 # Một bản phát hành chính thức của Ratatoss
 
-**Trạng thái:** Chủ dự án đã chọn phát hành một bản chính thức. Ánh xạ dưới đây là đề xuất triển khai. Mọi thay đổi vào tài liệu gốc và đường chuẩn vẫn chờ phê duyệt riêng.
+**Trạng thái:** Chủ dự án đã chọn phát hành một bản chính thức. Ánh xạ dưới đây là đề xuất triển khai đã được chốt cụ thể tại [ADR 0002](0002-plars-integration-order.md). Mọi thay đổi vào tài liệu gốc và đường chuẩn vẫn chờ phê duyệt riêng.
 
 ## Phạm vi bản chính thức
 

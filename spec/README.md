@@ -11,12 +11,13 @@
 | Mục | Phạm vi |
 | --- | --- |
 | [Quản trị](governance/README.md) | Thứ tự thẩm quyền, quy tắc bằng chứng, quy trình đề xuất thay đổi và kiểm tra tệp gốc |
+| [Thứ tự tích hợp PLARS](governance/adr/0002-plars-integration-order.md) | Quyết định R1.3 → R2.1 → R1.4 → R2.2 cho bản chính thức |
 | [Phạm vi phát hành](governance/adr/0001-single-release.md) | Bản chính thức có PLARS, nghiệm thu và phần mở rộng |
 | [Sơ đồ hoạt động](flow-overview.md) · [PDF](../output/pdf/Ratatoss-so-do-luong-hoat-dong.pdf) | Ghép thiết bị, chọn tuyến, truyền batch và phục hồi |
 | [API](api/) | Hợp đồng giao tiếp |
 | [Cơ sở dữ liệu](db/) | Mô hình dữ liệu và các bất biến khi lưu trữ |
 | [Vận hành](operations/) | Cấu hình, triển khai và kiểm tra vận hành |
-| [Bàn giao cho nhóm](operations/team-handoff.md) | Phạm vi nền, bản nháp issue, phụ thuộc và bằng chứng |
+| [Bàn giao cho nhóm](operations/team-handoff.md) | Phạm vi nền, issue, phụ thuộc và bằng chứng |
 | [Bộ cài Windows](operations/windows-installer.md) | Đóng gói, mở Web/CLI bằng shortcut, cập nhật và nghiệm thu trên máy sạch |
 | [Tích hợp giao diện](ui-integration.md) | UI Kit v1.2, điểm mở demo và thứ tự ưu tiên khi nối giao diện với Node |
 
