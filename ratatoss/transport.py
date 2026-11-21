@@ -95,12 +95,12 @@ class CrocError(RuntimeError):
 class TransportAdapter(Protocol):
     async def send(
         self, source: Path, session_code: str, *, batch: Batch,
-        timeout: float, lease_deadline: float,
+        timeout: float, lease_deadline: float, remaining_setup_ms: int | None = None,
     ) -> ProcessRun: ...
 
     async def receive(
         self, destination: Path, session_code: str, *, batch: Batch,
-        timeout: float, lease_deadline: float,
+        timeout: float, lease_deadline: float, remaining_setup_ms: int | None = None,
     ) -> ProcessRun: ...
 
 
@@ -149,8 +149,10 @@ class CrocAdapter:
     """Use a trusted executable and an exclusive, access-controlled staging root.
 
     The caller supplies a fresh attempt ID and a deadline after authorization and
-    holds its transfer slot until this call returns. RX delivers a verified file
-    into the caller's staging area for the store to commit separately.
+    holds its transfer slot until this call returns. Supply the estimated setup
+    still needed at spawn. If omitted, the adapter reserves the profile's full
+    setup budget. Cancel the RX task when the assignment becomes terminal.
+    RX delivers a verified file into caller staging for a separate store commit.
     """
 
     def __init__(self, executable: Path, root: Path, relay: RelayProfile):
@@ -201,24 +203,29 @@ class CrocAdapter:
 
     async def send(
         self, source: Path, session_code: str, *, batch: Batch,
-        timeout: float, lease_deadline: float,
+        timeout: float, lease_deadline: float, remaining_setup_ms: int | None = None,
     ) -> ProcessRun:
-        return await self._transfer("tx", source, session_code, batch, timeout, lease_deadline)
+        return await self._transfer(
+            "tx", source, session_code, batch, timeout, lease_deadline, remaining_setup_ms,
+        )
 
     async def receive(
         self, destination: Path, session_code: str, *, batch: Batch,
-        timeout: float, lease_deadline: float,
+        timeout: float, lease_deadline: float, remaining_setup_ms: int | None = None,
     ) -> ProcessRun:
-        return await self._transfer("rx", destination, session_code, batch, timeout, lease_deadline)
+        return await self._transfer(
+            "rx", destination, session_code, batch, timeout, lease_deadline, remaining_setup_ms,
+        )
 
-    async def _transfer(self, role, path, session_code, batch, timeout, lease_deadline):
+    async def _transfer(self, role, path, session_code, batch, timeout, lease_deadline, remaining_setup_ms):
         if not math.isfinite(timeout) or timeout <= 0 or not math.isfinite(lease_deadline):
             raise ValueError("Expected finite transfer deadlines and a positive timeout")
         if not session_code or "\0" in session_code:
             raise ValueError("Expected the authorization's Croc session code")
         adapter_deadline = time.monotonic() + timeout
         deadline = min(adapter_deadline, lease_deadline)
-        self._check_budget(batch, adapter_deadline, lease_deadline)
+        setup_ms = self.relay.setup_ms if remaining_setup_ms is None else remaining_setup_ms
+        self._check_budget(batch, adapter_deadline, lease_deadline, setup_ms)
         try:
             work = self._reserve(role, batch)
         except OSError as exc:
@@ -246,13 +253,12 @@ class CrocAdapter:
                 if os.path.lexists(path):
                     raise CrocError("DESTINATION_EXISTS")
 
-            self._check_budget(batch, adapter_deadline, lease_deadline)
+            self._check_budget(batch, adapter_deadline, lease_deadline, setup_ms)
             process = await self._run(role, batch, stage, env, deadline)
             if role == "rx":
-                self._check_receive_directory(stage, batch)
-                self._check_payload(payload, batch)
-                with payload.open("r+b") as stream:
-                    os.fsync(stream.fileno())
+                await self._verify_received(stage, payload, batch)
+                # Dispatch queued cancellation before entering the atomic handoff.
+                await asyncio.sleep(0)
                 if time.monotonic() >= deadline:
                     raise CrocError("TRANSPORT_TIMEOUT")
                 os.link(payload, path)
@@ -281,6 +287,28 @@ class CrocAdapter:
                     else:
                         raise CrocError("STAGING_CLEANUP_FAILED", process) from None
         return process
+
+    async def _verify_received(self, stage, payload, batch):
+        def verify_and_flush():
+            self._check_receive_directory(stage, batch)
+            self._check_payload(payload, batch)
+            with payload.open("r+b") as stream:
+                os.fsync(stream.fileno())
+
+        verification = asyncio.create_task(asyncio.to_thread(verify_and_flush))
+        try:
+            await asyncio.shield(verification)
+        except asyncio.CancelledError:
+            # Even repeated cancellation must leave staging owned until the file
+            # has been closed by the worker.
+            while not verification.done():
+                try:
+                    await asyncio.wait((verification,))
+                except asyncio.CancelledError:
+                    continue
+            if not verification.cancelled():
+                verification.exception()
+            raise
 
     @staticmethod
     def _cleanup_staging(work, *, quarantine):
@@ -314,13 +342,13 @@ class CrocAdapter:
             raise CrocError("ATTEMPT_ALREADY_USED") from None
         return work
 
-    def _check_budget(self, batch, adapter_deadline, lease_deadline):
+    def _check_budget(self, batch, adapter_deadline, lease_deadline, remaining_setup_ms):
         now = time.monotonic()
         budget = evaluate_lease_budget(
             batch_bytes=batch.size, min_goodput_bps=self.relay.min_goodput_bps,
             remaining_lease_ms=_remaining_ms(lease_deadline, now),
             remaining_adapter_ms=_remaining_ms(adapter_deadline, now),
-            remaining_setup_ms=self.relay.setup_ms, verify_commit_ms=self.relay.verify_commit_ms,
+            remaining_setup_ms=remaining_setup_ms, verify_commit_ms=self.relay.verify_commit_ms,
             margin_ms=self.relay.margin_ms,
         )
         if not budget.fits:

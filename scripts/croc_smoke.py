@@ -26,6 +26,7 @@ PORTS = (19009, 19010)
 FIXTURE_SIZE = 32 * 1024 * 1024
 FIXTURE_SHA256 = "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
 START_GAP_S = 0.75
+HANDSHAKE_BUDGET_MS = 200
 TIMEOUT_S = 25
 FAULT_TIMEOUT_S = 6
 NO_PEER_TIMEOUT_S = 4.5
@@ -91,12 +92,14 @@ async def run_case(label, adapter, fixture, destination, cases, rooms, *, first=
     cases.append(case)
 
     async def start(role):
-        outcome = {"argv": redact(adapter.argv(role, batch))}
+        setup_ms = adapter.relay.setup_ms if role == first else HANDSHAKE_BUDGET_MS
+        outcome = {"argv": redact(adapter.argv(role, batch)), "remaining_setup_ms": setup_ms}
         case["roles"][role] = outcome
         fn, path = (adapter.send, fixture) if role == "tx" else (adapter.receive, destination)
         try:
             outcome["process"] = asdict(await fn(
                 path, code, batch=batch, timeout=timeout, lease_deadline=lease_deadline,
+                remaining_setup_ms=setup_ms,
             ))
             outcome["status"] = "ok"
         except CrocError as exc:
@@ -143,7 +146,8 @@ async def simulate(executable, fixture, area, report):
     require(fixture.stat().st_size == FIXTURE_SIZE, "LAB_FIXTURE_SIZE_MISMATCH")
     require(sha256_file(fixture) == FIXTURE_SHA256, "LAB_FIXTURE_HASH_MISMATCH")
     password = secrets.token_hex(24)
-    profile = RelayProfile(f"{HOST}:{PORTS[0]}", password, 100_000_000, 750, 200, 200)
+    setup_ms = round(START_GAP_S * 1000) + HANDSHAKE_BUDGET_MS
+    profile = RelayProfile(f"{HOST}:{PORTS[0]}", password, 100_000_000, setup_ms, 200, 200)
     report["profile"] = {
         "name": "lab-windows-loopback", "endpoint": profile.endpoint, "ports": PORTS,
         "min_goodput_bps": profile.min_goodput_bps, "setup_ms": profile.setup_ms,

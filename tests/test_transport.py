@@ -4,8 +4,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -99,6 +101,26 @@ class CrocAdapterTests(unittest.IsolatedAsyncioTestCase):
                 )
         spawn.assert_not_called()
         self.assertEqual(list((self.attempts / self.batch.attempt_id.hex / "tx").iterdir()), [])
+
+    async def test_preflight_only_charges_setup_still_required_at_spawn(self):
+        self.profile = replace(self.profile, setup_ms=3000)
+        adapter = self.adapter()
+        self.destination.write_bytes(self.payload)
+        lease = time.monotonic() + 2
+        with patch("ratatoss.transport.WindowsChild", return_value=FakeChild(0)) as spawn:
+            with self.assertRaisesRegex(CrocError, "^INSUFFICIENT_LEASE_BUDGET$"):
+                await adapter.send(
+                    self.destination, "test-session-code", batch=self.batch,
+                    timeout=4, lease_deadline=lease,
+                )
+            spawn.assert_not_called()
+            result = await adapter.send(
+                self.destination, "test-session-code", batch=self.batch,
+                timeout=4, lease_deadline=lease, remaining_setup_ms=100,
+            )
+        spawn.assert_called_once()
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(result.deadline_monotonic, lease)
 
     async def test_timeout_isolates_partial_retry_verifies_and_existing_output_survives(self):
         adapter = self.adapter()
@@ -203,6 +225,45 @@ class CrocAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(child.stopped)
         self.assertFalse(self.destination.exists())
         self.assertTrue((self.attempts / self.batch.attempt_id.hex / "rx" / "quarantine").is_dir())
+
+    async def test_cancel_during_verification_keeps_staging_owned_and_prevents_delivery(self):
+        loop = asyncio.get_running_loop()
+        hashing = asyncio.Event()
+        allow_hash_to_finish = threading.Event()
+        child = FakeChild(0)
+        attempt = self.attempts / self.batch.attempt_id.hex / "rx"
+
+        def write_verified(argv, *, cwd, env):
+            (cwd / self.batch.filename).write_bytes(self.payload)
+            return child
+
+        def verify_with_open_file(path):
+            with path.open("rb") as stream:
+                loop.call_soon_threadsafe(hashing.set)
+                if not allow_hash_to_finish.wait(5):
+                    raise TimeoutError("Test did not unblock verification")
+                return hashlib.file_digest(stream, "sha256").hexdigest()
+
+        with (
+            patch("ratatoss.transport.WindowsChild", side_effect=write_verified),
+            patch("ratatoss.transport.sha256_file", side_effect=verify_with_open_file),
+        ):
+            task = asyncio.create_task(self.receive(self.adapter(), timeout=5, lease=time.monotonic() + 5))
+            try:
+                await asyncio.wait_for(hashing.wait(), 2)
+                self.assertTrue(child.stopped)
+                for _ in range(2):
+                    self.assertTrue(task.cancel())
+                    await asyncio.sleep(0)
+                self.assertFalse(task.done())
+                self.assertTrue((attempt / "data" / self.batch.filename).is_file())
+                self.assertFalse(self.destination.exists())
+            finally:
+                allow_hash_to_finish.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual((attempt / "quarantine" / self.batch.filename).read_bytes(), self.payload)
 
 
 @unittest.skipUnless(os.name == "nt", "Windows process tree")
