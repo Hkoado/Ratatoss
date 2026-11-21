@@ -26,14 +26,19 @@ def _resolve_repo_root() -> Path | None:
 
 REPO_ROOT = _resolve_repo_root()
 calculate_overlap_ms = None
-if REPO_ROOT is not None:
+_import_error: Exception | None = None
+
+if REPO_ROOT is None:
+    pass  # will SkipTest in setUpClass
+else:
     scripts_dir = str(REPO_ROOT / "scripts")
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
     try:
         from run_r02_benchmark import calculate_overlap_ms
-    except ImportError:
-        calculate_overlap_ms = None
+    except ImportError as exc:
+        # ImportError inside a checkout is a real failure, not a skip.
+        _import_error = exc
 
 
 class TestR02BenchmarkLogic(unittest.TestCase):
@@ -41,8 +46,10 @@ class TestR02BenchmarkLogic(unittest.TestCase):
     def setUpClass(cls):
         if REPO_ROOT is None:
             raise unittest.SkipTest("scripts/run_r02_benchmark.py not found outside repository")
-        if calculate_overlap_ms is None:
-            raise ImportError("Failed to import calculate_overlap_ms from run_r02_benchmark.py")
+        if _import_error is not None:
+            raise ImportError(
+                f"Failed to import calculate_overlap_ms from run_r02_benchmark.py: {_import_error}"
+            ) from _import_error
 
     def test_positive_overlap(self):
         # RX runs from 1000 to 2000

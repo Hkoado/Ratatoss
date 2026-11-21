@@ -147,9 +147,9 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     setup_ms = round(START_GAP_S * 1000.0)
                     goodput_bps = round((file_bytes * 8.0) / duration_s) if duration_s > 0 else 0
                     # Overall makespan should consider both RX and TX end times
-        overall_start_ms = min(rx_run.started_monotonic, tx_run.started_monotonic) * 1000.0
-        overall_end_ms = max(rx_run.stopped_monotonic, tx_run.stopped_monotonic) * 1000.0
-        makespan_ms = round(overall_end_ms - overall_start_ms)
+                    overall_start_ms = min(rx_run.started_monotonic, tx_run.started_monotonic) * 1000.0
+                    overall_end_ms = max(rx_run.stopped_monotonic, tx_run.stopped_monotonic) * 1000.0
+                    makespan_ms = round(overall_end_ms - overall_start_ms)
 
                     t_row = [
                         run_id, job_id, assignment_id, str(batch_id),
@@ -158,7 +158,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         f"{start_ms:.3f}", "", "", f"{end_ms:.3f}",
                         str(setup_ms), str(goodput_bps), verified_sha,
                         "pass", "false", "false",
-                        "Loopback relay A to B single transfer; first/last byte markers not exposed by Croc",
+                        "Loopback relay A->B; setup_ms=START_GAP proxy (no first-byte marker); goodput_bps=bits/process-lifetime proxy",
                     ]
                     transfers_rows.append(t_row)
 
@@ -257,10 +257,10 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         run_id, job_id, batch_bc.attempt_id.hex, "1",
                         "B", "C", "B", "relay",
                         str(file_bytes), str(file_bytes),
-                        f"{b_tx_start_ms:.3f}", "", "", f"{c_rx_end_ms:.3f}",
+                        f"{b_tx_start_ms:.3f}", "", "", f"{b_tx_end_ms:.3f}",
                         str(HANDSHAKE_BUDGET_MS), str(goodput_bc), sha256_file(dest_c),
                         "pass", "false", "false",
-                        f"Concurrent TX on B; overlap with A->B is {overlap_ms:.1f}ms on B clock",
+                        f"Concurrent TX on B; observer_peer=B so end marker is B TX end; overlap with A->B is {overlap_ms:.1f}ms on B clock",
                     ])
 
                     runs_rows.append([
@@ -354,7 +354,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--croc", type=Path, default=Path(r"C:\lab\croc.exe"))
     parser.add_argument("--fixtures", type=Path, required=True)
-    parser.add_argument("--output", type=Path, default=Path("bench"))
+    parser.add_argument("--output", type=Path, default=Path("bench/artifacts/r02"),
+                        help="Output directory for runs.csv and transfers.csv (default: bench/artifacts/r02)")
     args = parser.parse_args()
 
     asyncio.run(run_benchmark(args.croc, args.fixtures, args.output))
