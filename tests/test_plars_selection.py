@@ -267,6 +267,24 @@ class BusyFastPathTests(unittest.TestCase):
             resources=(SharedResource("d-downlink", FAST),), shared=shared))
         self.assertEqual((keys(result), waiting(result)), ([], [("D", WAIT_FOR_SLOT)]))
 
+    def test_rejected_faster_grant_does_not_hide_an_independent_route(self):
+        wan = ("wan",)
+        snapshot = Snapshot(
+            batches=batches(2),
+            devices=(origin(verified=(0, 1), tx=(500,)),
+                     device("B", (1,), transmit=True, tx=(0,)),
+                     device("C", (1,), transmit=True, tx=(0,)),
+                     device("D", target=True, rx=(0, 0))),
+            routes=(Route("A", "D", FAST, 0, resources=wan),
+                    Route("B", "D", 40_000_000, 0, resources=wan),
+                    Route("C", "D", HALF, 0)),
+            resources=(SharedResource("wan", FAST),),
+        )
+        result = select_assignments(snapshot)
+        self.assertEqual(keys(result), [("C", "D", 1)])
+        self.assertEqual(result.selections[0].finish_in_ms, 2_000)
+        self.assertEqual(waiting(result), [("D", WAIT_FOR_SLOT)])
+
 
 class DeterminismTests(unittest.TestCase):
     def test_input_order_does_not_change_the_result(self):

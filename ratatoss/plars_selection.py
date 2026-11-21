@@ -122,9 +122,10 @@ def select_assignments(snapshot: Snapshot) -> SelectionRound:
     origin bytes, then batch ID and source ID.
 
     If the winning option must wait for a busy slot, its batch stays for that
-    faster path. The target still takes the best option that starts now on a
-    different batch, but only when that grant leaves the waiting option's
-    finish unchanged. Otherwise the target waits for this round. Every
+    faster path. Options that start now on a different batch are first kept
+    only when granting them leaves the waiting option's finish unchanged, and
+    the target takes the best of those. Otherwise the target waits for this
+    round. Every
     selection reserves its slots, shared bandwidth and key before the next
     choice.
     """
@@ -173,13 +174,16 @@ def select_assignments(snapshot: Snapshot) -> SelectionRound:
             choice = _choose(options, snapshot.tolerance_ms)
             if choice.wait_ms:
                 held = choice
-                immediate = [option for option in options
-                             if not option.wait_ms and option.batch_id != held.batch_id]
-                choice = _choose(immediate, snapshot.tolerance_ms) if immediate else None
-                if choice is None or _delays(held, choice, target, devices[held.source_id],
-                                             sizes, routes, available, rx_slots, tx_slots):
+                immediate = [
+                    option for option in options
+                    if not option.wait_ms and option.batch_id != held.batch_id
+                    and not _delays(held, option, target, devices[held.source_id],
+                                    sizes, routes, available, rx_slots, tx_slots)
+                ]
+                if not immediate:
                     waiting[target.device_id] = WAIT_FOR_SLOT
                     continue
+                choice = _choose(immediate, snapshot.tolerance_ms)
 
             _reserve(choice, target.device_id, rx_slots, tx_slots, available)
             reserved.add((target.device_id, choice.batch_id))
