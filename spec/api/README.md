@@ -50,6 +50,12 @@ Tệp request chứa phần thân JSON. Gửi `Content-Type: application/json` v
 
 [sample.txt](examples/sample.txt) có 17 byte, gồm cả LF cuối file. SHA-256 của file, piece duy nhất và batch duy nhất là `de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee`. Tính SHA-256 của manifest đã validate sau khi mã hóa bằng `json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")` sẽ được `166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756`.
 
+### Tích hợp manifest v1
+
+Node dùng `Manifest.from_json(raw)` để đọc manifest độc lập. Với manifest lồng trong request hoặc response, Node và controller gọi `body = decode_manifest_object(raw_body)` trên byte UTF-8 gốc rồi gọi `Manifest.from_dict(body["manifest"])`. Cách này phát hiện khóa lặp cả ở vỏ request và trong từng segment trước khi tầng HTTP chuyển JSON thành từ điển. Route kiểm các trường còn lại và quyền truy cập theo hợp đồng của mình. [Mã dùng chung](../../ratatoss/manifest.py) · [Quy tắc lưu trữ](../../docs/storage-and-recovery.md#manifest-và-đối-tượng-trên-đĩa)
+
+Dùng `Manifest.canonical_bytes()` để lưu metadata canonical và `Manifest.manifest_sha256()` để tính digest của metadata. `Manifest.sha256` là digest của toàn bộ payload. CLI `verify` đọc được các tệp manifest v1 dạng thụt lề của CLI `manifest` và dạng canonical.
+
 ## API loopback của starter hiện tại
 
 [app.py](../../ratatoss/app.py) phục vụ các route chỉ đọc sau tại `http://127.0.0.1:8765` mặc định.
