@@ -119,10 +119,14 @@ def select_assignments(snapshot: Snapshot) -> SelectionRound:
     with the earliest finish wins, where finish adds slot wait, setup,
     transfer at the usable goodput and verification. Options within the
     tolerance of the earliest finish are ranked by fewer WAN bytes, fewer
-    origin bytes, then batch ID and source ID. If the winning option must wait
-    for a slot, the target waits for this round instead of taking a slower
-    path. Every selection reserves its slots, shared bandwidth and key before
-    the next choice.
+    origin bytes, then batch ID and source ID.
+
+    If the winning option must wait for a busy slot, its batch stays for that
+    faster path. The target still takes the best option that starts now on a
+    different batch, but only when that grant leaves the waiting option's
+    finish unchanged. Otherwise the target waits for this round. Every
+    selection reserves its slots, shared bandwidth and key before the next
+    choice.
     """
     _validate(snapshot)
     sizes = {batch.batch_id: batch.size for batch in snapshot.batches}
@@ -168,13 +172,16 @@ def select_assignments(snapshot: Snapshot) -> SelectionRound:
                 continue
             choice = _choose(options, snapshot.tolerance_ms)
             if choice.wait_ms:
-                waiting[target.device_id] = WAIT_FOR_SLOT
-                continue
+                held = choice
+                immediate = [option for option in options
+                             if not option.wait_ms and option.batch_id != held.batch_id]
+                choice = _choose(immediate, snapshot.tolerance_ms) if immediate else None
+                if choice is None or _delays(held, choice, target, devices[held.source_id],
+                                             sizes, routes, available, rx_slots, tx_slots):
+                    waiting[target.device_id] = WAIT_FOR_SLOT
+                    continue
 
-            _reserve_slot(tx_slots[choice.source_id], choice.transfer_end_ms)
-            _reserve_slot(rx_slots[target.device_id], choice.finish_ms)
-            for resource_id in choice.resources:
-                available[resource_id] -= choice.goodput_bps
+            _reserve(choice, target.device_id, rx_slots, tx_slots, available)
             reserved.add((target.device_id, choice.batch_id))
             granted.add(target.device_id)
             selections.append(Selection(
@@ -197,33 +204,62 @@ def select_assignments(snapshot: Snapshot) -> SelectionRound:
 def _options(target: Device, missing: list[int], sources: list[Device], sizes: dict[int, int],
              routes: dict[tuple[str, str], Route], available: dict[str, int],
              rx_slots: dict[str, list[int]], tx_slots: dict[str, list[int]]) -> Iterable[_Option]:
-    rx_wait = min(rx_slots[target.device_id])
     for source in sources:
         if source.device_id == target.device_id:
             continue
         route = routes.get((source.device_id, target.device_id))
         if route is None:
             continue
-        goodput = min([route.goodput_bps, *(available[key] for key in route.resources)])
-        if goodput <= 0:
-            continue
-        wait = max(rx_wait, min(tx_slots[source.device_id]))
         for batch_id in missing:
             if batch_id not in source.verified_batches:
                 continue
-            size = sizes[batch_id]
-            transfer_end = wait + route.setup_ms + _transfer_ms(size, goodput)
-            yield _Option(
-                source_id=source.device_id,
-                batch_id=batch_id,
-                wait_ms=wait,
-                transfer_end_ms=transfer_end,
-                finish_ms=transfer_end + target.verify_ms,
-                goodput_bps=goodput,
-                wan_bytes=size if route.wan else 0,
-                origin_bytes=size if source.is_origin else 0,
-                resources=route.resources,
-            )
+            option = _option(target, source, route, batch_id, sizes[batch_id],
+                             available, rx_slots, tx_slots)
+            if option is not None:
+                yield option
+
+
+def _option(target: Device, source: Device, route: Route, batch_id: int, size: int,
+            available: dict[str, int], rx_slots: dict[str, list[int]],
+            tx_slots: dict[str, list[int]]) -> _Option | None:
+    goodput = min([route.goodput_bps, *(available[key] for key in route.resources)])
+    if goodput <= 0:
+        return None
+    wait = max(min(rx_slots[target.device_id]), min(tx_slots[source.device_id]))
+    transfer_end = wait + route.setup_ms + _transfer_ms(size, goodput)
+    return _Option(
+        source_id=source.device_id,
+        batch_id=batch_id,
+        wait_ms=wait,
+        transfer_end_ms=transfer_end,
+        finish_ms=transfer_end + target.verify_ms,
+        goodput_bps=goodput,
+        wan_bytes=size if route.wan else 0,
+        origin_bytes=size if source.is_origin else 0,
+        resources=route.resources,
+    )
+
+
+def _delays(held: _Option, grant: _Option, target: Device, held_source: Device,
+            sizes: dict[int, int], routes: dict[tuple[str, str], Route],
+            available: dict[str, int], rx_slots: dict[str, list[int]],
+            tx_slots: dict[str, list[int]]) -> bool:
+    """Tell whether granting now would make the held faster option finish later."""
+    rx = {target.device_id: list(rx_slots[target.device_id])}
+    tx = {key: list(tx_slots[key]) for key in {held.source_id, grant.source_id}}
+    budget = dict(available)
+    _reserve(grant, target.device_id, rx, tx, budget)
+    after = _option(target, held_source, routes[(held.source_id, target.device_id)],
+                    held.batch_id, sizes[held.batch_id], budget, rx, tx)
+    return after is None or after.finish_ms > held.finish_ms
+
+
+def _reserve(option: _Option, target_id: str, rx_slots: dict[str, list[int]],
+             tx_slots: dict[str, list[int]], available: dict[str, int]) -> None:
+    _reserve_slot(tx_slots[option.source_id], option.transfer_end_ms)
+    _reserve_slot(rx_slots[target_id], option.finish_ms)
+    for resource_id in option.resources:
+        available[resource_id] -= option.goodput_bps
 
 
 def _choose(options: list[_Option], tolerance_ms: int) -> _Option:

@@ -227,8 +227,45 @@ class RouteChoiceTests(unittest.TestCase):
         result = select_assignments(snapshot)
         self.assertEqual((keys(result), waiting(result)), ([], [("D", WAIT_FOR_SLOT)]))
 
-        long_wait = replace(snapshot, devices=(origin(tx=(5_000,)),) + snapshot.devices[1:])
+        # A spare receive slot must not let the slower path take the held batch.
+        spare = replace(snapshot, devices=snapshot.devices[:2] + (
+            device("D", target=True, rx=(0, 0)),))
+        result = select_assignments(spare)
+        self.assertEqual((keys(result), waiting(result)), ([], [("D", WAIT_FOR_SLOT)]))
+
+        long_wait =replace(snapshot, devices=(origin(tx=(5_000,)),) + snapshot.devices[1:])
         self.assertEqual(keys(select_assignments(long_wait)), [("B", "D", 0)])
+
+
+class BusyFastPathTests(unittest.TestCase):
+    """A busy faster path keeps its batch, while free slots take other batches."""
+
+    def snapshot(self, rx=(0, 0), resources=(), shared=()):
+        return Snapshot(
+            batches=batches(2),
+            devices=(origin(verified=(0, 1), tx=(500,)),
+                     device("B", (1,), transmit=True, tx=(0,)),
+                     device("D", target=True, rx=rx)),
+            routes=(Route("A", "D", FAST, 0, resources=shared),
+                    Route("B", "D", 40_000_000, 0, resources=shared)),
+            resources=resources,
+        )
+
+    def test_free_slot_takes_another_batch_while_the_faster_path_is_busy(self):
+        result = select_assignments(self.snapshot())
+        self.assertEqual(keys(result), [("B", "D", 1)])
+        self.assertEqual(result.selections[0].finish_in_ms, 1_600)
+        self.assertEqual(waiting(result), [("D", WAIT_FOR_SLOT)])
+
+    def test_single_receive_slot_waits_when_granting_would_delay_the_faster_path(self):
+        result = select_assignments(self.snapshot(rx=(0,)))
+        self.assertEqual((keys(result), waiting(result)), ([], [("D", WAIT_FOR_SLOT)]))
+
+    def test_grant_now_must_not_take_bandwidth_the_faster_path_needs(self):
+        shared = ("d-downlink",)
+        result = select_assignments(self.snapshot(
+            resources=(SharedResource("d-downlink", FAST),), shared=shared))
+        self.assertEqual((keys(result), waiting(result)), ([], [("D", WAIT_FOR_SLOT)]))
 
 
 class DeterminismTests(unittest.TestCase):
