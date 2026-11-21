@@ -39,8 +39,10 @@ if REPO_ROOT is not None:
 class TestR02BenchmarkLogic(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if calculate_overlap_ms is None or REPO_ROOT is None:
+        if REPO_ROOT is None:
             raise unittest.SkipTest("scripts/run_r02_benchmark.py not found outside repository")
+        if calculate_overlap_ms is None:
+            raise ImportError("Failed to import calculate_overlap_ms from run_r02_benchmark.py")
 
     def test_positive_overlap(self):
         # RX runs from 1000 to 2000

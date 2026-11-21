@@ -146,7 +146,10 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     duration_s = rx_run.stopped_monotonic - rx_run.started_monotonic
                     setup_ms = round(START_GAP_S * 1000.0)
                     goodput_bps = round((file_bytes * 8.0) / duration_s) if duration_s > 0 else 0
-                    makespan_ms = round(end_ms - start_ms)
+                    # Overall makespan should consider both RX and TX end times
+        overall_start_ms = min(rx_run.started_monotonic, tx_run.started_monotonic) * 1000.0
+        overall_end_ms = max(rx_run.stopped_monotonic, tx_run.stopped_monotonic) * 1000.0
+        makespan_ms = round(overall_end_ms - overall_start_ms)
 
                     t_row = [
                         run_id, job_id, assignment_id, str(batch_id),
