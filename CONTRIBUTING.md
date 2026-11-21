@@ -40,6 +40,13 @@ git push -u origin 'feat/#42-batch-reconcile'
 - Chủ dự án kiểm tra PR đã sẵn sàng, có ít nhất một lượt duyệt hợp lệ, hết xung đột, đã xử lý các trao đổi và đạt các kiểm tra bắt buộc. Dùng **Squash and merge** và giữ `[#N]` trong tiêu đề commit gộp.
 - Để GitHub thực thi quy tắc, cấu hình bảo vệ `main` với PR bắt buộc, ít nhất một approval, hủy approval cũ khi có commit mới, yêu cầu xử lý trao đổi và kiểm tra CI đã có. Chặn force-push, xóa nhánh và giới hạn quyền cập nhật qua PR cho chủ dự án theo khả năng của repo. [Quy tắc bảo vệ nhánh trên GitHub](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
 
+
+### Kiểm tra các cập nhật lên `main`
+
+Workflow [Main merge audit](.github/workflows/main-merge-audit.yml) kiểm mỗi cập nhật lên `main`. Trong tab **Actions**, mở lượt chạy tương ứng để xem tài khoản push, commit, PR và người merge nếu GitHub xác định được, cùng lý do job báo lỗi. Khi PR do thành viên mở, chủ dự án phải gửi **Approve** trên commit cuối trước khi merge. PR do chủ dự án mở cần approval trên commit cuối từ một cộng tác viên khác. GitHub ghi thời điểm theo giây nên lượt review và merge trong cùng một giây sẽ được đánh dấu thiếu bằng chứng thứ tự.
+
+Workflow báo sau khi branch đã cập nhật và chạy khi workflow còn được bật. Việc chặn cập nhật trước merge thuộc branch protection. Kiểm tra lỗi API được báo riêng với vi phạm phát hiện được.
+
 ## 5. Ràng buộc khi triển khai
 
 - Một ứng dụng phục vụ mọi vai trò. UI/API cục bộ bind loopback. Node ghi danh và ghép thiết bị hai chiều trước. Nguồn chọn thiết bị đã ghép, controller gửi offer theo từng định danh đích, và mỗi đích xác nhận trước khi nhận việc. Mã ghép chỉ dùng để thiết lập cặp thiết bị. [Kiến trúc](docs/architecture.md) · [Giao thức điều khiển](docs/control-protocol.md) · [UX](docs/ux.md)
