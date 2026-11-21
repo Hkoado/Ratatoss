@@ -1,0 +1,21 @@
+# Tự gỡ `blocked` cho issue
+
+Workflow **Issue readiness** chuyển issue đang mở từ `blocked` sang `ready` khi có đúng một assignee và tất cả phép kiểm đầu vào đều đạt. Workflow đọc dữ liệu GitHub và hiện vật từ `main`. [Quy tắc nhóm §1, §3–4](../../CONTRIBUTING.md) · [Backlog](../../plan/BACKLOG.md) · [Thứ tự PLARS và demo](../governance/adr/0002-plars-integration-order.md)
+
+## Các phép kiểm
+
+1. Thêm các issue tiền nhiệm trong **Relationships → Blocked by**. Workflow kiểm các quan hệ cùng repo, gồm những quan hệ đã định trong [cấu hình](../../.github/issue-readiness.json) và quan hệ bổ sung trên GitHub. Mọi tiền nhiệm phải đóng với lý do **Completed**. [Quan hệ phụ thuộc của GitHub](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies)
+2. Workflow tìm PR bàn giao của mỗi tiền nhiệm từ lịch sử GitHub theo tiêu đề `[#N]` hoặc liên kết `Closes #N`. Mọi PR bàn giao đang mở hoặc đã merge phải có squash commit trong lịch sử `main`, do chủ repo merge, có approval hợp lệ trên revision cuối và đạt các check bắt buộc trước merge. Với #4, workflow kiểm quyết định đã ban hành qua ADR 0002 trên `main`. [Quyết định #4](../governance/adr/0002-plars-integration-order.md)
+3. Workflow đối chiếu các tệp đầu vào, báo cáo nghiệm thu tiền nhiệm và hiện vật thử riêng được chỉ định trong cấu hình. Issue ngoài danh sách cần có phép kiểm tương ứng trong cấu hình trước khi được xét tự mở.
+
+## Hiện vật dùng cho phép kiểm
+
+Với #6, đưa CSV preflight thật vào `bench/artifacts/r02-preflight/` theo [mẫu benchmark](../../bench/README.md). `endpoints.json` ánh xạ `A`, `B`, `C` tới ba định danh SHA-256 riêng của các đầu mút đã lược thông tin nhận dạng. Trong `runs.csv`, các cột `relay_config`, `network_profile` và `evidence_ref` trỏ tới tệp tương đối trong cùng gói hiện vật. Workflow kiểm pin Croc, SHA-256 hai fixture 32 MiB và khoảng truyền A→B/B→C chồng lấp trên cùng đồng hồ B qua `transfers.csv`. Ca này kiểm sẵn sàng của lab trước khi chạy đủ bài đo R0.2. [Runbook cổng 0](../../docs/experiments.md#cổng-0--transport) · [Fixture đã kiểm](croc-lab.md#fixture-tổng-hợp-tái-tạo-được)
+
+Với các mục `reports` khác, chương trình kiểm thử hoặc ca thu thập hiện vật ghi `readiness.json` từ kết quả thật. Đối tượng `checks` ánh xạ từng tên phép kiểm trong cấu hình tới `status` và `evidence`. Kết quả đạt dùng `status` là `pass`. `evidence` ánh xạ tên tệp tương đối trong gói báo cáo tới SHA-256 của dữ liệu hoặc log thô đã lược bí mật. Workflow kiểm đủ từng kết quả và đối chiếu hash của tệp. Phép kiểm nghiệp vụ nằm ở chương trình tạo kết quả tương ứng. [Quy tắc lưu bằng chứng](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
+
+## Xem kết quả
+
+Khi issue đổi trạng thái hoặc hiện vật mới vào `main`, workflow chạy lại. Lịch 20 phút giúp đối chiếu thay đổi quan hệ và thử lại khi API gặp lỗi tạm thời. Trong **Actions → Issue readiness**, xem số issue và điều kiện còn thiếu trong phần tóm tắt. Khi chạy thủ công, giữ `dry_run` để xem các issue đủ điều kiện hoặc bỏ chọn để áp dụng nhãn.
+
+Workflow thêm `ready` trước rồi gỡ `blocked` để lượt chạy sau có thể tiếp tục nếu API ngắt giữa hai thao tác. Issue còn `blocked` vẫn chờ. Cơ chế tự động chỉ chuyển các issue đang mang `blocked` theo chiều sang `ready`. GitHub ghi thao tác cập nhật nhãn trong lịch sử issue.

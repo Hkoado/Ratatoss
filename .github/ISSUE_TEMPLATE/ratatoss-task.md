@@ -18,7 +18,9 @@ Tra tài liệu theo ticket tại [MAPDOCS](https://github.com/Hkoado/Ratatoss/b
 
 ## Phạm vi và phụ thuộc
 
-<!-- Liệt kê tệp hoặc thành phần dự kiến sửa, issue phụ thuộc (#N) và đầu vào cần có. Ghi rõ đầu vào nào còn thiếu. -->
+<!-- Liệt kê tệp hoặc thành phần dự kiến sửa và đầu vào cần có. Ghi rõ đầu vào nào còn thiếu. Khai báo issue tiền nhiệm trong mục Relationships → Blocked by để workflow đọc được. -->
+
+[Điều kiện kiểm tự động để gỡ `blocked`](https://github.com/Hkoado/Ratatoss/blob/main/spec/operations/issue-readiness.md).
 
 ## Điều kiện nghiệm thu
 

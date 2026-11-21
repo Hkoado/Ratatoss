@@ -1,0 +1,59 @@
+name: Issue readiness
+
+on:
+  issues:
+    types: [opened, edited, assigned, unassigned, labeled, unlabeled, closed, reopened]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '7,27,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report eligible issues without changing labels
+        type: boolean
+        default: true
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue-readiness.yml'
+      - '.github/issue-readiness.json'
+      - '.github/scripts/issue_readiness.py'
+      - '.github/tests/test_issue_readiness.py'
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    concurrency:
+      group: issue-readiness
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      checks: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reconcile blocked issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: python3 .github/scripts/issue_readiness.py
+
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s .github/tests -p test_issue_readiness.py -v

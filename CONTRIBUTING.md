@@ -5,7 +5,7 @@
 - Chủ dự án phân việc qua GitHub Issues. Mỗi issue có một người phụ trách, phạm vi tệp, phụ thuộc và điều kiện nghiệm thu. Nếu có ticket backlog, ghi mã ticket trong issue.
 - Dùng [mẫu issue](.github/ISSUE_TEMPLATE/ratatoss-task.md). Điền mã **Ticket** hoặc tên **Tuyến** cho việc ngoài backlog. Dùng [MAPDOCS](MAPDOCS.md) để chọn tài liệu khi bắt đầu.
 - Bắt đầu bằng R0.1 khi có binary Croc đã ghim, relay thử nghiệm và fixture SHA-256. Với các ticket sau, ghi issue phụ thuộc và đầu vào còn thiếu. Tích hợp PLARS ở R2.1 trước demo nghiệm thu R1.4 theo quyết định cho bản chính thức. [Backlog](plan/BACKLOG.md) · [Thứ tự đã chốt](spec/governance/adr/0002-plars-integration-order.md)
-- Dùng nhãn `blocked` khi còn thiếu phụ thuộc hoặc đầu vào và chỉ bắt đầu triển khai issue có nhãn `ready`. Trước khi đổi sang `ready`, chủ dự án kiểm tra các PR phụ thuộc đã được duyệt trên commit cuối, đạt các kiểm tra bắt buộc và được chủ dự án squash merge vào `main`. Issue phụ thuộc phải có bằng chứng nghiệm thu và đầu vào của issue kế tiếp phải được xác nhận. Việc đóng issue không thay thế các bước này.
+- Dùng nhãn `blocked` khi còn thiếu phụ thuộc hoặc đầu vào. Chỉ bắt đầu triển khai khi issue đã có người phụ trách, có nhãn `ready` và đã gỡ `blocked`. Khai báo tiền nhiệm trong **Relationships → Blocked by**. Workflow kiểm tra trực tiếp PR, review, CI và hiện vật trên `main`, rồi tự đổi nhãn khi đủ điều kiện. [Cấu hình kiểm tra và cách xem kết quả](spec/operations/issue-readiness.md)
 - Lấy `main` mới nhất và tạo nhánh riêng cho issue đã nhận. Nếu cần sửa ngoài phạm vi hoặc đụng tệp của issue khác, trao đổi trong issue trước.
 
 ## 2. Đặt tên nhánh và PR
@@ -28,7 +28,7 @@ git push -u origin 'feat/#42-batch-reconcile'
 
 ## 3. Mở PR và review
 
-- Mở PR vào `main` từ nhánh issue. Mặc định mỗi PR xử lý một issue. Nếu issue cần nhiều PR, dùng `Refs #N` cho các PR trước và `Closes #N` cho PR hoàn tất. [Cách GitHub liên kết và đóng issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)
+- Mở PR vào `main` từ nhánh issue. Mặc định mỗi PR xử lý một issue. Nếu issue cần nhiều PR, dùng `Refs #N` cho các PR trước và `Closes #N` cho PR hoàn tất. Giữ `[#N]` trong tiêu đề từng PR để workflow nhận diện các PR bàn giao từ lịch sử issue. [Cách GitHub liên kết và đóng issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)
 - Mô tả phạm vi thay đổi, cách kiểm tra và kết quả thực tế. Ghi rõ mục chưa chạy hoặc bị chặn. Có thể mở Draft PR để xin góp ý sớm, rồi chuyển sang Ready for review khi đủ bằng chứng.
 - Mời ít nhất một thành viên khác review. Nếu có commit mới sau khi được duyệt, yêu cầu review lại. Xử lý các yêu cầu sửa và xác nhận các kiểm tra bắt buộc đã đạt trước khi merge.
 - Tuân thủ [quy tắc bảo toàn tài liệu gốc](spec/governance/README.md). Chạy `python spec/governance/verify_originals.py` và ghi kết quả trong PR.
