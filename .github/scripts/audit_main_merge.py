@@ -46,26 +46,41 @@ class GitHub:
             page += 1
 
 
-def has_approval(pr, reviews, owner):
+def has_approval(pr, reviews, owner, timeline):
     author = pr["user"]["login"].casefold()
     merge_time = datetime.fromisoformat(pr["merged_at"])
     decisions = {}
+    dismissals = {
+        str(event["dismissed_review"]["review_id"]): event
+        for event in timeline
+        if event.get("event") == "review_dismissed"
+    }
 
     for review in reviews:
         reviewer = review.get("user")
         submitted_at = review.get("submitted_at")
-        if (not reviewer or not submitted_at
-                or review["state"] not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}):
+        if not reviewer or not submitted_at:
             continue
         order = datetime.fromisoformat(submitted_at), review["id"]
         if order[0] >= merge_time:
             continue
+
+        state = review["state"]
+        if state == "DISMISSED":
+            dismissal = dismissals.get(str(review["id"]))
+            if dismissal is None:
+                raise ValueError("GitHub did not return the review dismissal event")
+            state = dismissal["dismissed_review"]["state"].upper()
+            if state == "APPROVED" and datetime.fromisoformat(dismissal["created_at"]) <= merge_time:
+                state = "DISMISSED"
+        if state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
+            continue
         login = reviewer["login"].casefold()
         if login not in decisions or order > decisions[login][0]:
-            decisions[login] = order, review
+            decisions[login] = order, state, review
 
-    for login, (_, decision) in decisions.items():
-        if decision["state"] != "APPROVED" or decision["commit_id"] != pr["head"]["sha"]:
+    for login, (_, state, decision) in decisions.items():
+        if state != "APPROVED" or decision["commit_id"] != pr["head"]["sha"]:
             continue
         if author != owner and login == owner:
             return True
@@ -120,7 +135,11 @@ def audit_push(event, github, *, wait=sleep):
     if actor.casefold() != owner or merger.casefold() != owner:
         violations.append("The push or PR merge was performed by an account other than the repository owner.")
 
-    if not has_approval(pr, github.items(f"/pulls/{number}/reviews"), owner):
+    reviews = list(github.items(f"/pulls/{number}/reviews"))
+    timeline = ()
+    if any(review["state"] == "DISMISSED" for review in reviews):
+        timeline = github.items(f"/issues/{number}/timeline")
+    if not has_approval(pr, reviews, owner, timeline):
         if pr["user"]["login"].casefold() == owner:
             expected = "another repository collaborator"
         else:

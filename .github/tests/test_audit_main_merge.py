@@ -53,8 +53,16 @@ def review(reviewer=OWNER, *, state="APPROVED", sha=HEAD, time=EARLY, id=1, role
     }
 
 
+def dismissal(review_id, *, state="approved", time=LATER):
+    return {
+        "event": "review_dismissed",
+        "created_at": time,
+        "dismissed_review": {"review_id": str(review_id), "state": state},
+    }
+
+
 class FakeGitHub:
-    def __init__(self, *, author="teammate", merger=OWNER, reviews=(), candidates=None, parents=None):
+    def __init__(self, *, author="teammate", merger=OWNER, reviews=(), timeline=(), candidates=None, parents=None):
         self.data = {
             f"/commits/{AFTER}/pulls": candidates if candidates is not None else [
                 {"number": PR, "base": BASE, "merge_commit_sha": AFTER}
@@ -67,6 +75,7 @@ class FakeGitHub:
                 "head": {"sha": HEAD},
             },
             f"/pulls/{PR}/reviews": reviews,
+            f"/issues/{PR}/timeline": timeline,
             f"/commits/{AFTER}": {"parents": [{"sha": parent} for parent in (parents or [BEFORE])]},
         }
 
@@ -106,13 +115,23 @@ class MergeAuditTests(unittest.TestCase):
                 self.assertTrue(self.audit(FakeGitHub(reviews=[approval])).violations)
 
     def test_latest_decisive_review_counts(self):
-        for state in ("CHANGES_REQUESTED", "DISMISSED"):
-            with self.subTest(state=state):
-                later = review(state=state, time=LATER, id=2)
-                self.assertTrue(self.audit(FakeGitHub(reviews=[later, review()])).violations)
+        change_request = review(state="CHANGES_REQUESTED", time=LATER, id=2)
+        self.assertTrue(self.audit(FakeGitHub(reviews=[change_request, review()])).violations)
         after_merge = review(state="CHANGES_REQUESTED", time=LATE, id=3)
         comment = review(state="COMMENTED", time=LATER, id=2)
         self.assertFalse(self.audit(FakeGitHub(reviews=[comment, after_merge, review()])).violations)
+
+    def test_dismissal_only_withdraws_approval_before_merge(self):
+        reviews = [review(state="DISMISSED")]
+        self.assertTrue(self.audit(FakeGitHub(reviews=reviews, timeline=[dismissal(1)])).violations)
+        self.assertFalse(self.audit(FakeGitHub(reviews=reviews, timeline=[dismissal(1, time=LATE)])).violations)
+        with self.assertRaisesRegex(ValueError, "dismissal event"):
+            self.audit(FakeGitHub(reviews=reviews))
+
+    def test_dismissed_comment_preserves_previous_approval(self):
+        comment = review(state="DISMISSED", time=LATER, id=2)
+        timeline = [dismissal(2, state="commented")]
+        self.assertFalse(self.audit(FakeGitHub(reviews=[review(), comment], timeline=timeline)).violations)
 
     def test_flags_direct_push_and_wrong_pr_base(self):
         other_pr = {"number": PR, "merge_commit_sha": AFTER, "base": {**BASE, "ref": "dev"}}
