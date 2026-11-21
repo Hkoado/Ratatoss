@@ -1,19 +1,53 @@
 import csv
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 
-script_dir = Path(__file__).resolve().parent.parent / "scripts"
-if not script_dir.exists():
-    script_dir = Path(__file__).resolve().parent / "scripts"
-if script_dir.exists():
-    sys.path.insert(0, str(script_dir))
-from validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER, validate_csv
+
+def _resolve_repo_root() -> Path | None:
+    # 1. Môi trường checkout thông thường
+    candidate = Path(__file__).resolve().parent.parent
+    if (candidate / "scripts" / "validate_bench_csv.py").is_file():
+        return candidate
+    # 2. Môi trường GitHub Actions CI (bước smoke test chạy ngoài checkout)
+    if "GITHUB_WORKSPACE" in os.environ:
+        workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+        if (workspace / "scripts" / "validate_bench_csv.py").is_file():
+            return workspace
+    # 3. Tìm từ thư mục làm việc hiện tại hoặc các thư mục cha
+    cwd = Path.cwd().resolve()
+    for directory in (cwd, *cwd.parents):
+        if (directory / "scripts" / "validate_bench_csv.py").is_file():
+            return directory
+    return None
+
+
+REPO_ROOT = _resolve_repo_root()
+if REPO_ROOT is not None:
+    scripts_dir = str(REPO_ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    try:
+        from validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER, validate_csv
+    except ImportError:
+        validate_csv = None
+        RUNS_HEADER = []
+        TRANSFERS_HEADER = []
+else:
+    validate_csv = None
+    RUNS_HEADER = []
+    TRANSFERS_HEADER = []
 
 
 class TestValidateBenchCsv(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        if validate_csv is None or REPO_ROOT is None:
+            raise unittest.SkipTest("scripts/validate_bench_csv.py not found outside repository")
 
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
@@ -25,20 +59,19 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.tmp_dir.cleanup()
 
     def write_csvs(self, runs_rows, transfers_rows):
-        with self.runs_file.open("w", encoding="utf-8", newline="") as f:
+        with self.runs_file.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(RUNS_HEADER)
             for row in runs_rows:
                 writer.writerow(row)
 
-        with self.transfers_file.open("w", encoding="utf-8", newline="") as f:
+        with self.transfers_file.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(TRANSFERS_HEADER)
             for row in transfers_rows:
                 writer.writerow(row)
 
     def test_valid_empty_runs(self):
-        # Hai mẫu chỉ có tiêu đề (0 lượt chạy)
         self.write_csvs([], [])
         errors = validate_csv(self.runs_file, self.transfers_file)
         self.assertEqual(errors, [])
@@ -62,7 +95,7 @@ class TestValidateBenchCsv(unittest.TestCase):
         run_row = [""] * len(RUNS_HEADER)
         run_row[0] = "run_001"
         run_row[17] = "pass"
-        run_row[-1] = ""  # notes bị bỏ trống
+        run_row[-1] = ""
 
         transfer_row = [""] * len(TRANSFERS_HEADER)
         transfer_row[0] = "run_001"
@@ -74,10 +107,10 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.assertTrue(any("measurement fields are empty without notes justification" in err for err in errors))
 
     def test_invalid_header(self):
-        with self.runs_file.open("w", encoding="utf-8", newline="") as f:
+        with self.runs_file.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["wrong", "header"])
-        with self.transfers_file.open("w", encoding="utf-8", newline="") as f:
+        with self.transfers_file.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(TRANSFERS_HEADER)
 
@@ -95,7 +128,6 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.write_csvs([run_row1, run_row2], [])
         errors = validate_csv(self.runs_file, self.transfers_file)
         self.assertTrue(any("duplicate run_id" in err for err in errors))
-        # Xác minh không in giá trị bản ghi (run_001) ra chẩn đoán lỗi
         self.assertFalse(any("run_001" in err for err in errors))
 
     def test_invalid_status(self):
@@ -107,7 +139,6 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.write_csvs([run_row], [])
         errors = validate_csv(self.runs_file, self.transfers_file)
         self.assertTrue(any("invalid status" in err for err in errors))
-        # Xác minh không in giá trị bản ghi (unknown_status) ra chẩn đoán lỗi
         self.assertFalse(any("unknown_status" in err for err in errors))
 
     def test_missing_run_id_in_runs(self):
@@ -124,30 +155,25 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.write_csvs([run_row], [transfer_row])
         errors = validate_csv(self.runs_file, self.transfers_file)
         self.assertTrue(any("not found in runs.csv" in err for err in errors))
-        # Xác minh không in giá trị bản ghi (run_999) ra chẩn đoán lỗi
         self.assertFalse(any("run_999" in err for err in errors))
 
     def test_subprocess_with_templates(self):
-        # Chạy subprocess với 2 mẫu gốc trong bench/
-        repo_root = Path(__file__).resolve().parent.parent
-        bench_runs = repo_root / "bench" / "runs.csv"
-        bench_transfers = repo_root / "bench" / "transfers.csv"
-        script_path = repo_root / "scripts" / "validate_bench_csv.py"
+        bench_runs = REPO_ROOT / "bench" / "runs.csv"
+        bench_transfers = REPO_ROOT / "bench" / "transfers.csv"
+        script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
 
         res = subprocess.run([sys.executable, str(script_path), str(bench_runs), str(bench_transfers)], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("0 run(s)", res.stdout)
 
     def test_subprocess_with_invalid_copy(self):
-        # Chạy subprocess với bản sao có lỗi và kiểm tra không in nội dung bản ghi
-        repo_root = Path(__file__).resolve().parent.parent
-        bench_transfers = repo_root / "bench" / "transfers.csv"
-        script_path = repo_root / "scripts" / "validate_bench_csv.py"
+        bench_transfers = REPO_ROOT / "bench" / "transfers.csv"
+        script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
 
         secret_status = "BAD_STATUS_SENSITIVE_XYZ"
         secret_run_id = "RUN_ID_SENSITIVE_123"
         invalid_runs = self.tmp_path / "invalid_runs.csv"
-        with invalid_runs.open("w", encoding="utf-8", newline="") as f:
+        with invalid_runs.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(RUNS_HEADER)
             bad_row = [""] * len(RUNS_HEADER)
@@ -158,7 +184,6 @@ class TestValidateBenchCsv(unittest.TestCase):
 
         res = subprocess.run([sys.executable, str(script_path), str(invalid_runs), str(bench_transfers)], capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0)
-        # Khẳng định không in nội dung bản ghi nhạy cảm
         self.assertNotIn(secret_status, res.stderr)
         self.assertNotIn(secret_run_id, res.stderr)
         self.assertIn("invalid status", res.stderr)
