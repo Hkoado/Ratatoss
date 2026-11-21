@@ -5,20 +5,25 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from .settings import DEFAULT_NODE_PORT, LOOPBACK
+
 STATIC = Path(__file__).with_name("static")
 
 
-def create_app(port: int = 8765) -> FastAPI:
+def create_app(port: int = DEFAULT_NODE_PORT) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    authority = f"127.0.0.1:{port}"
+    authority = f"{LOOPBACK}:{port}"
+    authorities = {authority, LOOPBACK} if port == 80 else {authority}
+    loopback_origins = {f"http://{host}" for host in authorities}
 
     @app.middleware("http")
     async def protect_loopback(request: Request, call_next):
         origins = request.headers.getlist("origin")
-        if (request.client is None or request.client.host != "127.0.0.1"
-                or request.headers.getlist("host") != [authority]):
+        hosts = request.headers.getlist("host")
+        if (request.client is None or request.client.host != LOOPBACK
+                or len(hosts) != 1 or hosts[0] not in authorities):
             return PlainTextResponse("Forbidden", status_code=403)
-        if origins and origins != [f"http://{authority}"]:
+        if origins and (len(origins) != 1 or origins[0] not in loopback_origins):
             return PlainTextResponse("Forbidden", status_code=403)
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = (
