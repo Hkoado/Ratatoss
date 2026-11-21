@@ -1,25 +1,54 @@
 import csv
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.summarize_r02 import summarize_runs
-from scripts.validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER
+
+def _resolve_repo_root() -> Path | None:
+    if "GITHUB_WORKSPACE" in os.environ:
+        workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+        if (workspace / "scripts" / "summarize_r02.py").is_file():
+            return workspace
+
+    candidate = Path(__file__).resolve().parent.parent
+    if (candidate / "scripts" / "summarize_r02.py").is_file():
+        return candidate
+
+    for directory in (Path.cwd().resolve(), *Path.cwd().resolve().parents):
+        if (directory / "scripts" / "summarize_r02.py").is_file():
+            return directory
+
+    return None
+
+
+REPO_ROOT = _resolve_repo_root()
+if REPO_ROOT is not None:
+    scripts_dir = str(REPO_ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from summarize_r02 import summarize_runs
+    from validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER
+else:
+    summarize_runs = None
+    RUNS_HEADER = []
+    TRANSFERS_HEADER = []
 
 
 class TestSummarizeR02(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if summarize_runs is None or REPO_ROOT is None:
+            raise unittest.SkipTest("scripts/summarize_r02.py not found outside repository")
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.runs = self.root / "runs.csv"
         self.transfers = self.root / "transfers.csv"
-        self.script = (
-            Path(__file__).resolve().parents[1]
-            / "scripts"
-            / "summarize_r02.py"
-        )
+        self.script = REPO_ROOT / "scripts" / "summarize_r02.py"
 
     def tearDown(self):
         self.tmp.cleanup()
