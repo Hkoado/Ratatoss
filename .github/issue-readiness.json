@@ -1,0 +1,61 @@
+{
+  "inputs": {
+    "6": {
+      "blocked_by": [5, 23],
+      "files": ["scripts/make_croc_lab_fixtures.py", "scripts/validate_bench_csv.py", "ratatoss/lease_profile.py"],
+      "transport_preflight": "bench/artifacts/r02-preflight"
+    },
+    "7": {
+      "blocked_by": [6, 22],
+      "files": ["ratatoss/batch_assembly.py", "ratatoss/manifest.py", "spec/db/node.sql"]
+    },
+    "8": {
+      "blocked_by": [6],
+      "files": ["spec/api/openapi.json", "spec/db/controller.sql", "docs/control-protocol.md"]
+    },
+    "9": {
+      "blocked_by": [5, 7, 8],
+      "reports": {"bench/artifacts/r13-preflight/readiness.json": ["test-nodes", "integration-config"]}
+    },
+    "10": {
+      "blocked_by": [4, 9, 21],
+      "reports": {"bench/artifacts/r21-preflight/readiness.json": ["goodput-samples", "bottleneck-groups"]}
+    },
+    "11": {
+      "blocked_by": [4, 9, 10],
+      "reports": {"bench/artifacts/r14-preflight/readiness.json": ["same-installer-abcd", "measured-lan-bc"]}
+    },
+    "12": {
+      "blocked_by": [10, 11, 23],
+      "reports": {"bench/artifacts/r22-preflight/readiness.json": ["fixture-hash", "locked-croc-network-slots"]}
+    },
+    "13": {
+      "blocked_by": [12],
+      "reports": {"bench/artifacts/release-preflight/readiness.json": ["clean-windows-11-x64", "installer-candidate"]}
+    },
+    "14": {
+      "blocked_by": [12],
+      "reports": {"bench/artifacts/r31-preflight/readiness.json": ["fault-target", "failure-domains", "cost-budget"]}
+    },
+    "15": {
+      "blocked_by": [12],
+      "reports": {"bench/artifacts/r32-preflight/readiness.json": ["persistence-model"]}
+    },
+    "16": {
+      "blocked_by": [12],
+      "reports": {"bench/artifacts/r33-preflight/readiness.json": ["measured-hypothesis"]}
+    },
+    "17": {
+      "blocked_by": [12],
+      "reports": {"bench/artifacts/r34-preflight/readiness.json": ["key-trust-model", "payload-read-policy"]}
+    }
+  },
+  "outputs": {
+    "4": {"decision": "spec/governance/adr/0002-plars-integration-order.md"},
+    "5": {"croc_smoke": "bench/artifacts/r01-2d6f72c/report.json"},
+    "6": {"reports": {"bench/artifacts/r02/readiness.json": ["verified-transfers", "rx-tx-overlap", "setup-goodput-by-size", "reproduced-timeout", "selected-batch-size"]}},
+    "9": {"reports": {"bench/artifacts/r13/readiness.json": ["fixed-schedule-smoke", "installer-candidate"]}},
+    "11": {"reports": {"bench/artifacts/r14/readiness.json": ["pipeline-overlap", "recovery", "verified-bcd", "reverse-job"]}},
+    "12": {"reports": {"bench/artifacts/r22/readiness.json": ["five-baselines", "locked-comparison", "repeat-scenarios", "raw-runs"]}}
+  }
+}
