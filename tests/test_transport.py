@@ -156,6 +156,22 @@ class CrocAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(failure.exception.partial_isolated)
         self.assertFalse(self.destination.exists())
 
+    async def test_transient_croc_probe_must_disappear_before_delivery(self):
+        child = FakeChild(None)
+
+        def create_probe(argv, *, cwd, env):
+            (cwd / self.batch.filename).write_bytes(self.payload)
+            (cwd / (".croc-bundle-probe-" + "0" * 24)).mkdir()
+            child.poll = unittest.mock.Mock(side_effect=[None, 0])
+            return child
+
+        with patch("ratatoss.transport.WindowsChild", side_effect=create_probe):
+            with self.assertRaisesRegex(CrocError, "^CORRUPT$"):
+                await self.receive(self.adapter())
+        self.assertEqual(child.poll.call_count, 2)
+        self.assertTrue(child.stopped)
+        self.assertFalse(self.destination.exists())
+
     async def test_cleanup_failure_after_verified_delivery_keeps_success(self):
         def write_verified(argv, *, cwd, env):
             (cwd / self.batch.filename).write_bytes(self.payload)

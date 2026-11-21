@@ -336,8 +336,15 @@ class CrocAdapter:
             raise CrocError("CORRUPT")
 
     @staticmethod
-    def _check_receive_directory(stage, batch):
+    def _check_receive_directory(stage, batch, *, running=False):
         for path in stage.iterdir():
+            # v11.6.5 briefly probes hardlinks in these directories on receive.
+            if running and re.fullmatch(r"\.croc-bundle-probe-[0-9a-f]{24}", path.name):
+                try:
+                    _check_path(path, directory=True)
+                except FileNotFoundError:
+                    pass
+                continue
             if path.name != batch.filename:
                 raise CrocError("CORRUPT")
             try:
@@ -361,7 +368,7 @@ class CrocAdapter:
             while time.monotonic() < deadline:
                 exit_code = child.poll()
                 if role == "rx":
-                    self._check_receive_directory(stage, batch)
+                    self._check_receive_directory(stage, batch, running=exit_code is None)
                 if exit_code is not None:
                     break
                 await asyncio.sleep(min(0.025, max(0, deadline - time.monotonic())))
