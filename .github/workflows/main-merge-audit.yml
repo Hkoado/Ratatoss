@@ -1,0 +1,43 @@
+name: Main merge audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/main-merge-audit.yml'
+      - '.github/scripts/audit_main_merge.py'
+      - '.github/tests/test_audit_main_merge.py'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit main update
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Check merge actor and approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/audit_main_merge.py
+
+  test:
+    name: Test merge audit
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s .github/tests -p test_audit_main_merge.py -v
