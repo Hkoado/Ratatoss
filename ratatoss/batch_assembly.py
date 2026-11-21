@@ -28,15 +28,18 @@ def assemble_batches(
         manifest: Validated Manifest instance.
         batches: Mapping from batch index (int) to Path of the batch file in store.
         temp_dir: Directory on the target volume where the temp file is created.
-        read_size: Buffer size for bounded stream reading/writing.
+        read_size: Buffer size for bounded stream reading/writing. Must be a positive integer.
 
     Returns:
         Path to the verified temporary output file.
         
     Raises:
         BatchAssemblyError: If batches are missing, invalid, size/hash mismatch occurs,
-                            or temp file verification fails.
+                            read_size is invalid, or temp file verification fails.
     """
+    if type(read_size) is not int or read_size <= 0:
+        raise BatchAssemblyError(f"read_size must be a positive integer, got: {read_size!r}")
+
     manifest.validate()
     temp_path = Path(temp_dir)
     if not temp_path.is_dir():
@@ -55,9 +58,6 @@ def assemble_batches(
     temp_file_path = Path(temp_file_path_str)
 
     try:
-        whole_hasher = sha256()
-        total_written = 0
-
         with os.fdopen(temp_file_fd, "wb") as destination:
             # Assembly must proceed strictly by offset order from manifest.batches
             for batch_meta in manifest.batches:
@@ -91,11 +91,8 @@ def assemble_batches(
                             )
                         destination.write(chunk)
                         batch_hasher.update(chunk)
-                        whole_hasher.update(chunk)
                         batch_read += len(chunk)
-                        total_written += len(chunk)
 
-                    # Ensure no extra trailing bytes
                     trailing = src.read(1)
                     if trailing:
                         raise BatchAssemblyError(
@@ -111,15 +108,31 @@ def assemble_batches(
             destination.flush()
             os.fsync(destination.fileno())
 
-        if total_written != manifest.size:
+        # Verify the actual assembled file on disk directly using bounded buffers
+        temp_stat = os.stat(temp_file_path)
+        if not stat.S_ISREG(temp_stat.st_mode):
+            raise BatchAssemblyError("Assembled temporary file is not a regular file")
+        if temp_stat.st_size != manifest.size:
             raise BatchAssemblyError(
-                f"Total written size mismatch: expected {manifest.size}, got {total_written}"
+                f"Assembled file size mismatch: expected {manifest.size}, found {temp_stat.st_size}"
             )
 
-        calculated_whole_sha256 = whole_hasher.hexdigest()
-        if calculated_whole_sha256 != manifest.sha256:
+        disk_hasher = sha256()
+        verified_read = 0
+        with temp_file_path.open("rb") as disk_src:
+            while verified_read < manifest.size:
+                block = disk_src.read(min(read_size, manifest.size - verified_read))
+                if not block:
+                    raise BatchAssemblyError("Unexpected EOF while verifying assembled temporary file")
+                disk_hasher.update(block)
+                verified_read += len(block)
+            trailing_temp = disk_src.read(1)
+            if trailing_temp:
+                raise BatchAssemblyError("Assembled temporary file has trailing bytes beyond manifest size")
+
+        if disk_hasher.hexdigest() != manifest.sha256:
             raise BatchAssemblyError(
-                f"Total file SHA-256 mismatch: expected {manifest.sha256}, calculated {calculated_whole_sha256}"
+                f"Assembled file SHA-256 mismatch: expected {manifest.sha256}, calculated {disk_hasher.hexdigest()}"
             )
 
         return temp_file_path

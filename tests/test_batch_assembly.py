@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ratatoss.batch_assembly import assemble_batches, BatchAssemblyError
 from ratatoss.manifest import build_manifest, verify_file, Manifest
@@ -146,7 +147,6 @@ class TestBatchAssembly(unittest.TestCase):
             assemble_batches(manifest, batch_map, non_existent_dir)
 
     def test_small_buffer_stream_assembly(self):
-        # Test custom small read_size buffer (e.g. 7 bytes) to exercise buffer boundary loops
         data = os.urandom(128)
         manifest, batch_map = self._create_batches_from_source(data, piece_size=16, batch_size=32)
 
@@ -154,6 +154,45 @@ class TestBatchAssembly(unittest.TestCase):
         self.assertTrue(temp_output.is_file())
         self.assertEqual(temp_output.read_bytes(), data)
         self.assertTrue(verify_file(temp_output, manifest))
+
+    def test_invalid_read_size_rejected_before_temp_file_creation(self):
+        # Test non-positive read_size on both populated and empty manifests
+        for data in (b"data-content", b""):
+            manifest, batch_map = self._create_batches_from_source(data, piece_size=16, batch_size=32)
+            for bad_read_size in (0, -1, -100, 1.5, "1024", None, False, True):
+                with self.subTest(data=data, bad_read_size=bad_read_size):
+                    with self.assertRaises(BatchAssemblyError) as ctx:
+                        assemble_batches(manifest, batch_map, self.temp_dir, read_size=bad_read_size)
+                    self.assertIn("read_size must be a positive integer", str(ctx.exception))
+                    # Ensure no temp file was created
+                    temp_files = [f for f in self.temp_dir.iterdir() if f.name.endswith(".tmp")]
+                    self.assertEqual(temp_files, [])
+
+    def test_assembled_temp_file_corruption_detected_and_cleaned(self):
+        # Simulate disk corruption on temp file before verification
+        data = b"original-content-12345678"
+        manifest, batch_map = self._create_batches_from_source(data, piece_size=8, batch_size=16)
+
+        real_fsync = os.fsync
+
+        def corrupt_before_fsync(fd):
+            # Mutate the file on disk while keeping file size identical
+            temp_files = [f for f in self.temp_dir.iterdir() if f.name.endswith(".tmp")]
+            if temp_files:
+                current_bytes = bytearray(temp_files[0].read_bytes())
+                if current_bytes:
+                    current_bytes[0] = (current_bytes[0] ^ 0xFF)  # flip bits of first byte
+                    temp_files[0].write_bytes(bytes(current_bytes))
+            real_fsync(fd)
+
+        with patch("os.fsync", side_effect=corrupt_before_fsync):
+            with self.assertRaises(BatchAssemblyError) as ctx:
+                assemble_batches(manifest, batch_map, self.temp_dir)
+            self.assertIn("Assembled file SHA-256 mismatch", str(ctx.exception))
+
+        # Ensure corrupted temp file was deleted
+        temp_files = [f for f in self.temp_dir.iterdir() if f.name.endswith(".tmp")]
+        self.assertEqual(temp_files, [])
 
 
 if __name__ == "__main__":
