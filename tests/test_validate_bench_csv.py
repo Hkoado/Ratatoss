@@ -5,7 +5,11 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+script_dir = Path(__file__).resolve().parent.parent / "scripts"
+if not script_dir.exists():
+    script_dir = Path(__file__).resolve().parent / "scripts"
+if script_dir.exists():
+    sys.path.insert(0, str(script_dir))
 from validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER, validate_csv
 
 
