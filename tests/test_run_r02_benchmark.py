@@ -1,10 +1,47 @@
 """Unit tests for R0.2 benchmark runner logic."""
 
+import os
+from pathlib import Path
+import sys
 import unittest
-from scripts.run_r02_benchmark import calculate_overlap_ms
+
+
+def _resolve_repo_root() -> Path | None:
+    if "GITHUB_WORKSPACE" in os.environ:
+        workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+        if (workspace / "scripts" / "run_r02_benchmark.py").is_file():
+            return workspace
+
+    candidate = Path(__file__).resolve().parent.parent
+    if (candidate / "scripts" / "run_r02_benchmark.py").is_file():
+        return candidate
+
+    cwd = Path.cwd().resolve()
+    for directory in (cwd, *cwd.parents):
+        if (directory / "scripts" / "run_r02_benchmark.py").is_file():
+            return directory
+
+    return None
+
+
+REPO_ROOT = _resolve_repo_root()
+calculate_overlap_ms = None
+if REPO_ROOT is not None:
+    scripts_dir = str(REPO_ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    try:
+        from run_r02_benchmark import calculate_overlap_ms
+    except ImportError:
+        calculate_overlap_ms = None
 
 
 class TestR02BenchmarkLogic(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if calculate_overlap_ms is None or REPO_ROOT is None:
+            raise unittest.SkipTest("scripts/run_r02_benchmark.py not found outside repository")
+
     def test_positive_overlap(self):
         # RX runs from 1000 to 2000
         # TX runs from 1500 to 2500
