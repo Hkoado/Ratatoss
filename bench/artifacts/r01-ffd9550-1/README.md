@@ -26,3 +26,7 @@ python spec/governance/verify_originals.py
 ```
 
 Smoke mô phỏng cấp quyền phiên tại hai đầu. Runner cấp mã một lần và mật khẩu relay trong môi trường riêng của child. Các phép đo cổng 0 qua nhiều máy, overlap A→B/B→C và so sánh 32/64/128 MiB thuộc R0.2 và ở trạng thái **chưa chạy**.
+
+## Kiểm lại sau review
+
+Commit `2d6f72c` chạy lại đủ năm ca trên cùng binary, relay và fixture. Profile smoke dự trù 750 ms chờ đầu kia và 200 ms bắt tay. Đầu vào preflight của vai trò mở sau chỉ còn 200 ms bắt tay. Hai khoản này là cấu hình của ca thử. Bộ test hồi quy kiểm thêm phiên còn đủ lease khi setup đã giảm và ca nhận lệnh hủy lúc file đang được kiểm SHA-256. [Báo cáo chạy lại](../r01-2d6f72c/report.json)
