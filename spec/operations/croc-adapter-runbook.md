@@ -35,6 +35,46 @@ Nguồn kiểm cú pháp và cơ chế tiến trình gồm [README theo tag](htt
 3. Cùng assignment chỉ khởi động một child cho mỗi vai trò và giữ slot đến khi cây child đã dừng. Chốt deadline khi nhận lease dựa vào thời gian monotonic và phần lease còn lại, dùng hạn sớm hơn với timeout adapter. Retry `ready` không mở lease mới. Nếu mất HTTPS, chỉ phiên đã có mã tiếp tục trong hạn. Snapshot đầy đủ mất assignment, hết hạn, mất quyền, yêu cầu cancel/withdraw, hoặc lỗi child đều dẫn đến dừng. Mỗi lần retry controller cấp assignment và mã mới. Xem [giao thức](../../docs/control-protocol.md).
 4. Với RX, chỉ sau khi cây child dừng và exit thành công mới bắt đầu kiểm một file thường hợp lệ, đúng kích thước, SHA-256 batch và từng piece. Flush và publish nguyên tử, commit `AVAILABLE` cùng ACK outbox rồi mới gửi ACK. Đối với final, kiểm SHA-256 toàn file và công bố bền vững trước receipt. TX chỉ giữ reference batch đến khi child kết thúc. Xem [thứ tự commit](../../docs/storage-and-recovery.md).
 
+## Preflight ngân sách lease chạy
+
+Issue #25 · tuyến `transport` và điểm bàn giao `control`. Căn cứ [Brief §6.3 và §8 giai đoạn 0](../../docs/source/Ratatoss_Project_Brief_v1.3.md#63-thành-phần-và-trạng-thái), [kế hoạch cổng 0 và lịch cố định](../../plan/ASTRA_PLAN.md), [giao thức phân công và báo cáo](../../docs/control-protocol.md#phân-công-và-báo-cáo) và [runbook thử nghiệm cổng 0–1](../../docs/experiments.md#cổng-0--transport). Phạm vi gồm mục này, [preflight](../../ratatoss/lease_profile.py) và [kiểm thử CLI](../../tests/test_croc_lease.py).
+
+**Đề xuất cho profile thử nghiệm.** Trước khi chạy, khóa batch tính theo byte, ngưỡng goodput payload tính theo bit/giây và ba khoản thời gian nguyên theo mili giây. `setup-ms` bao gồm thời gian sau `ready` đến khi payload bắt đầu, kể cả poll TX. `verify-commit-ms` bao gồm thời gian kết thúc Croc, kiểm batch/piece và công bố bền vững tại RX. `margin-ms` dành cho biến động của các khoản trên. Lấy ngưỡng và các khoản dự trù từ số đo phù hợp hoặc cấu hình đã khóa, ghi nguồn và điều kiện áp dụng. Dùng ngân sách thời gian nhỏ nhất còn lại ở hai đầu khi các đầu có giá trị khác nhau.
+
+- `transfer_ms = ceil(batch_bytes * 8 * 1000 / min_goodput_bps)`
+- `required_ms = transfer_ms + setup_ms + verify_commit_ms + margin_ms`
+- `available_ms = min(remaining_lease_ms, adapter_timeout_ms)`
+
+Profile khả thi khi `required_ms <= available_ms`. Kiểm tra ngoại tuyến dùng ngân sách chạy cấu hình từ lúc `ready`. CLI gọi cùng API `evaluate_lease_budget` trong `ratatoss.lease_profile` và in kết quả của `LeaseBudget.fits`. Lease chuẩn bị 30 giây là giai đoạn riêng. Các hạn chạy được tính bằng monotonic clock theo giao thức. Mã thoát `0` nghĩa là khả thi theo đầu vào, `1` nghĩa là thiếu ngân sách và `2` nghĩa là đối số không hợp lệ.
+
+Ví dụ tổng hợp với ngưỡng 2.000.000 bit/s và 10.000 ms overhead. Chạy từ gốc repo hoặc trong môi trường đã cài gói Ratatoss.
+
+```powershell
+python -m ratatoss.lease_profile --batch-bytes 67108864 --min-goodput-bps 2000000 --remaining-lease-ms 180000 --adapter-timeout-ms 300000 --setup-ms 5000 --verify-commit-ms 2000 --margin-ms 3000
+python -m ratatoss.lease_profile --batch-bytes 33554432 --min-goodput-bps 2000000 --remaining-lease-ms 180000 --adapter-timeout-ms 300000 --setup-ms 5000 --verify-commit-ms 2000 --margin-ms 3000
+```
+
+Ví dụ 64 MiB cần ít nhất 268.436 ms cho payload, 278.436 ms cả overhead, nên trả mã `1`. Ví dụ 32 MiB cần 144.218 ms cả overhead, nên trả mã `0`. Đây là phép tính trên đầu vào tổng hợp. Nếu profile thiếu thời gian, khóa lại cỡ batch, route có ngưỡng goodput phù hợp hoặc cấu hình lease và timeout dành cho ca thử rồi kiểm lại trước khi cấp việc.
+
+| Ca cần chạy với Croc ghim và profile đã khóa | Điều kiện và bằng chứng |
+|---|---|
+| Đường chậm còn tiến triển | Chạy trên đường giới hạn goodput với profile khả thi. Ghi các mốc monotonic lấy mẫu byte để thấy payload tiếp tục tăng, thời điểm kết thúc child, kết quả SHA-256 batch/piece và mốc commit RX trong hạn sớm hơn. Khi là ca tích hợp cuối file, lưu thêm kết quả SHA-256 toàn file tại đích. |
+| Phiên treo | Dùng cùng profile khả thi và làm dừng luồng payload trong lab trong khi kênh điều khiển còn hoạt động. Ghi mốc tác động, byte đứng yên, deadline hiệu lực, `TRANSPORT_TIMEOUT`, kết quả dừng cây child, slot được nhả và staging dở được dọn hoặc cô lập. Ghi batch đã commit vẫn đúng hash và không có batch dở được publish. Khi chạy lại sau khi khôi phục, đối chiếu ID lần thử mới, hash và commit. |
+
+Lưu phiên bản và digest binary, profile và đường truyền theo bằng chứng, ngân sách preflight, mốc monotonic theo từng node, byte, hash fixture và kết quả kiểm hash. Dùng cùng đồng hồ trên một node để tính khoảng thời gian. Lược token, mã phiên và dữ liệu người dùng khỏi hiện vật. Ghi bằng chứng theo [quy tắc lưu run](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng).
+
+Chỉ retry cùng profile khi preflight vẫn khả thi, batch vẫn thiếu sau đối chiếu và điều kiện gây lỗi tạm thời đã hết. Nếu đường thực tế xuống dưới ngưỡng hoặc ngân sách vẫn thiếu, đánh giá lại profile trước lần thử tiếp theo. Chỉ retry phần còn thiếu với assignment và mã mới sau khi lần cũ kết thúc. Giữ bản hợp lệ đã lưu bền. [Lịch cố định và retry](../../plan/ASTRA_PLAN.md#lịch-cố-định-ban-đầu) · [Phân công và báo cáo](../../docs/control-protocol.md#phân-công-và-báo-cáo).
+
+Bàn giao cho các điểm tích hợp sau.
+
+- [#5](https://github.com/Hkoado/Ratatoss/issues/5) gọi API tại Node ngay trước spawn. Truyền lease còn lại và thời gian còn lại của hạn adapter theo monotonic clock, làm tròn xuống theo ms và chặn ở 0. Truyền vào `remaining_setup_ms` chỉ phần setup chưa diễn ra, bao gồm cả thời gian còn chờ đầu kia nếu áp dụng. Nếu ngân sách thiếu, báo lỗi và dọn phần staging chưa commit theo luồng hiện hành. Nếu khả thi, tiếp tục dùng hạn sớm hơn đã chốt.
+- [#6](https://github.com/Hkoado/Ratatoss/issues/6) dùng CLI để kiểm tra từng profile thử và ghi kết quả cùng số đo của hai ca. Khóa phiên bản, tuyến và điều kiện đo.
+- [#8](https://github.com/Hkoado/Ratatoss/issues/8) gọi API trước chuyển sang RUNNING và phát mã. Truyền ngân sách chạy dự kiến ở hai đầu, cùng toàn bộ phần setup sau `ready`. Khi thiếu ngân sách, không chuyển sang RUNNING và đánh giá lại profile trước khi thử lại.
+- [#9](https://github.com/Hkoado/Ratatoss/issues/9) kiểm chứng luồng tích hợp gồm profile đủ và thiếu ngân sách, thời gian đã trôi qua từ `ready`, kết quả thử lại và commit hợp lệ. Lặp `ready` hoặc poll dùng hạn của lần giao hiện có.
+
+Cả hai điểm kiểm tính lại ngân sách cho phần việc còn lại. Phần setup đã tiêu tốn thời gian nằm trong phần deadline đã trôi qua. Việc gọi API giữ nguyên mọi deadline. Hai điểm kiểm chạy thật và hai ca Croc tích hợp **chưa chạy** vì controller và adapter chưa sẵn sàng.
+
+
 ## Hủy và khôi phục
 
 Đặt terminal intent cho assignment để chặn bước publish mới, ngừng nhận sự kiện tiến độ và hủy cả hai đầu qua controller khi có kết nối. Trên POSIX, khởi chạy session/group riêng, gửi terminate cho group, đợi khoảng grace có giới hạn rồi kill group nếu cần. Trên Windows, dùng Job Object gắn cây tiến trình và terminate job hoặc đóng handle cuối sau khi gửi tín hiệu mềm nếu nền tảng hỗ trợ. Chờ reap và drain pipe có deadline, xác nhận không còn child giữ file, rồi xóa đúng staging chưa commit, giải phóng reference và slot. Nếu chưa thể dọn, cô lập staging để startup xử lý và giữ nguyên trạng thái lỗi. Sau crash, supervisor xác nhận child cũ đã chết trước khi dọn, node reconcile từ disk trước công bố availability hoặc cấp lần giao mới. Giữ batch đã commit hợp lệ. Lỗi phân loại theo giao thức, gồm `TRANSPORT_TIMEOUT`, `NO_SPACE` và `CORRUPT`.
