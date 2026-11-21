@@ -52,9 +52,11 @@ def main() -> int:
         print(f"Could not summarize runs.csv: {error}", file=sys.stderr)
         return 1
 
-    print("batch_mib,scenario,status,count")
+    writer = csv.writer(sys.stdout, lineterminator="\n")
+    writer.writerow(["batch_mib", "scenario", "status", "count"])
+
     for batch_mib, scenario, status, count in rows:
-        print(f"{batch_mib},{scenario},{status},{count}")
+        writer.writerow([batch_mib, scenario, status, count])
 
     if not rows:
         print("0 run(s).")

@@ -68,6 +68,41 @@ class TestSummarizeR02(unittest.TestCase):
         row[RUNS_HEADER.index("notes")] = "test data"
         return row
 
+    def test_cli_csv_output_quotes_special_scenario(self):
+        rows = [
+            self.make_run_row(
+                "run-comma",
+                "64",
+                "WAN, shared",
+                "timeout",
+            )
+        ]
+
+        self.write_csv(self.runs, RUNS_HEADER, rows)
+        self.write_csv(self.transfers, TRANSFERS_HEADER, [])
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.script),
+                str(self.runs),
+                str(self.transfers),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0)
+
+        output_rows = list(csv.reader(result.stdout.splitlines()))
+        self.assertEqual(
+            output_rows,
+            [
+                ["batch_mib", "scenario", "status", "count"],
+                ["64", "WAN, shared", "timeout", "1"],
+            ],
+        )
+
     def test_empty_templates_report_zero(self):
         self.write_csv(self.runs, RUNS_HEADER, [])
         self.write_csv(self.transfers, TRANSFERS_HEADER, [])
