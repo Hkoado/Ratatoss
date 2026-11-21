@@ -36,10 +36,30 @@ class Manifest:
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, indent=2)
 
+    def canonical_bytes(self) -> bytes:
+        """Return the validated v1 manifest's canonical UTF-8 encoding."""
+        self.validate()
+        return json.dumps(
+            asdict(self), ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+
+    def manifest_sha256(self) -> str:
+        """Return the SHA-256 of the manifest metadata's canonical bytes."""
+        return sha256(self.canonical_bytes()).hexdigest()
+
     @classmethod
-    def from_json(cls, raw: str) -> "Manifest":
+    def from_json(cls, raw: str | bytes) -> "Manifest":
+        """Validate raw manifest JSON while retaining duplicate-key detection."""
+        return cls.from_dict(decode_manifest_object(raw))
+
+    @classmethod
+    def from_dict(cls, fields: dict) -> "Manifest":
+        """Validate a JSON object from a decoder that rejects duplicate keys."""
+        if not isinstance(fields, dict):
+            raise ValueError("Expected a manifest object")
+        fields = fields.copy()
         try:
-            fields = json.loads(raw)
             if type(fields["version"]) is not int or fields["version"] != 1:
                 raise ValueError("Unsupported manifest version")
             for key in ("pieces", "batches"):
@@ -59,10 +79,14 @@ class Manifest:
             raise ValueError("Invalid manifest filename")
         if any(char in self.name for char in ("/", "\\", "\x00")):
             raise ValueError("Invalid manifest filename")
+        if any("\ud800" <= char <= "\udfff" for char in self.name):
+            raise ValueError("Invalid Unicode surrogate in manifest filename")
         if type(self.size) is not int or self.size < 0:
             raise ValueError("Invalid file size")
         _validate_sizes(self.piece_size, self.batch_size)
         _validate_digest(self.sha256)
+        if self.size == 0 and self.sha256 != sha256(b"").hexdigest():
+            raise ValueError("Invalid SHA-256 for an empty file")
         for segments, span in ((self.pieces, self.piece_size), (self.batches, self.batch_size)):
             if len(segments) != (self.size + span - 1) // span:
                 raise ValueError("Invalid segment count")
@@ -73,6 +97,29 @@ class Manifest:
                 if any(type(value) is not int for value in coordinates) or coordinates != expected:
                     raise ValueError(f"Invalid segment layout at index {index}")
                 _validate_digest(segment.sha256)
+
+
+def decode_manifest_object(raw: str | bytes) -> dict:
+    """Decode a manifest or its API envelope before keys can be collapsed."""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    result = json.loads(raw, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
+    if not isinstance(result, dict):
+        raise ValueError("Expected a JSON object")
+    return result
+
+
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value: str) -> None:
+    raise ValueError(f"Invalid JSON constant: {value}")
 
 
 def _validate_sizes(piece_size: int, batch_size: int) -> None:
