@@ -8,20 +8,23 @@ import unittest
 
 
 def _resolve_repo_root() -> Path | None:
-    # 1. Môi trường checkout thông thường
-    candidate = Path(__file__).resolve().parent.parent
-    if (candidate / "scripts" / "validate_bench_csv.py").is_file():
-        return candidate
-    # 2. Môi trường GitHub Actions CI (bước smoke test chạy ngoài checkout)
+    # 1. Môi trường GitHub Actions CI: GITHUB_WORKSPACE luôn trỏ đến repository checkout gốc
     if "GITHUB_WORKSPACE" in os.environ:
         workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
-        if (workspace / "scripts" / "validate_bench_csv.py").is_file():
+        if (workspace / "bench" / "transfers.csv").is_file() and (workspace / "scripts" / "validate_bench_csv.py").is_file():
             return workspace
+
+    # 2. Môi trường checkout thông thường (cục bộ)
+    candidate = Path(__file__).resolve().parent.parent
+    if (candidate / "bench" / "transfers.csv").is_file() and (candidate / "scripts" / "validate_bench_csv.py").is_file():
+        return candidate
+
     # 3. Tìm từ thư mục làm việc hiện tại hoặc các thư mục cha
     cwd = Path.cwd().resolve()
     for directory in (cwd, *cwd.parents):
-        if (directory / "scripts" / "validate_bench_csv.py").is_file():
+        if (directory / "bench" / "transfers.csv").is_file() and (directory / "scripts" / "validate_bench_csv.py").is_file():
             return directory
+
     return None
 
 
@@ -158,6 +161,8 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.assertFalse(any("run_999" in err for err in errors))
 
     def test_subprocess_with_templates(self):
+        if REPO_ROOT is None:
+            raise unittest.SkipTest("Repository templates bench/ not found outside checkout")
         bench_runs = REPO_ROOT / "bench" / "runs.csv"
         bench_transfers = REPO_ROOT / "bench" / "transfers.csv"
         script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
@@ -167,8 +172,15 @@ class TestValidateBenchCsv(unittest.TestCase):
         self.assertIn("0 run(s)", res.stdout)
 
     def test_subprocess_with_invalid_copy(self):
-        bench_transfers = REPO_ROOT / "bench" / "transfers.csv"
+        if REPO_ROOT is None:
+            raise unittest.SkipTest("scripts/validate_bench_csv.py not found")
         script_path = REPO_ROOT / "scripts" / "validate_bench_csv.py"
+
+        # Tạo file transfer hợp lệ độc lập trong thư mục tạm của test
+        valid_transfers = self.tmp_path / "valid_transfers.csv"
+        with valid_transfers.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(TRANSFERS_HEADER)
 
         secret_status = "BAD_STATUS_SENSITIVE_XYZ"
         secret_run_id = "RUN_ID_SENSITIVE_123"
@@ -182,7 +194,7 @@ class TestValidateBenchCsv(unittest.TestCase):
             bad_row[-1] = "notes"
             writer.writerow(bad_row)
 
-        res = subprocess.run([sys.executable, str(script_path), str(invalid_runs), str(bench_transfers)], capture_output=True, text=True)
+        res = subprocess.run([sys.executable, str(script_path), str(invalid_runs), str(valid_transfers)], capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0)
         self.assertNotIn(secret_status, res.stderr)
         self.assertNotIn(secret_run_id, res.stderr)
