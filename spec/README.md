@@ -18,6 +18,7 @@
 | [Cơ sở dữ liệu](db/) | Mô hình dữ liệu và các bất biến khi lưu trữ |
 | [Vận hành](operations/) | Cấu hình, triển khai và kiểm tra vận hành |
 | [Bàn giao cho nhóm](operations/team-handoff.md) | Phạm vi nền, issue, phụ thuộc và bằng chứng |
+| [Lab Croc](operations/croc-lab.md) | Binary đã kiểm, fixture tái tạo và smoke loopback cho R0.1 |
 | [Bộ cài Windows](operations/windows-installer.md) | Đóng gói, mở Web/CLI bằng shortcut, cập nhật và nghiệm thu trên máy sạch |
 | [Tích hợp giao diện](ui-integration.md) | UI Kit v1.2, điểm mở demo và thứ tự ưu tiên khi nối giao diện với Node |
 

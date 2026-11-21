@@ -49,4 +49,4 @@ Nguồn kiểm cú pháp và cơ chế tiến trình gồm [README theo tag](htt
 | RX/TX chờ đầu kia, cắt đường, hủy, crash | Deadline, lỗi chuẩn hóa, process tree trước/sau, slot được nhả, staging dở được dọn, batch commit hợp lệ còn nguyên, lần retry mới thành công |
 | Đường truyền | Dấu hiệu endpoint socket và byte qua interface/relay theo khoảng truyền. Chỉ đánh dấu `direct` hoặc `relay` khi đủ chứng cứ, nếu thiếu ghi `unknown`. Cùng SSID hoặc IP riêng chưa đủ |
 
-Ghi phiên theo [runbook thử nghiệm](../../docs/experiments.md), bảo toàn run lỗi và để trống phép đo thiếu. Pin release đã được xác nhận qua trang upstream. Binary chưa có trên PATH của môi trường kiểm kê. Các phép thử Croc thật và xác nhận từng OS hiện **chưa chạy**.
+Ghi phiên theo [runbook thử nghiệm](../../docs/experiments.md), bảo toàn run lỗi và để trống phép đo thiếu. Pin và smoke chuẩn bị Windows đã được kiểm trong [hồ sơ lab Croc](croc-lab.md). Hồ sơ ghi argv thực nghiệm riêng. Cần kiểm tiếp hợp đồng adapter cho từng OS và hoàn tất các ca nghiệm thu của R0.1–R0.2.
