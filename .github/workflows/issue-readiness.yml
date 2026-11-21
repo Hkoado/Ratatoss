@@ -52,8 +52,20 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      checks: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - run: python3 -m unittest discover -s .github/tests -p test_issue_readiness.py -v
+      - name: Dry run against GitHub
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: 'true'
+        run: python3 .github/scripts/issue_readiness.py
