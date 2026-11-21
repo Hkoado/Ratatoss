@@ -1,0 +1,404 @@
+{
+  "status": "pass",
+  "os": "Windows",
+  "os_version": "10.0.22631",
+  "architecture": "AMD64",
+  "python": "3.14.2",
+  "commit": "2d6f72c6cf190dff5102c9d6309e8d5811f726ba",
+  "tree_clean": true,
+  "fixture": {
+    "bytes": 33554432,
+    "expected_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+  },
+  "expected_croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "cases": [
+    {
+      "name": "rx-first",
+      "status": "pass",
+      "attempt_id": "5d6333b7-1dcb-4368-8ca7-07f1f881d0d9",
+      "retry_of": null,
+      "timeout_s": 25,
+      "lease_deadline_monotonic": 4493.4082888,
+      "roles": {
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 950,
+          "process": {
+            "pid": 760,
+            "started_at": "2026-11-21T11:23:06.536614+00:00",
+            "stopped_at": "2026-11-21T11:23:07.539789+00:00",
+            "started_monotonic": 4468.4100699,
+            "stopped_monotonic": 4469.4132604,
+            "deadline_monotonic": 4493.4082888,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false
+          },
+          "status": "ok"
+        },
+        "tx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "send",
+            "--no-local",
+            "--transport",
+            "relay",
+            "batch-5d6333b71dcb43688ca707f1f881d0d9.bin"
+          ],
+          "remaining_setup_ms": 200,
+          "process": {
+            "pid": 23212,
+            "started_at": "2026-11-21T11:23:07.379640+00:00",
+            "stopped_at": "2026-11-21T11:23:07.533542+00:00",
+            "started_monotonic": 4469.2530966,
+            "stopped_monotonic": 4469.4070162,
+            "deadline_monotonic": 4493.4082888,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false
+          },
+          "status": "ok"
+        }
+      },
+      "destination_exists": true,
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "received_bytes": 33554432
+    },
+    {
+      "name": "tx-first",
+      "status": "pass",
+      "attempt_id": "a540ebb5-45b5-4f8d-bc42-082e5dc63982",
+      "retry_of": null,
+      "timeout_s": 25,
+      "lease_deadline_monotonic": 4494.9802057,
+      "roles": {
+        "tx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "send",
+            "--no-local",
+            "--transport",
+            "relay",
+            "batch-a540ebb545b54f8dbc42082e5dc63982.bin"
+          ],
+          "remaining_setup_ms": 950,
+          "process": {
+            "pid": 18856,
+            "started_at": "2026-11-21T11:23:08.237617+00:00",
+            "stopped_at": "2026-11-21T11:23:09.124220+00:00",
+            "started_monotonic": 4470.111073,
+            "stopped_monotonic": 4470.9976915,
+            "deadline_monotonic": 4494.9802057,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false
+          },
+          "status": "ok"
+        },
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 200,
+          "process": {
+            "pid": 19956,
+            "started_at": "2026-11-21T11:23:08.864610+00:00",
+            "stopped_at": "2026-11-21T11:23:09.129282+00:00",
+            "started_monotonic": 4470.7380679,
+            "stopped_monotonic": 4471.0027519,
+            "deadline_monotonic": 4494.9802057,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false
+          },
+          "status": "ok"
+        }
+      },
+      "destination_exists": true,
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "received_bytes": 33554432
+    },
+    {
+      "name": "rx-without-tx",
+      "status": "pass",
+      "attempt_id": "49f4ec01-6883-4297-9e2e-4da2523924f3",
+      "retry_of": null,
+      "timeout_s": 4.5,
+      "lease_deadline_monotonic": 4476.0346318,
+      "roles": {
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 950,
+          "status": "TRANSPORT_TIMEOUT",
+          "process": {
+            "pid": 23684,
+            "started_at": "2026-11-21T11:23:09.674288+00:00",
+            "stopped_at": "2026-11-21T11:23:14.176816+00:00",
+            "started_monotonic": 4471.5477458,
+            "stopped_monotonic": 4476.0503002,
+            "deadline_monotonic": 4476.0346318,
+            "exit_code": 1,
+            "job": {
+              "active_before_stop": 2,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 1
+            },
+            "staging_cleanup_pending": false
+          },
+          "partial_isolated": false,
+          "staging_cleanup_pending": false
+        }
+      },
+      "destination_exists": false
+    },
+    {
+      "name": "partial-rx-timeout",
+      "status": "pass",
+      "attempt_id": "83b9dbd5-03dd-4727-b010-3930989d47fb",
+      "retry_of": null,
+      "timeout_s": 6,
+      "lease_deadline_monotonic": 4482.0518254,
+      "roles": {
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 950,
+          "status": "TRANSPORT_TIMEOUT",
+          "process": {
+            "pid": 22720,
+            "started_at": "2026-11-21T11:23:14.179825+00:00",
+            "stopped_at": "2026-11-21T11:23:20.214857+00:00",
+            "started_monotonic": 4476.0532839,
+            "stopped_monotonic": 4482.0883277,
+            "deadline_monotonic": 4482.0518254,
+            "exit_code": 1,
+            "job": {
+              "active_before_stop": 2,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 1
+            },
+            "staging_cleanup_pending": false
+          },
+          "partial_isolated": true,
+          "staging_cleanup_pending": false
+        },
+        "tx": {
+          "argv": [
+            "CROC",
+            "--throttleUpload",
+            "512k",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "send",
+            "--no-local",
+            "--transport",
+            "relay",
+            "batch-83b9dbd503dd4727b0103930989d47fb.bin"
+          ],
+          "remaining_setup_ms": 200,
+          "status": "TRANSPORT_TIMEOUT",
+          "process": {
+            "pid": 26200,
+            "started_at": "2026-11-21T11:23:15.045042+00:00",
+            "stopped_at": "2026-11-21T11:23:20.206652+00:00",
+            "started_monotonic": 4476.9184985,
+            "stopped_monotonic": 4482.0801495,
+            "deadline_monotonic": 4482.0518254,
+            "exit_code": 1,
+            "job": {
+              "active_before_stop": 2,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 1
+            },
+            "staging_cleanup_pending": false
+          },
+          "partial_isolated": false,
+          "staging_cleanup_pending": false
+        }
+      },
+      "destination_exists": false,
+      "quarantined_file_size": 33554432,
+      "quarantined_sha256": "6763afa1a36d7bc009fa9f58f581ab7b9e226435b2abd74555199353167c2dff"
+    },
+    {
+      "name": "retry",
+      "status": "pass",
+      "attempt_id": "f24761b3-3321-4a8c-8419-a1407f2a0245",
+      "retry_of": "83b9dbd5-03dd-4727-b010-3930989d47fb",
+      "timeout_s": 25,
+      "lease_deadline_monotonic": 4507.1590491,
+      "roles": {
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 950,
+          "process": {
+            "pid": 25308,
+            "started_at": "2026-11-21T11:23:20.287299+00:00",
+            "stopped_at": "2026-11-21T11:23:21.327760+00:00",
+            "started_monotonic": 4482.160757,
+            "stopped_monotonic": 4483.2012312,
+            "deadline_monotonic": 4507.1590491,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false
+          },
+          "status": "ok"
+        },
+        "tx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--relay",
+            "127.0.0.1:19009",
+            "send",
+            "--no-local",
+            "--transport",
+            "relay",
+            "batch-f24761b333214a8c8419a1407f2a0245.bin"
+          ],
+          "remaining_setup_ms": 200,
+          "process": {
+            "pid": 9556,
+            "started_at": "2026-11-21T11:23:21.145213+00:00",
+            "stopped_at": "2026-11-21T11:23:21.311065+00:00",
+            "started_monotonic": 4483.0186712,
+            "stopped_monotonic": 4483.1845371,
+            "deadline_monotonic": 4507.1590491,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false
+          },
+          "status": "ok"
+        }
+      },
+      "destination_exists": true,
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "received_bytes": 33554432
+    }
+  ],
+  "profile": {
+    "name": "lab-windows-loopback",
+    "endpoint": "127.0.0.1:19009",
+    "ports": [
+      19009,
+      19010
+    ],
+    "min_goodput_bps": 100000000,
+    "setup_ms": 950,
+    "verify_commit_ms": 200,
+    "margin_ms": 200,
+    "route": "unknown",
+    "start_gap_s": 0.75,
+    "fault_upload_limit": "512k"
+  },
+  "croc": {
+    "version": "11.6.5",
+    "sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "probes_passed": [
+      "--version",
+      "--help",
+      "send --help",
+      "relay --help"
+    ]
+  },
+  "relay": {
+    "argv": [
+      "CROC",
+      "--disable-clipboard",
+      "--no-update-check",
+      "relay",
+      "--host",
+      "127.0.0.1",
+      "--ports",
+      "19009,19010"
+    ],
+    "listeners": [
+      "127.0.0.1:19009",
+      "127.0.0.1:19010"
+    ],
+    "cleanup": {
+      "active_before_stop": 2,
+      "active_after_stop": 0,
+      "total_processes": 2,
+      "exit_code": 1
+    }
+  },
+  "previous_verified_files_preserved": true,
+  "clipboard_sequence_unchanged": true
+}
