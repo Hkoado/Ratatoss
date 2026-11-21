@@ -1,0 +1,49 @@
+{
+  "status": "pass",
+  "commit": "c85fd82dc08e6053d7550a880537abbf7858d2ae",
+  "os": "Windows",
+  "os_version": "10.0.22631",
+  "architecture": "AMD64",
+  "python": "3.14.2",
+  "transfers": {
+    "A-B": {
+      "fixture_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "bytes": 33554432,
+      "processes": {
+        "rx": {
+          "exit_code": 0,
+          "children_after_stop": 0,
+          "started_monotonic_s": 11206.3117034,
+          "stopped_monotonic_s": 11207.3890376
+        },
+        "tx": {
+          "exit_code": 0,
+          "children_after_stop": 0,
+          "started_monotonic_s": 11207.1826151,
+          "stopped_monotonic_s": 11207.3894217
+        }
+      }
+    },
+    "B-C": {
+      "fixture_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679",
+      "received_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679",
+      "bytes": 33554432,
+      "processes": {
+        "rx": {
+          "exit_code": 0,
+          "children_after_stop": 0,
+          "started_monotonic_s": 11206.3179708,
+          "stopped_monotonic_s": 11208.0255086
+        },
+        "tx": {
+          "exit_code": 0,
+          "children_after_stop": 0,
+          "started_monotonic_s": 11207.3413735,
+          "stopped_monotonic_s": 11208.025782
+        }
+      }
+    }
+  },
+  "payload_overlap_measured": false
+}
