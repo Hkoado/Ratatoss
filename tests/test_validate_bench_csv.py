@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 
+
 def _resolve_repo_root() -> Path | None:
     # 1. Môi trường GitHub Actions CI: GITHUB_WORKSPACE luôn trỏ đến repository checkout gốc
     if "GITHUB_WORKSPACE" in os.environ:
