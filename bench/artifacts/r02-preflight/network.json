@@ -1,0 +1,15 @@
+{
+  "profile": "windows-ipv4-loopback",
+  "topology": "A\u2192relay\u2192B; B\u2192relay\u2192C",
+  "physical_hosts": 1,
+  "endpoint_workspaces": 3,
+  "direct_lan_or_wan_measured": false,
+  "start_gap_s": 0.75,
+  "timeout_s": 25,
+  "lease_budget_config": {
+    "min_goodput_bps": 100000000,
+    "handshake_ms": 200,
+    "verify_commit_ms": 200,
+    "margin_ms": 200
+  }
+}
