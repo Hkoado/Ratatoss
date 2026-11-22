@@ -1,0 +1,92 @@
+{
+  "checks": {
+    "verified-transfers": {
+      "status": "pass",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "08c79e580d8975b08cf56b86b2fdf73b5e88e22352e9772dfdc914b977d22392",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "5c4f7388f53aae14908fc3fe9af40a1f3d8432ab58ec0e3283ab53fa9f271254",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "a7b62721f752991d7479a26da2d9364d535e4bb17ae574edc5737027b47e2fa2",
+        "r02-retry-32mib-bcd013/evidence.json": "28b68960d2331efa2f24ae92aa0066757c418ca06e9acb5299853cb9b96bd99a",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "77e32a1a833b689fb67b5bdfcc7998ac42f050bcc7ff075c68c88b4c03fb3936",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "037bb96048430b0231462dbe730d0019efbeebc95f5b9a8731fb29f999d0b301",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "bb61b7c96a0d7848818ad71017d3901b543d9348ad0e49e3117949a89f715f46",
+        "r02-slow_path-32mib-d07b05/evidence.json": "54b669072057c543db26879b7e13c934eea8b165713b6d7cdb758eba1d200b60",
+        "r02-timeout-reproduce-00fdca/evidence.json": "ed38c15bb606964ddf276a90584bba1564306ad14f33487e6cd6c6dde7070b68",
+        "runs.csv": "1b7729a004f065f801cb0b582c38a4e4f4d18b16598cce4ad53de3063ad0cd83",
+        "transfers.csv": "7547bea0063d14b6e53260ff56f83f201947b2181bac61d89d21821468372981",
+        "batch-profiles.json": "c7e0bd3f55b03596b7e3c4e236853c0438061e756ae27088c1a9afdad18f9538"
+      }
+    },
+    "rx-tx-overlap": {
+      "status": "blocked",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "08c79e580d8975b08cf56b86b2fdf73b5e88e22352e9772dfdc914b977d22392",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "5c4f7388f53aae14908fc3fe9af40a1f3d8432ab58ec0e3283ab53fa9f271254",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "a7b62721f752991d7479a26da2d9364d535e4bb17ae574edc5737027b47e2fa2",
+        "r02-retry-32mib-bcd013/evidence.json": "28b68960d2331efa2f24ae92aa0066757c418ca06e9acb5299853cb9b96bd99a",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "77e32a1a833b689fb67b5bdfcc7998ac42f050bcc7ff075c68c88b4c03fb3936",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "037bb96048430b0231462dbe730d0019efbeebc95f5b9a8731fb29f999d0b301",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "bb61b7c96a0d7848818ad71017d3901b543d9348ad0e49e3117949a89f715f46",
+        "r02-slow_path-32mib-d07b05/evidence.json": "54b669072057c543db26879b7e13c934eea8b165713b6d7cdb758eba1d200b60",
+        "r02-timeout-reproduce-00fdca/evidence.json": "ed38c15bb606964ddf276a90584bba1564306ad14f33487e6cd6c6dde7070b68",
+        "runs.csv": "1b7729a004f065f801cb0b582c38a4e4f4d18b16598cce4ad53de3063ad0cd83",
+        "transfers.csv": "7547bea0063d14b6e53260ff56f83f201947b2181bac61d89d21821468372981",
+        "batch-profiles.json": "c7e0bd3f55b03596b7e3c4e236853c0438061e756ae27088c1a9afdad18f9538"
+      },
+      "reason": "Croc progress observations are not byte-level payload markers."
+    },
+    "setup-goodput-by-size": {
+      "status": "blocked",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "08c79e580d8975b08cf56b86b2fdf73b5e88e22352e9772dfdc914b977d22392",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "5c4f7388f53aae14908fc3fe9af40a1f3d8432ab58ec0e3283ab53fa9f271254",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "a7b62721f752991d7479a26da2d9364d535e4bb17ae574edc5737027b47e2fa2",
+        "r02-retry-32mib-bcd013/evidence.json": "28b68960d2331efa2f24ae92aa0066757c418ca06e9acb5299853cb9b96bd99a",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "77e32a1a833b689fb67b5bdfcc7998ac42f050bcc7ff075c68c88b4c03fb3936",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "037bb96048430b0231462dbe730d0019efbeebc95f5b9a8731fb29f999d0b301",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "bb61b7c96a0d7848818ad71017d3901b543d9348ad0e49e3117949a89f715f46",
+        "r02-slow_path-32mib-d07b05/evidence.json": "54b669072057c543db26879b7e13c934eea8b165713b6d7cdb758eba1d200b60",
+        "r02-timeout-reproduce-00fdca/evidence.json": "ed38c15bb606964ddf276a90584bba1564306ad14f33487e6cd6c6dde7070b68",
+        "runs.csv": "1b7729a004f065f801cb0b582c38a4e4f4d18b16598cce4ad53de3063ad0cd83",
+        "transfers.csv": "7547bea0063d14b6e53260ff56f83f201947b2181bac61d89d21821468372981",
+        "batch-profiles.json": "c7e0bd3f55b03596b7e3c4e236853c0438061e756ae27088c1a9afdad18f9538"
+      },
+      "reason": "first_byte_monotonic_ms, last_byte_monotonic_ms, setup_ms and goodput_bps remain blank until byte-level markers are verified."
+    },
+    "reproduced-timeout": {
+      "status": "pass",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "08c79e580d8975b08cf56b86b2fdf73b5e88e22352e9772dfdc914b977d22392",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "5c4f7388f53aae14908fc3fe9af40a1f3d8432ab58ec0e3283ab53fa9f271254",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "a7b62721f752991d7479a26da2d9364d535e4bb17ae574edc5737027b47e2fa2",
+        "r02-retry-32mib-bcd013/evidence.json": "28b68960d2331efa2f24ae92aa0066757c418ca06e9acb5299853cb9b96bd99a",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "77e32a1a833b689fb67b5bdfcc7998ac42f050bcc7ff075c68c88b4c03fb3936",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "037bb96048430b0231462dbe730d0019efbeebc95f5b9a8731fb29f999d0b301",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "bb61b7c96a0d7848818ad71017d3901b543d9348ad0e49e3117949a89f715f46",
+        "r02-slow_path-32mib-d07b05/evidence.json": "54b669072057c543db26879b7e13c934eea8b165713b6d7cdb758eba1d200b60",
+        "r02-timeout-reproduce-00fdca/evidence.json": "ed38c15bb606964ddf276a90584bba1564306ad14f33487e6cd6c6dde7070b68",
+        "runs.csv": "1b7729a004f065f801cb0b582c38a4e4f4d18b16598cce4ad53de3063ad0cd83",
+        "transfers.csv": "7547bea0063d14b6e53260ff56f83f201947b2181bac61d89d21821468372981",
+        "batch-profiles.json": "c7e0bd3f55b03596b7e3c4e236853c0438061e756ae27088c1a9afdad18f9538"
+      }
+    },
+    "selected-batch-size": {
+      "status": "blocked",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "08c79e580d8975b08cf56b86b2fdf73b5e88e22352e9772dfdc914b977d22392",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "5c4f7388f53aae14908fc3fe9af40a1f3d8432ab58ec0e3283ab53fa9f271254",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "a7b62721f752991d7479a26da2d9364d535e4bb17ae574edc5737027b47e2fa2",
+        "r02-retry-32mib-bcd013/evidence.json": "28b68960d2331efa2f24ae92aa0066757c418ca06e9acb5299853cb9b96bd99a",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "77e32a1a833b689fb67b5bdfcc7998ac42f050bcc7ff075c68c88b4c03fb3936",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "037bb96048430b0231462dbe730d0019efbeebc95f5b9a8731fb29f999d0b301",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "bb61b7c96a0d7848818ad71017d3901b543d9348ad0e49e3117949a89f715f46",
+        "r02-slow_path-32mib-d07b05/evidence.json": "54b669072057c543db26879b7e13c934eea8b165713b6d7cdb758eba1d200b60",
+        "r02-timeout-reproduce-00fdca/evidence.json": "ed38c15bb606964ddf276a90584bba1564306ad14f33487e6cd6c6dde7070b68",
+        "runs.csv": "1b7729a004f065f801cb0b582c38a4e4f4d18b16598cce4ad53de3063ad0cd83",
+        "transfers.csv": "7547bea0063d14b6e53260ff56f83f201947b2181bac61d89d21821468372981",
+        "batch-profiles.json": "c7e0bd3f55b03596b7e3c4e236853c0438061e756ae27088c1a9afdad18f9538"
+      },
+      "reason": "No initial batch size is selected until byte-level setup/goodput and overlap are verified."
+    }
+  }
+}
