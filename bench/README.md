@@ -14,12 +14,12 @@ Dựa trên kết quả đo đạc thực nghiệm 19 runs (gồm cả tuần t�
 
 | Cỡ Batch | Kịch bản | Goodput trung bình | Makespan trung bình | Overlap RX/TX trên B |
 |---|---|---|---|---|
-| **32 MiB** | Tuần tự (A→B) | ~1.330 Gbps | ~1 088 ms | N/A |
-| **32 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 229 ms | ~125–141 ms (Dương) |
-| **64 MiB** | Tuần tự (A→B) | ~1.785 Gbps | ~1 239 ms | N/A |
-| **64 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 510 ms | ~250 ms (Dương) |
-| **128 MiB** | Tuần tự (A→B) | ~1.858 Gbps | ~1 636 ms | N/A |
-| **128 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~2 047 ms | ~469–563 ms (Dương) |
+| **32 MiB** | Tuần tự (A→B) | ~1.261 Gbps | ~1 084 ms | N/A |
+| **32 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 193 ms | ~125–141 ms (Dương) |
+| **64 MiB** | Tuần tự (A→B) | ~1.737 Gbps | ~1 224 ms | N/A |
+| **64 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 464 ms | ~218–265 ms (Dương) |
+| **128 MiB** | Tuần tự (A→B) | ~2.050 Gbps | ~1 588 ms | N/A |
+| **128 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 781 ms | ~328–688 ms (Dương) |
 
 ### 2. Luận cứ kỹ thuật chọn **64 MiB** làm kích thước Batch ban đầu (Initial Batch Size):
 1. **Khấu hao Setup Time**: Chi phí khởi tạo phiên và bắt tay (handshake + setup ~750ms - 1000ms) của Croc trên mỗi batch là tương đối cố định. Với batch 32 MiB, chi phí setup chiếm tỷ trọng quá lớn khiến goodput hữu ích bị giảm (chỉ đạt ~260 Mbps). Ngược lại, batch 64 MiB tăng gấp đôi goodput hữu dụng lên ~500 Mbps.

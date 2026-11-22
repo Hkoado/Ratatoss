@@ -1,0 +1,10 @@
+{
+  "run_id": "r02-seq-32mib-rep2-8c0ec1",
+  "commit": "584ffac",
+  "scenario": "sequential",
+  "status": "1",
+  "measured_at": "2026-11-22T06:59:21.499888+00:00",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "secrets_redacted": true
+}
