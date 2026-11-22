@@ -41,6 +41,7 @@ else:
             calculate_makespan_ms,
             calculate_overlap_ms,
             calculate_payload_overlap_ms,
+            BenchmarkAdapter,
             fault_profile_for_size,
             fault_timeout_receive_plan,
             evidence_ref,
@@ -233,6 +234,67 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         self.assertEqual(plan["remaining_setup_ms"], 1400)
         self.assertEqual(plan["timeout"], 4.5)
         self.assertEqual(plan["lease_deadline"], 4500.0)
+
+    def test_32_mib_fault_profile_passes_timeout_preflight_through_receive(self):
+        import asyncio
+        import tempfile
+        import time
+        import unittest.mock
+        from pathlib import Path
+        from unittest.mock import patch
+        from uuid import uuid4
+
+        from ratatoss.transport import Batch, CrocAdapter, CrocError
+
+        class TimedOutChild:
+            pid = 456
+
+            def __init__(self):
+                self.stopped = False
+
+            def poll(self):
+                return None
+
+            def stop(self):
+                self.stopped = True
+                from ratatoss._croc_process import JobCleanup
+                return JobCleanup(1, 0, 1, 0)
+
+        async def exercise():
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                binary = root / "croc.exe"
+                staging = root / "staging"
+                staging.mkdir()
+                destination = root / "destination.bin"
+                profile = fault_profile_for_size("fault-password", 32)
+                batch = Batch(uuid4(), 32 * 1024 * 1024, "0" * 64)
+
+                with patch.object(CrocAdapter, "_verify_binary", autospec=True):
+                    adapter = BenchmarkAdapter(
+                        binary, staging, profile, observe_payload=True,
+                    )
+
+                deadline = time.monotonic() + 4.5
+                plan = fault_timeout_receive_plan(profile, deadline, 4.5)
+                child = TimedOutChild()
+
+                with patch("ratatoss.transport.WindowsChild", return_value=child):
+                    with self.assertRaisesRegex(CrocError, "^TRANSPORT_TIMEOUT$") as failure:
+                        await adapter.receive(
+                            destination,
+                            "fault-session-code",
+                            batch=batch,
+                            timeout=plan["timeout"],
+                            lease_deadline=plan["lease_deadline"],
+                            remaining_setup_ms=plan["remaining_setup_ms"],
+                        )
+
+                self.assertTrue(child.stopped)
+                self.assertEqual(failure.exception.process.job.active_after_stop, 0)
+                self.assertFalse(destination.exists())
+
+        asyncio.run(exercise())
 
     def test_evidence_ref_uses_repo_relative_r02_path(self):
         from pathlib import Path

@@ -14,11 +14,6 @@ from uuid import uuid4
 
 from ratatoss._croc_process import JobCleanup, WindowsChild
 from ratatoss.transport import WINDOWS_X64_SHA256, Batch, CrocAdapter, CrocError, RelayProfile
-from scripts.run_r02_benchmark import (
-    BenchmarkAdapter,
-    fault_profile_for_size,
-    fault_timeout_receive_plan,
-)
 
 
 class FakeChild:
@@ -126,34 +121,6 @@ class CrocAdapterTests(unittest.IsolatedAsyncioTestCase):
         spawn.assert_called_once()
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(result.deadline_monotonic, lease)
-
-    async def test_32_mib_fault_profile_passes_timeout_preflight_through_receive(self):
-        profile = fault_profile_for_size("fault-password", 32)
-        child = FakeChild(None)
-        batch = Batch(uuid4(), 32 * 1024 * 1024, "0" * 64)
-
-        with patch.object(BenchmarkAdapter, "_verify_binary", autospec=True):
-            adapter = BenchmarkAdapter(
-                self.binary, self.attempts, profile, observe_payload=True,
-            )
-
-        deadline = time.monotonic() + 4.5
-        plan = fault_timeout_receive_plan(profile, deadline, 4.5)
-
-        with patch("ratatoss.transport.WindowsChild", return_value=child):
-            with self.assertRaisesRegex(CrocError, "^TRANSPORT_TIMEOUT$") as failure:
-                await adapter.receive(
-                    self.destination,
-                    "fault-session-code",
-                    batch=batch,
-                    timeout=plan["timeout"],
-                    lease_deadline=plan["lease_deadline"],
-                    remaining_setup_ms=plan["remaining_setup_ms"],
-                )
-
-        self.assertTrue(child.stopped)
-        self.assertEqual(failure.exception.process.job.active_after_stop, 0)
-        self.assertFalse(self.destination.exists())
 
     async def test_timeout_isolates_partial_retry_verifies_and_existing_output_survives(self):
         adapter = self.adapter()
