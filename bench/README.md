@@ -6,7 +6,7 @@ Sao chép mẫu CSV cho mỗi bộ ca chạy theo [runbook](../docs/experiments.
 
 ## Báo cáo và Luận cứ chọn cỡ Batch ban đầu (R0.2)
 
-> Trạng thái bằng chứng: các số liệu và kết luận 64 MiB trong các bản CSV/README trước đây chưa được xem là đủ bằng chứng cho gate R0.2 nếu thiếu hiện vật lược bí mật hoặc fixture chạy lại khớp commit. Chỉ kết luận từ một lượt chạy thật sau khi CSV, evidence JSON, mã commit, marker payload và hash đã khớp cùng commit được ghi trong PR.
+> Trạng thái bằng chứng: lần chạy loopback thật đã tạo 21 run và 30 transfer. CSV, evidence JSON và mã commit đang được đồng nhất; kết quả này vẫn giới hạn lab loopback Windows một máy, chưa thay thế benchmark LAN/WAN nhiều máy.
 
 Dựa trên kết quả đo đạc thực nghiệm 19 runs (gồm cả tuần tự, đồng thời và timeout tái hiện) được lưu tại `bench/artifacts/r02/runs.csv` và `bench/artifacts/r02/transfers.csv`:
 
@@ -14,12 +14,12 @@ Dựa trên kết quả đo đạc thực nghiệm 19 runs (gồm cả tuần t�
 
 | Cỡ Batch | Kịch bản | Goodput trung bình | Makespan trung bình | Overlap RX/TX trên B |
 |---|---|---|---|---|
-| **32 MiB** | Tuần tự (A→B) | ~260 Mbps | ~1 100 ms | N/A |
-| **32 MiB** | Đồng thời (A→B + B→C) | ~250 Mbps | ~1 099 ms | ~150 ms (Dương) |
-| **64 MiB** | Tuần tự (A→B) | ~505 Mbps | ~1 088 ms | N/A |
-| **64 MiB** | Đồng thời (A→B + B→C) | ~490 Mbps | ~1 198 ms | ~114 ms (Dương) |
-| **128 MiB** | Tuần tự (A→B) | ~845 Mbps | ~1 271 ms | N/A |
-| **128 MiB** | Đồng thời (A→B + B→C) | ~820 Mbps | ~1 573 ms | ~213 ms (Dương) |
+| **32 MiB** | Tuần tự (A→B) | ~1.330 Gbps | ~1 088 ms | N/A |
+| **32 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 229 ms | ~125–141 ms (Dương) |
+| **64 MiB** | Tuần tự (A→B) | ~1.785 Gbps | ~1 239 ms | N/A |
+| **64 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~1 510 ms | ~250 ms (Dương) |
+| **128 MiB** | Tuần tự (A→B) | ~1.858 Gbps | ~1 636 ms | N/A |
+| **128 MiB** | Đồng thời (A→B + B→C) | Xem transfer CSV | ~2 047 ms | ~469–563 ms (Dương) |
 
 ### 2. Luận cứ kỹ thuật chọn **64 MiB** làm kích thước Batch ban đầu (Initial Batch Size):
 1. **Khấu hao Setup Time**: Chi phí khởi tạo phiên và bắt tay (handshake + setup ~750ms - 1000ms) của Croc trên mỗi batch là tương đối cố định. Với batch 32 MiB, chi phí setup chiếm tỷ trọng quá lớn khiến goodput hữu ích bị giảm (chỉ đạt ~260 Mbps). Ngược lại, batch 64 MiB tăng gấp đôi goodput hữu dụng lên ~500 Mbps.

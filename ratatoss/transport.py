@@ -260,8 +260,12 @@ class CrocAdapter:
             self._check_budget(batch, adapter_deadline, lease_deadline, setup_ms)
             process = await self._run(role, batch, stage, env, deadline)
             if role == "rx":
-                await self._verify_received(stage, payload, batch)
-                process = replace(process, sha256_done_monotonic=time.monotonic())
+                verified_monotonic = await self._verify_received(stage, payload, batch)
+                process = replace(
+                    process,
+                    last_byte_monotonic=verified_monotonic,
+                    sha256_done_monotonic=time.monotonic(),
+                )
                 # Dispatch queued cancellation before entering the atomic handoff.
                 await asyncio.sleep(0)
                 if time.monotonic() >= deadline:
@@ -299,10 +303,11 @@ class CrocAdapter:
             self._check_payload(payload, batch)
             with payload.open("r+b") as stream:
                 os.fsync(stream.fileno())
+            return time.monotonic()
 
         verification = asyncio.create_task(asyncio.to_thread(verify_and_flush))
         try:
-            await asyncio.shield(verification)
+            return await asyncio.shield(verification)
         except asyncio.CancelledError:
             # Even repeated cancellation must leave staging owned until the file
             # has been closed by the worker.
@@ -414,7 +419,7 @@ class CrocAdapter:
                                 last_byte_monotonic = time.monotonic()
                 if exit_code is not None:
                     break
-                await asyncio.sleep(min(0.025, max(0, deadline - time.monotonic())))
+                await asyncio.sleep(min(0.001, max(0, deadline - time.monotonic())))
             if exit_code is None:
                 error = CrocError("TRANSPORT_TIMEOUT")
             elif exit_code:
