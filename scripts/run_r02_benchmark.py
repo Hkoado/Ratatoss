@@ -181,7 +181,8 @@ def normalize_evidence_transfer(transfer: dict, details: dict) -> dict:
     return transfer
 
 
-def verified_transfers_status(runs_file: Path, transfers_file: Path) -> tuple[str, str]:
+def verified_transfers_status(runs_file: Path, transfers_file: Path,
+                              selected_sizes: tuple[int, ...] = SIZES) -> tuple[str, str]:
     with runs_file.open("r", encoding="utf-8", newline="") as source:
         runs = list(csv.DictReader(source))
     with transfers_file.open("r", encoding="utf-8", newline="") as source:
@@ -192,7 +193,7 @@ def verified_transfers_status(runs_file: Path, transfers_file: Path) -> tuple[st
     for transfer in transfers:
         transfer_by_run.setdefault(transfer["run_id"], []).append(transfer)
 
-    for size_mib in SIZES:
+    for size_mib in selected_sizes:
         for scenario in ("sequential", "concurrent"):
             matching = [
                 run for run in runs
@@ -224,7 +225,8 @@ def verified_transfers_status(runs_file: Path, transfers_file: Path) -> tuple[st
     return "pass", ""
 
 
-def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path) -> Path:
+def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
+                        selected_sizes: tuple[int, ...] = SIZES) -> Path:
     profile_file = output_dir / "batch-profiles.json"
     profile_file.write_text(
         json.dumps({
@@ -249,7 +251,9 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path)
         "batch-profiles.json": file_sha256(profile_file),
     })
 
-    verified_status, verified_reason = verified_transfers_status(runs_file, transfers_file)
+    verified_status, verified_reason = verified_transfers_status(
+        runs_file, transfers_file, selected_sizes=selected_sizes,
+    )
 
     report = {
         "checks": {
@@ -465,7 +469,8 @@ def failed_measurement(run_id, scenario, repeat, commit, digest, size_mib, error
     return row, details
 
 
-async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
+async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
+                        sizes: tuple[int, ...] = SIZES):
     commit = benchmark_commit()
     for (_, size_mib), (name, digest) in FIXTURE_NAMES.items():
         fixture = fixtures_dir / name
@@ -484,7 +489,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
     with tempfile.TemporaryDirectory() as lab_temp:
         lab_root = Path(lab_temp)
 
-        for size_mib in SIZES:
+        for size_mib in sizes:
             file_bytes = size_mib * 1024 * 1024
             size_profile = SIZE_PROFILES[size_mib]
             profile = RelayProfile(
@@ -845,7 +850,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
         write_run_evidence(output_dir, run_row, transfers_by_run.get(run_id, []), evidence_details[run_id])
 
     print(f"Benchmark completed. Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
-    write_r02_readiness(output_dir, runs_file, transfers_file)
+    write_r02_readiness(output_dir, runs_file, transfers_file, tuple(sizes))
     print(f"Wrote readiness report: {output_dir / 'readiness.json'}")
     return runs_file, transfers_file
 
@@ -856,9 +861,15 @@ def main():
     parser.add_argument("--fixtures", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("bench/artifacts/r02"),
                         help="Output directory for runs.csv and transfers.csv (default: bench/artifacts/r02)")
+    parser.add_argument("--sizes", nargs="+", type=int, choices=SIZES,
+                        default=list(SIZES),
+                        help="Batch sizes to run (default: 32 64 128)")
     args = parser.parse_args()
 
-    asyncio.run(run_benchmark(args.croc.resolve(), args.fixtures.resolve(), args.output))
+    asyncio.run(run_benchmark(
+        args.croc.resolve(), args.fixtures.resolve(), args.output,
+        tuple(dict.fromkeys(args.sizes)),
+    ))
 
 
 if __name__ == "__main__":
