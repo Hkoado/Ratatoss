@@ -18,5 +18,5 @@ def is_eligible_reviewer(reviewer, author, owner, association):
     if reviewer == owner:
         return True
     return association in COLLABORATOR_ASSOCIATIONS and (
-        author == owner or reviewer == DELEGATE
+        author in {owner, DELEGATE} or reviewer == DELEGATE
     )

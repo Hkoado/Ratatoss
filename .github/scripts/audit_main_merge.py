@@ -9,7 +9,7 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from merge_policy import is_authorized_merger, is_eligible_reviewer
+from merge_policy import DELEGATE, is_authorized_merger, is_eligible_reviewer
 
 
 @dataclass(frozen=True)
@@ -139,7 +139,7 @@ def audit_push(event, github, *, wait=sleep):
     if any(review["state"] == "DISMISSED" for review in reviews):
         timeline = github.items(f"/issues/{number}/timeline")
     if not has_approval(pr, reviews, owner, timeline):
-        if pr["user"]["login"].casefold() == owner:
+        if pr["user"]["login"].casefold() in {owner, DELEGATE}:
             expected = "another repository collaborator"
         else:
             expected = "an authorized reviewer other than the PR author"

@@ -113,11 +113,25 @@ class MergeAuditTests(unittest.TestCase):
 
     def test_delegate_cannot_approve_own_pr_or_review_without_collaborator_status(self):
         delegate = "NguyenHuy1804"
-        for author, approval in ((delegate, review(delegate)), ("teammate", review(delegate, role="NONE"))):
+        for author, approval, expected in (
+            (delegate, review(delegate), "another repository collaborator"),
+            ("teammate", review(delegate, role="NONE"), "an authorized reviewer"),
+        ):
             with self.subTest(author=author, approval=approval):
                 audit = self.audit(FakeGitHub(author=author, reviews=[approval]))
-                self.assertIn("No valid approval from an authorized reviewer", audit.violations[0])
+                self.assertIn(f"No valid approval from {expected}", audit.violations[0])
         self.assertFalse(self.audit(FakeGitHub(author=delegate, reviews=[review()])).violations)
+
+    def test_delegate_authored_pr_uses_one_other_repository_member(self):
+        delegate = "NguyenHuy1804"
+        for role in ("COLLABORATOR", "MEMBER"):
+            with self.subTest(role=role):
+                github = FakeGitHub(author=delegate, merger=delegate, reviews=[review("teammate", role=role)])
+                self.assertFalse(self.audit(github, push(actor=delegate)).violations)
+        for rejected in (review("outsider", role="CONTRIBUTOR"), review("teammate", sha=OLD_HEAD)):
+            with self.subTest(rejected=rejected):
+                github = FakeGitHub(author=delegate, merger=delegate, reviews=[rejected])
+                self.assertTrue(self.audit(github, push(actor=delegate)).violations)
 
     def test_flags_unauthorized_merge_even_if_pr_was_approved(self):
         audit = self.audit(FakeGitHub(merger="teammate", reviews=[review()]), push(actor="teammate"))
