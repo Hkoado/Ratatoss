@@ -43,7 +43,7 @@ git push -u origin 'feat/#42-batch-reconcile'
 
 ### Kiểm tra các cập nhật lên `main`
 
-Workflow [Main merge audit](.github/workflows/main-merge-audit.yml) kiểm người thực hiện squash merge và approval trên commit cuối cho mỗi cập nhật lên `main`. Trong tab **Actions**, mở lượt chạy tương ứng để xem tài khoản push, commit, PR và người merge nếu GitHub xác định được, cùng lý do job báo lỗi. PR do thành viên mở cần một lượt **Approve** trên commit cuối từ chủ dự án hoặc `@NguyenHuy1804`. PR do chính `@NguyenHuy1804` mở cần chủ dự án duyệt. Với PR do chủ dự án mở, yêu cầu `@NguyenHuy1804` duyệt commit cuối. GitHub ghi thời điểm theo giây nên lượt review và merge trong cùng một giây sẽ được đánh dấu thiếu bằng chứng thứ tự.
+Workflow [Main merge audit](.github/workflows/main-merge-audit.yml) kiểm người thực hiện squash merge và approval trên commit cuối cho mỗi cập nhật lên `main`. Trong tab **Actions**, mở lượt chạy tương ứng để xem tài khoản push, commit, PR và người merge nếu GitHub xác định được, cùng lý do job báo lỗi. PR do thành viên mở cần một lượt **Approve** trên commit cuối từ chủ dự án hoặc `@NguyenHuy1804`. PR do `@NguyenHuy1804` mở cần một thành viên khác của repo duyệt commit cuối. Với PR do chủ dự án mở, yêu cầu `@NguyenHuy1804` duyệt commit cuối. GitHub ghi thời điểm theo giây nên lượt review và merge trong cùng một giây sẽ được đánh dấu thiếu bằng chứng thứ tự.
 
 Workflow báo sau khi branch đã cập nhật và chạy khi workflow còn được bật. Việc chặn cập nhật trước merge thuộc branch protection. Kiểm tra lỗi API được báo riêng với vi phạm phát hiện được.
 

@@ -171,6 +171,19 @@ class IssueReadinessTests(unittest.TestCase):
         review["user"] = {"login": OWNER}
         self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
 
+    def test_delegate_authored_dependency_accepts_one_other_repository_member(self):
+        delegate = "NguyenHuy1804"
+        self.github.merge.update(user={"login": delegate}, merged_by={"login": delegate})
+        review = self.github.reviews[0].copy()
+        for role in ("COLLABORATOR", "MEMBER"):
+            with self.subTest(role=role):
+                self.github.reviews = [dict(review, author_association=role)]
+                self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
+        for change in ({"author_association": "CONTRIBUTOR"}, {"commit_id": "b" * 40}):
+            with self.subTest(change=change):
+                self.github.reviews = [dict(review, **change)]
+                self.assert_blocked("lacks approval on the final PR commit before merge")
+
     def test_merge_requires_authorized_account_main_and_a_commit_reachable_in_main(self):
         for fields, reason in (({"base": {"ref": "other"}}, "merge by an authorized account into main"),
                                ({"merged_by": {"login": "worker"}}, "merge by an authorized account into main"),
