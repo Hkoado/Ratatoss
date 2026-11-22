@@ -261,6 +261,7 @@ class CrocAdapter:
             process = await self._run(role, batch, stage, env, deadline)
             if role == "rx":
                 await self._verify_received(stage, payload, batch)
+                process = replace(process, sha256_done_monotonic=time.monotonic())
                 # Dispatch queued cancellation before entering the atomic handoff.
                 await asyncio.sleep(0)
                 if time.monotonic() >= deadline:
@@ -390,6 +391,8 @@ class CrocAdapter:
     async def _run(self, role, batch, stage, env, deadline):
         started = time.monotonic()
         started_at = _utc_now()
+        first_byte_monotonic = None
+        last_byte_monotonic = None
         try:
             child = WindowsChild(self.argv(role, batch), cwd=stage, env=env)
         except OSError:
@@ -401,6 +404,14 @@ class CrocAdapter:
                 exit_code = child.poll()
                 if role == "rx":
                     self._check_receive_directory(stage, batch, running=exit_code is None)
+                    payload = stage / batch.filename
+                    if payload.exists():
+                        payload_size = payload.stat().st_size
+                        if payload_size > 0:
+                            if first_byte_monotonic is None:
+                                first_byte_monotonic = time.monotonic()
+                            if payload_size >= batch.size and last_byte_monotonic is None:
+                                last_byte_monotonic = time.monotonic()
                 if exit_code is not None:
                     break
                 await asyncio.sleep(min(0.025, max(0, deadline - time.monotonic())))
@@ -417,6 +428,8 @@ class CrocAdapter:
                 raise CrocError("PROCESS_CLEANUP_FAILED") from None
         result = ProcessRun(
             child.pid, started_at, _utc_now(), started, time.monotonic(), deadline, cleanup.exit_code, cleanup,
+            first_byte_monotonic=first_byte_monotonic,
+            last_byte_monotonic=last_byte_monotonic,
         )
         if error:
             error.process = result

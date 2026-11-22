@@ -35,7 +35,12 @@ else:
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
     try:
-        from run_r02_benchmark import calculate_overlap_ms
+        from run_r02_benchmark import (
+            calculate_makespan_ms,
+            calculate_overlap_ms,
+            calculate_payload_overlap_ms,
+            payload_goodput_bps,
+        )
     except ImportError as exc:
         # ImportError inside a checkout is a real failure, not a skip.
         _import_error = exc
@@ -77,8 +82,28 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         overlap = calculate_overlap_ms(1000.0, 2000.0, 2000.0, 3000.0)
         self.assertEqual(overlap, 0.0)
 
-    def test_setup_ms_zero_when_first_byte_missing(self):
-        """Regression: setup_ms should be 0 when first_byte_monotonic is missing (notes justify empty field)."""
+    def test_missing_payload_marker_returns_empty_overlap(self):
+        overlap = calculate_payload_overlap_ms("", "2000", "1500", "2500")
+        self.assertIsNone(overlap)
+
+    def test_payload_makespan_uses_sha256_completion(self):
+        from unittest.mock import MagicMock
+        from ratatoss.transport import ProcessRun
+
+        rx = ProcessRun(
+            pid=1, started_at="", stopped_at="", started_monotonic=100.0,
+            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(), sha256_done_monotonic=106.0,
+        )
+        tx = ProcessRun(
+            pid=2, started_at="", stopped_at="", started_monotonic=101.0,
+            stopped_monotonic=104.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(), sha256_done_monotonic=105.0,
+        )
+        self.assertEqual(calculate_makespan_ms((100.0, 101.0), (rx, tx)), 6000)
+
+    def test_setup_ms_empty_when_first_byte_missing(self):
+        """Missing payload markers must produce empty CSV measurements, not a proxy."""
         from dataclasses import replace
         from ratatoss.transport import ProcessRun
         from unittest.mock import MagicMock
@@ -98,22 +123,13 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             sha256_done_monotonic=None,
         )
 
-        # setup_ms should be 0 when first_byte is None
-        setup_ms = round((run.first_byte_monotonic - run.started_monotonic) * 1000.0) if run.first_byte_monotonic else 0
-        self.assertEqual(setup_ms, 0)
+        setup_ms = str(round((run.first_byte_monotonic - run.started_monotonic) * 1000.0)) if run.first_byte_monotonic is not None else ""
+        goodput_bps = ""
+        self.assertEqual(setup_ms, "")
+        self.assertEqual(goodput_bps, "")
 
-        # goodput_bps should fall back to process duration
-        duration_s = run.stopped_monotonic - run.started_monotonic
-        goodput_bps = round((1024 * 1024 * 8.0) / duration_s) if duration_s > 0 else 0
-        self.assertGreater(goodput_bps, 0)
-
-        # Notes should justify empty measurement fields
-        notes = "setup_ms and goodput_bps measured via process lifecycle proxy; first_byte_monotonic unavailable; empty fields documented per runbook"
-        self.assertIn("first_byte_monotonic unavailable", notes)
-        self.assertIn("empty fields documented", notes)
-
-    def test_last_byte_missing_falls_back_to_duration(self):
-        """Regression: goodput_bps falls back to process duration when last_byte_monotonic is missing."""
+    def test_last_byte_missing_produces_empty_goodput(self):
+        """Missing last-byte payload marker must not substitute process duration."""
         from unittest.mock import MagicMock
         from ratatoss.transport import ProcessRun
 
@@ -131,11 +147,10 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             sha256_done_monotonic=None,
         )
 
-        # When last_byte is missing, fall back to process duration
-        duration_s = run.stopped_monotonic - run.started_monotonic
-        payload_transfer_s = duration_s  # fallback
-        goodput_bps = round((1024 * 1024 * 8.0) / payload_transfer_s) if payload_transfer_s > 0 else 0
-        self.assertGreater(goodput_bps, 0)
+        goodput_bps = payload_goodput_bps(
+            1024 * 1024, run.first_byte_monotonic, run.last_byte_monotonic,
+        )
+        self.assertEqual(goodput_bps, "")
 
     def test_sha256_done_missing_falls_back_to_stopped(self):
         """Regression: SHA-256 done marker falls back to stopped_monotonic when missing."""

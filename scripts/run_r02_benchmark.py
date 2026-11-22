@@ -50,11 +50,54 @@ FIXTURE_NAMES = {
 }
 
 
+def marker_ms(run, name: str) -> str:
+    value = getattr(run, name, None)
+    return str(round(value * 1000.0)) if value is not None else ""
+
+
+def payload_goodput_bps(file_bytes: int, first_monotonic: float | None,
+                        last_monotonic: float | None) -> str:
+    if first_monotonic is None or last_monotonic is None:
+        return ""
+    duration_s = last_monotonic - first_monotonic
+    if duration_s <= 0:
+        return ""
+    return str(round((file_bytes * 8.0) / duration_s))
+
+
+def stopped_marker_ms(run) -> float:
+    return run.stopped_monotonic * 1000.0
+
+
+def sha256_done_marker_ms(run) -> float:
+    if run.sha256_done_monotonic is not None:
+        return run.sha256_done_monotonic * 1000.0
+    return stopped_marker_ms(run)
+
+
+def calculate_makespan_ms(starts_monotonic: tuple[float, ...],
+                          runs: tuple[object, ...]) -> int:
+    overall_start_ms = min(starts_monotonic) * 1000.0
+    overall_end_ms = max(sha256_done_marker_ms(run) for run in runs)
+    return round(overall_end_ms - overall_start_ms)
+
+
 def calculate_overlap_ms(rx_start_ms: float, rx_end_ms: float, tx_start_ms: float, tx_end_ms: float) -> float:
     """Calculate positive overlap between RX and TX on the shared monotonic clock."""
     start = max(rx_start_ms, tx_start_ms)
     end = min(rx_end_ms, tx_end_ms)
     return max(0.0, end - start)
+
+
+def calculate_payload_overlap_ms(rx_first_ms: str, rx_last_ms: str,
+                                 tx_first_ms: str, tx_last_ms: str) -> float | None:
+    markers = (rx_first_ms, rx_last_ms, tx_first_ms, tx_last_ms)
+    if not all(markers):
+        return None
+    return calculate_overlap_ms(
+        float(rx_first_ms), float(rx_last_ms),
+        float(tx_first_ms), float(tx_last_ms),
+    )
 
 
 async def execute_transfer(
@@ -143,22 +186,20 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
 
                     start_ms = rx_run.started_monotonic * 1000.0
                     end_ms = rx_run.stopped_monotonic * 1000.0
-                    duration_s = rx_run.stopped_monotonic - rx_run.started_monotonic
-                    # setup_ms measured from actual handshake completion (first_byte marker),
-                    # not from config-wait/handshake-budget proxy
-                    setup_ms = round((rx_run.first_byte_monotonic - rx_run.started_monotonic) * 1000.0) if rx_run.first_byte_monotonic else 0
-                    # goodput_bps from payload transfer timing (not process lifecycle)
-                    payload_transfer_s = (rx_run.last_byte_monotonic - rx_run.first_byte_monotonic) if (rx_run.first_byte_monotonic and rx_run.last_byte_monotonic) else duration_s
-                    goodput_bps = round((file_bytes * 8.0) / payload_transfer_s) if payload_transfer_s > 0 else 0
-                    # First/last byte payload markers on B's clock
-                    first_byte_ms = round(rx_run.first_byte_monotonic * 1000.0) if rx_run.first_byte_monotonic else ""
-                    last_byte_ms = round(rx_run.last_byte_monotonic * 1000.0) if rx_run.last_byte_monotonic else ""
-                    # SHA-256 verification completion marker at destination (B)
-                    sha256_done_ms = round(rx_run.sha256_done_monotonic * 1000.0) if rx_run.sha256_done_monotonic else end_ms
-                    # Overall makespan includes SHA-256 verification at destination
-                    overall_start_ms = min(rx_run.started_monotonic, tx_run.started_monotonic) * 1000.0
-                    overall_end_ms = max(sha256_done_ms / 1000.0, tx_run.stopped_monotonic) * 1000.0
-                    makespan_ms = round(overall_end_ms - overall_start_ms)
+                    setup_ms = (
+                        str(round((rx_run.first_byte_monotonic - rx_run.started_monotonic) * 1000.0))
+                        if rx_run.first_byte_monotonic is not None else ""
+                    )
+                    goodput_bps = payload_goodput_bps(
+                        file_bytes, rx_run.first_byte_monotonic, rx_run.last_byte_monotonic,
+                    )
+                    first_byte_ms = marker_ms(rx_run, "first_byte_monotonic")
+                    last_byte_ms = marker_ms(rx_run, "last_byte_monotonic")
+                    sha256_done_ms = marker_ms(rx_run, "sha256_done_monotonic")
+                    run_makespan_ms = calculate_makespan_ms(
+                        (rx_run.started_monotonic, tx_run.started_monotonic),
+                        (rx_run, tx_run),
+                    )
 
                     t_row = [
                         run_id, job_id, assignment_id, str(batch_id),
@@ -176,13 +217,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                         "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
                         str(size_mib), "1", "1", "pass",
-                        str(makespan_ms), str(file_bytes), "", "", "",
+                        str(run_makespan_ms), str(file_bytes), "", "", "",
                         "", "", "", str(setup_ms), str(setup_ms), "",
                         f"bench/artifacts/r02/{run_id}/evidence.json",
                         f"Sequential transport run; setup_ms from handshake first-byte marker; SHA-256 verified at B; evidence at bench/artifacts/r02/{run_id}/",
                     ]
                     runs_rows.append(r_row)
-                    print(f"Sequential {size_mib} MiB repeat {repeat} passed (makespan: {makespan_ms}ms, goodput: {goodput_bps}bps)")
+                    print(f"Sequential {size_mib} MiB repeat {repeat} passed (makespan: {run_makespan_ms}ms, goodput: {goodput_bps or 'empty'}bps)")
                 finally:
                     relay.stop()
 
@@ -241,39 +282,35 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
 
                     # Payload byte markers on B's clock (first_byte / last_byte / sha256_done)
                     # Use empty string when adapter doesn't write markers; notes will justify
-                    b_rx_first_byte_ms = str(round(r_ab_res.first_byte_monotonic * 1000.0)) if r_ab_res.first_byte_monotonic else ""
-                    b_rx_last_byte_ms = str(round(r_ab_res.last_byte_monotonic * 1000.0)) if r_ab_res.last_byte_monotonic else ""
-                    b_rx_sha256_done_ms = str(round(r_ab_res.sha256_done_monotonic * 1000.0)) if r_ab_res.sha256_done_monotonic else ""
-                    b_tx_first_byte_ms = str(round(t_bc_res.first_byte_monotonic * 1000.0)) if t_bc_res.first_byte_monotonic else ""
-                    b_tx_last_byte_ms = str(round(t_bc_res.last_byte_monotonic * 1000.0)) if t_bc_res.last_byte_monotonic else ""
-                    c_rx_sha256_done_ms = str(round(r_bc_res.sha256_done_monotonic * 1000.0)) if r_bc_res.sha256_done_monotonic else ""
+                    b_rx_first_byte_ms = marker_ms(r_ab_res, "first_byte_monotonic")
+                    b_rx_last_byte_ms = marker_ms(r_ab_res, "last_byte_monotonic")
+                    b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
+                    b_tx_first_byte_ms = marker_ms(t_bc_res, "first_byte_monotonic")
+                    b_tx_last_byte_ms = marker_ms(t_bc_res, "last_byte_monotonic")
+                    c_rx_sha256_done_ms = marker_ms(r_bc_res, "sha256_done_monotonic")
 
-                    # Overlap calculated from available markers.
-                    # Priority: payload byte markers on B's clock (first_byte/last_byte).
-                    # Fall back to process lifetime markers when adapter doesn't write payload markers.
-                    if b_rx_first_byte_ms and b_rx_last_byte_ms and b_tx_first_byte_ms and b_tx_last_byte_ms:
-                        # All 4 payload markers present — use them for overlap calculation
-                        overlap_ms = calculate_overlap_ms(
-                            float(b_rx_first_byte_ms), float(b_rx_last_byte_ms),
-                            float(b_tx_first_byte_ms), float(b_tx_last_byte_ms)
-                        )
-                    else:
-                        # Payload markers unavailable from adapter (empty strings).
-                        # Fall back to process lifetime overlap as per runbook rule.
-                        overlap_ms = calculate_overlap_ms(
-                            b_rx_start_ms / 1000.0, b_rx_end_ms / 1000.0,
-                            b_tx_start_ms / 1000.0, b_tx_end_ms / 1000.0
-                        )
+                    # Overlap is measured only when both payload intervals are available.
+                    overlap_ms = calculate_payload_overlap_ms(
+                        b_rx_first_byte_ms, b_rx_last_byte_ms,
+                        b_tx_first_byte_ms, b_tx_last_byte_ms,
+                    )
+                    overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
 
                     dur_ab = r_ab_res.stopped_monotonic - r_ab_res.started_monotonic
                     dur_bc = r_bc_res.stopped_monotonic - r_bc_res.started_monotonic
-                    goodput_ab = round((file_bytes * 8.0) / dur_ab) if dur_ab > 0 else 0
-                    goodput_bc = round((file_bytes * 8.0) / dur_bc) if dur_bc > 0 else 0
+                    goodput_ab = payload_goodput_bps(
+                        file_bytes, r_ab_res.first_byte_monotonic, r_ab_res.last_byte_monotonic,
+                    )
+                    goodput_bc = payload_goodput_bps(
+                        file_bytes, r_bc_res.first_byte_monotonic, r_bc_res.last_byte_monotonic,
+                    )
 
                     # Makespan = from B RX start to C RX SHA-256 verification completion
-                    overall_start = min(b_rx_start_ms, b_tx_start_ms)
-                    overall_end = c_rx_sha256_done_ms
-                    makespan_ms = round(overall_end - overall_start)
+                    # Use sha256_done_monotonic when available, fall back to stopped_monotonic
+                    run_makespan_ms = calculate_makespan_ms(
+                        (r_ab_res.started_monotonic, t_bc_res.started_monotonic),
+                        (r_ab_res, r_bc_res),
+                    )
 
                     transfers_rows.append([
                         run_id, job_id, batch_ab.attempt_id.hex, "0",
@@ -282,7 +319,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         f"{b_rx_start_ms:.3f}", str(b_rx_first_byte_ms), str(b_rx_last_byte_ms), f"{b_rx_sha256_done_ms:.3f}",
                         str(round(START_GAP_S * 1000.0)), str(goodput_ab), sha256_file(dest_b),
                         "pass", "false", "false",
-                        f"Concurrent RX on B; payload first_byte={b_rx_first_byte_ms}ms last_byte={b_rx_last_byte_ms}ms; SHA-256 done at {b_rx_sha256_done_ms}ms; overlap with B->C is {overlap_ms:.1f}ms",
+                        f"Concurrent RX on B; payload first_byte={b_rx_first_byte_ms or 'empty'}ms last_byte={b_rx_last_byte_ms or 'empty'}ms; SHA-256 done at {b_rx_sha256_done_ms or 'empty'}ms; overlap={overlap_text}ms",
                     ])
                     transfers_rows.append([
                         run_id, job_id, batch_bc.attempt_id.hex, "1",
@@ -291,7 +328,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         f"{b_tx_start_ms:.3f}", str(b_tx_first_byte_ms), str(b_tx_last_byte_ms), f"{b_tx_end_ms:.3f}",
                         str(HANDSHAKE_BUDGET_MS), str(goodput_bc), sha256_file(dest_c),
                         "pass", "false", "false",
-                        f"Concurrent TX on B; payload first_byte={b_tx_first_byte_ms}ms last_byte={b_tx_last_byte_ms}ms; observer=B; overlap with A->B is {overlap_ms:.1f}ms",
+                        f"Concurrent TX on B; payload first_byte={b_tx_first_byte_ms or 'empty'}ms last_byte={b_tx_last_byte_ms or 'empty'}ms; observer=B; overlap={overlap_text}ms",
                     ])
 
                     runs_rows.append([
@@ -299,12 +336,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                         "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes * 2),
                         str(size_mib), "1", "1", "pass",
-                        str(makespan_ms), str(file_bytes * 2), "", "", "",
+                        str(run_makespan_ms), str(file_bytes * 2), "", "", "",
                         "", "", "", str(round(START_GAP_S * 1000.0)), str(round(START_GAP_S * 1000.0)), "",
                         f"bench/artifacts/r02/{run_id}/evidence.json",
-                        f"Concurrent RX/TX run on B; overlap={overlap_ms:.1f}ms on B payload clock; C RX SHA-256 verified at {c_rx_sha256_done_ms}ms; evidence at bench/artifacts/r02/{run_id}/",
+                        f"Concurrent RX/TX run on B; overlap={overlap_text}ms on B payload clock; C RX SHA-256 verified at {c_rx_sha256_done_ms or 'empty'}ms; evidence at bench/artifacts/r02/{run_id}/",
                     ])
-                    print(f"Concurrent {size_mib} MiB repeat {repeat} passed (makespan: {makespan_ms}ms, overlap: {overlap_ms:.1f}ms)")
+                    overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
+                    print(f"Concurrent {size_mib} MiB repeat {repeat} passed (makespan: {run_makespan_ms}ms, overlap: {overlap_text}ms)")
                 finally:
                     relay.stop()
 
@@ -374,8 +412,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                 )
                 retry_start_ms = round(rx_retry.started_monotonic * 1000.0)
                 retry_end_ms = round(rx_retry.stopped_monotonic * 1000.0)
-                retry_setup_ms = round((rx_retry.first_byte_monotonic - rx_retry.started_monotonic) * 1000.0) if rx_retry.first_byte_monotonic else 0
-                retry_goodput = round((file_bytes * 8.0) / (rx_retry.stopped_monotonic - rx_retry.started_monotonic)) if (rx_retry.stopped_monotonic - rx_retry.started_monotonic) > 0 else 0
+                retry_setup_ms = (
+                    str(round((rx_retry.first_byte_monotonic - rx_retry.started_monotonic) * 1000.0))
+                    if rx_retry.first_byte_monotonic is not None else ""
+                )
+                retry_goodput = payload_goodput_bps(
+                    file_bytes, rx_retry.first_byte_monotonic, rx_retry.last_byte_monotonic,
+                )
 
                 transfers_rows.append([
                     retry_run_id, retry_job_id, retry_assignment_id, "0",
@@ -384,7 +427,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     f"{retry_start_ms:.3f}", "", "", f"{retry_end_ms:.3f}",
                     str(retry_setup_ms), str(retry_goodput), verified_sha_retry,
                     "pass", "false", "false",
-                    "Successful retry after timeout; unique attempt ID; clean staging before retry; first_byte/last_byte/sha256_done markers present; evidence to be collected from real run",
+                    "Successful retry after timeout; unique attempt ID; clean staging before retry; payload measurements empty unless receive-side markers were captured",
                 ])
                 runs_rows.append([
                     retry_run_id, "gate0", "retry", "croc_relay", "1", "42",
@@ -394,7 +437,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     str(retry_end_ms - retry_start_ms), str(file_bytes), "", "", "",
                     "", "", "", str(retry_setup_ms), str(retry_setup_ms), "",
                     f"bench/artifacts/r02/{retry_run_id}/evidence.json",
-                    f"Retry run successful after timeout; unique job_id={retry_job_id}, assignment_id={retry_assignment_id}; SHA-256 verified; first_byte/last_byte/sha256_done markers present; evidence to be collected from real run",
+                    f"Retry run successful after timeout; unique job_id={retry_job_id}, assignment_id={retry_assignment_id}; SHA-256 verified; payload marker availability is documented in the CSV",
                 ])
                 print(f"Retry run passed ({size_mib} MiB, makespan: {retry_end_ms - retry_start_ms}ms, goodput: {retry_goodput}bps)")
             except CrocError:
@@ -433,8 +476,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                 )
                 slow_start_ms = round(rx_slow.started_monotonic * 1000.0)
                 slow_end_ms = round(rx_slow.stopped_monotonic * 1000.0)
-                slow_setup_ms = round((rx_slow.first_byte_monotonic - rx_slow.started_monotonic) * 1000.0) if rx_slow.first_byte_monotonic else 0
-                slow_goodput = round((file_bytes * 8.0) / (rx_slow.stopped_monotonic - rx_slow.started_monotonic)) if (rx_slow.stopped_monotonic - rx_slow.started_monotonic) > 0 else 0
+                slow_setup_ms = (
+                    str(round((rx_slow.first_byte_monotonic - rx_slow.started_monotonic) * 1000.0))
+                    if rx_slow.first_byte_monotonic is not None else ""
+                )
+                slow_goodput = payload_goodput_bps(
+                    file_bytes, rx_slow.first_byte_monotonic, rx_slow.last_byte_monotonic,
+                )
                 # Verify commit hash matches expected
                 require(verified_sha_slow == a_sha, "SLOW_COMMIT_HASH_MISMATCH")
 
