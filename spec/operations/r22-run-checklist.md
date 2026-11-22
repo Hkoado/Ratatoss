@@ -1,3 +1,5 @@
+# Checklist chạy đối chứng R2.2
+
 > Issue: #43 · Ticket: R2.2 · Tuyến: benchmark  
 > Chủ benchmark: #12 · Runbook: [Cổng 2 — So sánh](../../docs/experiments.md#cổng-2--so-sánh)
 
@@ -62,6 +64,7 @@ Checklist này ghi việc tick trước và sau mỗi lượt benchmark. Tất c
 - [ ] Đã ghi thời điểm xác minh của từng đích.
 - [ ] Đã theo dõi mọi timeout, hash sai và run thiếu số đo.
 - [ ] Đã giữ lượt chạy trong bằng chứng thay vì bỏ khỏi CSV.
+- [ ] Đã ghi receipt xác minh SHA-256 toàn file của từng đích và đích cuối.
 
 ### Hồ sơ lab bắt buộc khi áp dụng
 
@@ -69,20 +72,25 @@ Checklist này ghi việc tick trước và sau mỗi lượt benchmark. Tất c
 - [ ] B/C lệch tốc.
 - [ ] C rớt mạng.
 - [ ] D có đường A trực tiếp tốt.
-- [ ] LAN/AP bận hoặc băng thông bão hòa nếu nằm trong profile.
+- [ ] Đã chạy hồ sơ LAN/AP bận nếu thuộc ma trận benchmark.
+- [ ] Đã chạy hồ sơ băng thông bão hòa để kiểm tra `optional_replication_bytes = 0` theo cấu hình mặc định.
 
 ## Sau mỗi lượt chạy
 
-- [ ] Đã lưu dòng vào `bench/runs.csv`.
-- [ ] Đã lưu từng lần thử vào `bench/transfers.csv`.
-- [ ] Đã nối `run_id` giữa hai CSV.
+- [ ] Hai file `bench/runs.csv` và `bench/transfers.csv` là mẫu header-only.
+- [ ] Không ghi dữ liệu benchmark trực tiếp vào hai mẫu.
+- [ ] Đã sao chép mẫu vào `bench/artifacts/<run-id>/runs.csv`.
+- [ ] Đã sao chép mẫu vào `bench/artifacts/<run-id>/transfers.csv`.
+- [ ] Đã lưu dòng run trong `bench/artifacts/<run-id>/runs.csv`.
+- [ ] Đã lưu từng lần thử trong `bench/artifacts/<run-id>/transfers.csv`.
+- [ ] Đã nối `run_id` giữa hai file bằng chứng.
 - [ ] Đã lưu log đã lược bí mật.
 - [ ] Đã lưu cấu hình đã dùng.
 - [ ] Đã lưu số liệu giao diện/relay.
 - [ ] Đã lưu trạng thái hash theo từng đích.
 - [ ] Đã lưu script hoặc mã run.
 
-### Số đo chạy
+### Số đo cấp run — runs.csv
 
 - `status`:
 - `makespan_ms`:
@@ -92,10 +100,33 @@ Checklist này ghi việc tick trước và sau mỗi lượt benchmark. Tất c
 - `wan_measurement_scope`:
 - `retry_payload_bytes`:
 - `recovery_ms`:
-- `setup_ms`:
-- `goodput_bps`:
+- `setup_p50_ms`:
+- `setup_p95_ms`:
 - `peer_utilization_ref`:
 - `optional_replication_bytes`:
+- `evidence_ref`:
+- `notes`:
+
+Để trống số đo thiếu. Ghi lý do trong `notes` thay vì suy ra giá trị.
+
+### Số đo cấp lần thử — transfers.csv
+
+- `run_id`:
+- `job_id`:
+- `assignment_id`:
+- `batch_id`:
+- `source_peer`:
+- `target_peer`:
+- `start_monotonic_ms`:
+- `first_byte_monotonic_ms`:
+- `last_byte_monotonic_ms`:
+- `end_monotonic_ms`:
+- `setup_ms`:
+- `goodput_bps`:
+- `verified_sha256`:
+- `status`:
+- `is_retry`:
+- `is_replication`:
 - `notes`:
 
 Để trống số đo thiếu. Ghi lý do trong `notes` thay vì suy ra giá trị.
@@ -106,6 +137,8 @@ Checklist này ghi việc tick trước và sau mỗi lượt benchmark. Tất c
 - [ ] Run đạt báo rõ số lần đạt/tổng.
 - [ ] Median và min–max chỉ được báo cho run đạt.
 - [ ] Makespan chỉ được điền khi đủ đích xác minh toàn file.
+- [ ] `makespan_ms` được đo từ lúc phát lệnh chạy sau consent đến lúc controller nhận receipt xác minh SHA-256 toàn file của đích cuối.
+- [ ] Thời điểm bắt đầu và kết thúc makespan dùng cùng đồng hồ monotonic.
 - [ ] Không bịa kết quả hoặc đóng trạng thái là `pass` nếu thiếu bằng chứng.
 - [ ] Bằng chứng có thể truy lại qua `evidence_ref`.
 
@@ -148,7 +181,7 @@ notes:
 
 - [Runbook Cổng 2 — So sánh](../../docs/experiments.md#cổng-2--so-sánh)
 - [Thu thập và lưu bằng chứng](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
-- [Mẫu benchmark](./benchmark-template.md)
-- [Mẫu runs.csv](./runs-template.csv)
-- [Mẫu transfers.csv](./transfers-template.csv)
-- [MAPDOCS](../../MAPDOCS.md) EOF
+- [Mẫu benchmark](../../bench/README.md)
+- [Mẫu runs.csv](../../bench/runs.csv)
+- [Mẫu transfers.csv](../../bench/transfers.csv)
+- [MAPDOCS](../../MAPDOCS.md) 
