@@ -48,6 +48,7 @@ else:
             normalize_evidence_transfer,
             payload_goodput_bps,
             setup_measure,
+            validate_selected_fixtures,
             verified_transfers_status,
         )
     except ImportError as exc:
@@ -208,6 +209,71 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
         )
         self.assertEqual(payload_goodput_bps(1024, run), "")
+
+    def test_selected_sizes_skip_unselected_fixture_validation(self):
+        import tempfile
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.mkdir(exist_ok=True)
+            for name, digest in (
+                ("a-32mib.bin", "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"),
+                ("b-to-c-32mib.bin", "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"),
+            ):
+                (root / name).write_bytes(b"x" * (32 * 1024 * 1024))
+
+            croc = root / "croc.exe"
+            croc.write_bytes(b"croc")
+            with patch(
+                "run_r02_benchmark.sha256_file",
+                side_effect=lambda path: (
+                    "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+                    if path.name == "a-32mib.bin"
+                    else "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+                    if path.name == "b-to-c-32mib.bin"
+                    else "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e"
+                ),
+            ):
+                validate_selected_fixtures(root, (32,), croc)
+
+    def test_verified_transfers_status_accepts_selected_size_only(self):
+        import csv
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs_file = root / "runs.csv"
+            transfers_file = root / "transfers.csv"
+            run_rows = []
+            transfer_rows = []
+            for scenario in ("sequential", "concurrent"):
+                for repeat in range(1, 4):
+                    run_id = f"32-{scenario}-{repeat}"
+                    run_rows.append({
+                        "run_id": run_id, "batch_mib": "32",
+                        "scenario": scenario, "status": "pass",
+                    })
+                    for _ in range(1 if scenario == "sequential" else 2):
+                        transfer_rows.append({
+                            "run_id": run_id, "status": "pass",
+                            "verified_sha256": "a" * 64,
+                        })
+
+            with runs_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "batch_mib", "scenario", "status"))
+                writer.writeheader()
+                writer.writerows(run_rows)
+            with transfers_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "status", "verified_sha256"))
+                writer.writeheader()
+                writer.writerows(transfer_rows)
+
+            status, reason = verified_transfers_status(
+                runs_file, transfers_file, selected_sizes=(32,),
+            )
+            self.assertEqual(status, "pass")
+            self.assertEqual(reason, "")
 
     def test_fault_profile_uses_32_mib_budget(self):
         profile = fault_profile_for_size("test-password", 32)

@@ -90,6 +90,20 @@ def benchmark_commit(repo_root: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def validate_selected_fixtures(fixtures_dir: Path, sizes: tuple[int, ...],
+                               croc_path: Path) -> None:
+    for (role, size_mib), (name, digest) in FIXTURE_NAMES.items():
+        if size_mib not in sizes:
+            continue
+        fixture = fixtures_dir / name
+        require(fixture.stat().st_size == size_mib * 1024 * 1024,
+                "LAB_FIXTURE_SIZE_MISMATCH")
+        require(sha256_file(fixture) == digest,
+                "LAB_FIXTURE_HASH_MISMATCH")
+    require(sha256_file(croc_path) == WINDOWS_X64_SHA256,
+            "LAB_CROC_PIN_MISMATCH")
+
+
 def fault_profile_for_size(password: str, size_mib: int) -> RelayProfile:
     profile = SIZE_PROFILES[size_mib]
     return RelayProfile(
@@ -472,11 +486,7 @@ def failed_measurement(run_id, scenario, repeat, commit, digest, size_mib, error
 async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                         sizes: tuple[int, ...] = SIZES):
     commit = benchmark_commit()
-    for (_, size_mib), (name, digest) in FIXTURE_NAMES.items():
-        fixture = fixtures_dir / name
-        require(fixture.stat().st_size == size_mib * 1024 * 1024, "LAB_FIXTURE_SIZE_MISMATCH")
-        require(sha256_file(fixture) == digest, "LAB_FIXTURE_HASH_MISMATCH")
-    require(sha256_file(croc_path) == WINDOWS_X64_SHA256, "LAB_CROC_PIN_MISMATCH")
+    validate_selected_fixtures(fixtures_dir, tuple(sizes), croc_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     require(not any((output_dir / name).exists() for name in ("runs.csv", "transfers.csv")),
             "LAB_OUTPUT_ALREADY_EXISTS")

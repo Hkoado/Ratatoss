@@ -435,6 +435,8 @@ class CrocAdapter:
         started = time.monotonic()
         started_at = _utc_now()
         progress = _PayloadProgress() if role == "rx" and self.observe_payload else None
+        first_byte_monotonic = None
+        last_byte_monotonic = None
         reader = None
         try:
             argv = self.argv(role, batch)
@@ -459,6 +461,14 @@ class CrocAdapter:
                 exit_code = child.poll()
                 if role == "rx":
                     self._check_receive_directory(stage, batch, running=exit_code is None)
+                    payload = stage / batch.filename
+                    if payload.is_file():
+                        payload_size = payload.stat().st_size
+                        now = time.monotonic()
+                        if payload_size > 0 and first_byte_monotonic is None:
+                            first_byte_monotonic = now
+                        if payload_size >= batch.size and last_byte_monotonic is None:
+                            last_byte_monotonic = now
                 if exit_code is not None:
                     break
                 await asyncio.sleep(min(0.025, max(0, deadline - time.monotonic())))
@@ -478,8 +488,8 @@ class CrocAdapter:
                     reader.join(timeout=1)
         result = ProcessRun(
             child.pid, started_at, _utc_now(), started, time.monotonic(), deadline, cleanup.exit_code, cleanup,
-            first_byte_monotonic=progress.first if progress else None,
-            last_byte_monotonic=progress.last if progress else None,
+            first_byte_monotonic=first_byte_monotonic,
+            last_byte_monotonic=last_byte_monotonic,
             first_progress_percent=progress.first_percent if progress else None,
         )
         if error:
