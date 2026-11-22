@@ -1,0 +1,115 @@
+{
+  "run_id": "r02-retry-32mib-586ecc",
+  "gate": "gate0",
+  "scenario": "retry",
+  "baseline": "croc_relay",
+  "repeat": "1",
+  "seed": "",
+  "commit": "b28ddfefce42b3a4c506c7f8d4ab488e93912b9f",
+  "os": "Windows",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "relay_config": "loopback-127.0.0.1",
+  "network_profile": "windows-loopback",
+  "fixture_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+  "file_bytes": "33554432",
+  "batch_mib": "32",
+  "rx_slots": "1",
+  "tx_slots": "1",
+  "status": "pass",
+  "makespan_ms": "2418",
+  "source_payload_bytes": "33554432",
+  "source_wire_bytes": "",
+  "wan_wire_bytes": "",
+  "wan_measurement_scope": "",
+  "retry_payload_bytes": "",
+  "recovery_ms": "",
+  "optional_replication_bytes": "",
+  "setup_p50_ms": "1649",
+  "setup_p95_ms": "1649",
+  "peer_utilization_ref": "",
+  "evidence_ref": "bench/artifacts/r02/r02-retry-32mib-586ecc/evidence.json",
+  "notes": "Same fixture and destination as r02-timeout-reproduce-83133c; verified with a new attempt. Setup and goodput are blank if observed Croc payload progress is unavailable.",
+  "measured_at": "2026-11-22T11:17:43.792613+00:00",
+  "os_version": "10.0.22631",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "sender_route_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "adapter_timeout_s": 75,
+  "start_gap_s": 0.75,
+  "upload_limit": "24M",
+  "secrets_redacted": true,
+  "transfers": [
+    {
+      "run_id": "r02-retry-32mib-586ecc",
+      "job_id": "02dd2efe0f374dfc9fb7fb161ef5e30d",
+      "assignment_id": "06d1a8ccc2d84dc2bca7d314ba968d9a",
+      "batch_id": "0",
+      "source_peer": "A",
+      "target_peer": "B",
+      "observer_peer": "B",
+      "path_kind": "unknown",
+      "payload_bytes": "33554432",
+      "payload_sent_bytes": "33554432",
+      "start_monotonic_ms": "3393748",
+      "first_byte_monotonic_ms": "3395397",
+      "last_byte_monotonic_ms": "3395627",
+      "end_monotonic_ms": "3396166",
+      "setup_ms": "1649",
+      "goodput_bps": "442193933",
+      "verified_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "status": "pass",
+      "is_retry": "true",
+      "is_replication": "false",
+      "notes": "Same fixture and destination as r02-timeout-reproduce-83133c; verified with a new attempt. Setup and goodput are blank if observed Croc payload progress is unavailable."
+    }
+  ],
+  "processes": {
+    "A_tx": {
+      "started_monotonic_s": 3395.1560622,
+      "stopped_monotonic_s": 3395.671283,
+      "deadline_monotonic_s": 3468.7435405,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_rx": {
+      "started_monotonic_s": 3393.7478878,
+      "stopped_monotonic_s": 3395.6876428,
+      "deadline_monotonic_s": 3468.7435405,
+      "first_progress_monotonic_s": 3395.3966915,
+      "first_progress_percent": 62,
+      "full_progress_monotonic_s": 3395.6273719,
+      "sha256_done_monotonic_s": 3396.1657974,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    }
+  },
+  "retry_of": "r02-timeout-reproduce-83133c",
+  "relay_cleanup": {
+    "active_before_stop": 2,
+    "active_after_stop": 0,
+    "total_processes": 2,
+    "exit_code": 1
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "run_id": "r02-seq-32mib-rep3-ac2d9a",
+  "gate": "gate0",
+  "scenario": "sequential",
+  "baseline": "croc_relay",
+  "repeat": "3",
+  "seed": "",
+  "commit": "b28ddfefce42b3a4c506c7f8d4ab488e93912b9f",
+  "os": "Windows",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "relay_config": "loopback-127.0.0.1",
+  "network_profile": "windows-loopback",
+  "fixture_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+  "file_bytes": "33554432",
+  "batch_mib": "32",
+  "rx_slots": "1",
+  "tx_slots": "1",
+  "status": "pass",
+  "makespan_ms": "2151",
+  "source_payload_bytes": "33554432",
+  "source_wire_bytes": "",
+  "wan_wire_bytes": "",
+  "wan_measurement_scope": "",
+  "retry_payload_bytes": "",
+  "recovery_ms": "",
+  "optional_replication_bytes": "",
+  "setup_p50_ms": "1240",
+  "setup_p95_ms": "1240",
+  "peer_utilization_ref": "",
+  "evidence_ref": "bench/artifacts/r02/r02-seq-32mib-rep3-ac2d9a/evidence.json",
+  "notes": "Sequential transport run; setup is blank if payload progress is unavailable; SHA-256 verified at B; evidence at bench/artifacts/r02/r02-seq-32mib-rep3-ac2d9a/evidence.json",
+  "measured_at": "2026-11-22T11:17:43.763743+00:00",
+  "os_version": "10.0.22631",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "sender_route_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "adapter_timeout_s": 75,
+  "start_gap_s": 0.75,
+  "upload_limit": "24M",
+  "secrets_redacted": true,
+  "transfers": [
+    {
+      "run_id": "r02-seq-32mib-rep3-ac2d9a",
+      "job_id": "10e1bd9752a646e4916af09705ee991c",
+      "assignment_id": "9474808c2df2410896ef99672102e3cd",
+      "batch_id": "0",
+      "source_peer": "A",
+      "target_peer": "B",
+      "observer_peer": "B",
+      "path_kind": "unknown",
+      "payload_bytes": "33554432",
+      "payload_sent_bytes": "33554432",
+      "start_monotonic_ms": "3260223.951",
+      "first_byte_monotonic_ms": "3261464",
+      "last_byte_monotonic_ms": "3261694",
+      "end_monotonic_ms": "3262375",
+      "setup_ms": "1240",
+      "goodput_bps": "209650776",
+      "verified_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "status": "pass",
+      "is_retry": "false",
+      "is_replication": "false",
+      "notes": "Loopback relay A->B; setup and goodput use observed Croc payload progress; blank if markers are missing; SHA-256 verified at destination B"
+    }
+  ],
+  "processes": {
+    "A_tx": {
+      "started_monotonic_s": 3261.1995159,
+      "stopped_monotonic_s": 3261.7669445,
+      "deadline_monotonic_s": 3335.2209862,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_rx": {
+      "started_monotonic_s": 3260.2239509,
+      "stopped_monotonic_s": 3261.7756372,
+      "deadline_monotonic_s": 3335.2209862,
+      "first_progress_monotonic_s": 3261.4638076,
+      "first_progress_percent": 82,
+      "full_progress_monotonic_s": 3261.6942784,
+      "sha256_done_monotonic_s": 3262.3747749,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    }
+  },
+  "relay_cleanup": {
+    "active_before_stop": 2,
+    "active_after_stop": 0,
+    "total_processes": 2,
+    "exit_code": 1
+  }
+}

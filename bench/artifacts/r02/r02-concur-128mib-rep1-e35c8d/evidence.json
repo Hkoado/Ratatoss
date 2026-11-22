@@ -1,0 +1,77 @@
+{
+  "run_id": "r02-concur-128mib-rep1-e35c8d",
+  "gate": "gate0",
+  "scenario": "concurrent",
+  "baseline": "croc_relay",
+  "repeat": "1",
+  "seed": "",
+  "commit": "b28ddfefce42b3a4c506c7f8d4ab488e93912b9f",
+  "os": "Windows",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "relay_config": "loopback-127.0.0.1",
+  "network_profile": "windows-loopback",
+  "fixture_sha256": "cdf2287f633d6558a33bcdbbfd6428708c8f869b3fc4ffb3cca88366703a353c",
+  "file_bytes": "268435456",
+  "batch_mib": "128",
+  "rx_slots": "1",
+  "tx_slots": "1",
+  "status": "fail",
+  "makespan_ms": "",
+  "source_payload_bytes": "",
+  "source_wire_bytes": "",
+  "wan_wire_bytes": "",
+  "wan_measurement_scope": "",
+  "retry_payload_bytes": "",
+  "recovery_ms": "",
+  "optional_replication_bytes": "",
+  "setup_p50_ms": "",
+  "setup_p95_ms": "",
+  "peer_utilization_ref": "",
+  "evidence_ref": "bench/artifacts/r02/r02-concur-128mib-rep1-e35c8d/evidence.json",
+  "notes": "Transfer did not complete; observed errors: CROC_EXIT_NONZERO",
+  "measured_at": "2026-11-22T11:17:43.788372+00:00",
+  "os_version": "10.0.22631",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "sender_route_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "adapter_timeout_s": 75,
+  "start_gap_s": 0.75,
+  "upload_limit": "24M",
+  "secrets_redacted": true,
+  "transfers": [],
+  "errors": [
+    "CROC_EXIT_NONZERO"
+  ],
+  "processes": {
+    "observed_failure_1": {
+      "started_monotonic_s": 3341.8648455,
+      "stopped_monotonic_s": 3348.9427271,
+      "deadline_monotonic_s": 3416.8547321,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 1
+      },
+      "staging_cleanup_pending": false
+    }
+  },
+  "relay_cleanup": {
+    "active_before_stop": 2,
+    "active_after_stop": 0,
+    "total_processes": 2,
+    "exit_code": 1
+  }
+}
