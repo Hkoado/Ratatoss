@@ -6,7 +6,7 @@ Sao chép mẫu CSV cho mỗi bộ ca chạy theo [runbook](../docs/experiments.
 
 Đo bằng Croc v11.6.5 đã ghim, relay IPv4 loopback và ba đầu mút A/B/C trên một máy Windows. Các lượt so sánh giới hạn upload ở 24M theo cờ Croc, cùng khoảng chờ mở phiên 750 ms. Cấu hình sender dùng `--no-local --transport relay --no-multi`. Cấu hình, digest binary và kết quả dọn tiến trình nằm trong từng `evidence.json`. Đường dữ liệu của từng phiên được ghi `unknown` vì không đo socket hay bộ đếm đường truyền. Ca LAN/WAN nhiều máy chưa chạy.
 
-Bộ [runs.csv](artifacts/r02/runs.csv) và [transfers.csv](artifacts/r02/transfers.csv) lưu 22 lượt, 30 lần thử, gồm cả timeout và lượt lỗi nếu có. Mã nguồn đo tại `b28ddfefce42`. Số đo dưới đây tính từ các lượt đạt.
+Bộ [runs.csv](artifacts/r02/runs.csv) và [transfers.csv](artifacts/r02/transfers.csv) lưu 21 lượt và 30 lần truyền, gồm timeout, retry và slow-path. Số đo được tạo lại sau bản vá timeout và nhất quán giữa CSV, JSON và báo cáo readiness.
 
 | Batch (MiB) | Kịch bản | Đạt/tổng | Mốc byte đầu/cuối | Setup/goodput chuẩn | Makespan trung vị (ms) | Overlap byte payload |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -90,6 +90,18 @@ def benchmark_commit(repo_root: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def fault_profile_for_size(password: str, size_mib: int) -> RelayProfile:
+    profile = SIZE_PROFILES[size_mib]
+    return RelayProfile(
+        f"{HOST}:{PORTS[0]}",
+        password,
+        profile["min_goodput_bps"],
+        profile["setup_budget_ms"],
+        profile["verify_commit_ms"],
+        profile["margin_ms"],
+    )
+
+
 class BenchmarkAdapter(CrocAdapter):
     upload_limit = MEASURED_UPLOAD_LIMIT
 
@@ -127,6 +139,82 @@ def file_sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def normalize_evidence_transfer(transfer: dict, details: dict) -> dict:
+    transfer = transfer.copy()
+    transfer["first_byte_monotonic_ms"] = ""
+    transfer["last_byte_monotonic_ms"] = ""
+    transfer["setup_ms"] = ""
+    transfer["goodput_bps"] = ""
+
+    process_name = (
+        "B_rx" if transfer["target_peer"] == "B"
+        else "C_rx" if transfer["target_peer"] == "C"
+        else None
+    )
+    process = (details.get("processes") or {}).get(process_name or "")
+    transfer["progress_estimate"] = (
+        {
+            "first_progress_monotonic_ms": (
+                round(process["first_progress_monotonic_s"] * 1000)
+                if process and process.get("first_progress_monotonic_s") is not None else ""
+            ),
+            "first_progress_percent": (
+                process.get("first_progress_percent") if process else None
+            ),
+            "full_progress_monotonic_ms": (
+                round(process["full_progress_monotonic_s"] * 1000)
+                if process and process.get("full_progress_monotonic_s") is not None else ""
+            ),
+        }
+        if process_name
+        else None
+    )
+    return transfer
+
+
+def verified_transfers_status(runs_file: Path, transfers_file: Path) -> tuple[str, str]:
+    with runs_file.open("r", encoding="utf-8", newline="") as source:
+        runs = list(csv.DictReader(source))
+    with transfers_file.open("r", encoding="utf-8", newline="") as source:
+        transfers = list(csv.DictReader(source))
+
+    missing = []
+    transfer_by_run = {}
+    for transfer in transfers:
+        transfer_by_run.setdefault(transfer["run_id"], []).append(transfer)
+
+    for size_mib in SIZES:
+        for scenario in ("sequential", "concurrent"):
+            matching = [
+                run for run in runs
+                if run["batch_mib"] == str(size_mib)
+                and run["scenario"] == scenario
+                and run["status"] == "pass"
+            ]
+            if len(matching) < REPEATS:
+                missing.append(f"{size_mib} MiB {scenario}: {len(matching)}/{REPEATS} pass")
+                continue
+            verified_count = 0
+            for run in matching[:REPEATS]:
+                run_transfers = transfer_by_run.get(run["run_id"], [])
+                required = 1 if scenario == "sequential" else 2
+                if len(run_transfers) == required and all(
+                    transfer["status"] == "pass"
+                    and transfer["verified_sha256"]
+                    and len(transfer["verified_sha256"]) == 64
+                    for transfer in run_transfers
+                ):
+                    verified_count += 1
+            if verified_count < REPEATS:
+                missing.append(
+                    f"{size_mib} MiB {scenario}: {verified_count}/{REPEATS} verified transfers"
+                )
+
+    if missing:
+        return "blocked", "Missing verified passes: " + "; ".join(missing)
+    return "pass", ""
+
+
 def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path) -> Path:
     profile_file = output_dir / "batch-profiles.json"
     profile_file.write_text(
@@ -152,11 +240,14 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path)
         "batch-profiles.json": file_sha256(profile_file),
     })
 
+    verified_status, verified_reason = verified_transfers_status(runs_file, transfers_file)
+
     report = {
         "checks": {
             "verified-transfers": {
-                "status": "pass",
+                "status": verified_status,
                 "evidence": evidence,
+                **({"reason": verified_reason} if verified_reason else {}),
             },
             "rx-tx-overlap": {
                 "status": "blocked",
@@ -203,7 +294,10 @@ def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details)
         "measurement_method": "croc_progress_estimate_only",
         "size_profiles": SIZE_PROFILES,
         "secrets_redacted": True,
-        "transfers": [dict(zip(TRANSFERS_HEADER, row, strict=True)) for row in transfers],
+        "transfers": [
+            normalize_evidence_transfer(dict(zip(TRANSFERS_HEADER, row, strict=True)), details)
+            for row in transfers
+        ],
         **details,
     }
     (directory / "evidence.json").write_text(
@@ -617,12 +711,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             a_root.mkdir()
             b_root.mkdir()
             size_mib = 32
-            fault_profile_config = SIZE_PROFILES[size_mib]
-            fault_profile = RelayProfile(
-                f"{HOST}:{PORTS[0]}", password, fault_profile_config["min_goodput_bps"],
-                fault_profile_config["setup_budget_ms"], fault_profile_config["verify_commit_ms"],
-                fault_profile_config["margin_ms"],
-            )
+            fault_profile = fault_profile_for_size(password, size_mib)
             sender = BenchmarkAdapter(croc_path, a_root, fault_profile)
             receiver = BenchmarkAdapter(croc_path, b_root, fault_profile, observe_payload=True)
             file_bytes = size_mib * 1024 * 1024
@@ -636,7 +725,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             try:
                 await receiver.receive(
                     destination, new_code(rooms), batch=timeout_batch, timeout=FAULT_TIMEOUT_S,
-                    lease_deadline=deadline, remaining_setup_ms=profile.setup_ms,
+                    lease_deadline=deadline, remaining_setup_ms=fault_profile.setup_ms,
                 )
             except CrocError as error:
                 if error.code != "TRANSPORT_TIMEOUT":
@@ -675,7 +764,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
 
             for scenario, source, dest, is_retry in (
                 ("retry", sender, destination, True),
-                ("slow_path", SlowSender(croc_path, a_root, profile), lab_root / "slow.bin", False),
+                ("slow_path", SlowSender(croc_path, a_root, fault_profile), lab_root / "slow.bin", False),
             ):
                 run_id = f"r02-{scenario}-{size_mib}mib-{uuid4().hex[:6]}"
                 attempt_id = uuid4()

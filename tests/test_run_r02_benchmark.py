@@ -41,8 +41,11 @@ else:
             calculate_makespan_ms,
             calculate_overlap_ms,
             calculate_payload_overlap_ms,
+            fault_profile_for_size,
+            normalize_evidence_transfer,
             payload_goodput_bps,
             setup_measure,
+            verified_transfers_status,
         )
     except ImportError as exc:
         # ImportError inside a checkout is a real failure, not a skip.
@@ -202,6 +205,96 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
         )
         self.assertEqual(payload_goodput_bps(1024, run), "")
+
+    def test_fault_profile_uses_32_mib_budget(self):
+        profile = fault_profile_for_size("test-password", 32)
+        self.assertEqual(profile.setup_ms, 1400)
+        self.assertEqual(profile.verify_commit_ms, 200)
+        self.assertEqual(profile.margin_ms, 200)
+
+        from ratatoss.lease_profile import evaluate_lease_budget
+
+        budget = evaluate_lease_budget(
+            batch_bytes=32 * 1024 * 1024,
+            min_goodput_bps=100_000_000,
+            remaining_lease_ms=4500,
+            remaining_adapter_ms=4500,
+            remaining_setup_ms=profile.setup_ms,
+            verify_commit_ms=profile.verify_commit_ms,
+            margin_ms=profile.margin_ms,
+        )
+        self.assertTrue(budget.fits)
+
+    def test_evidence_standard_transfer_fields_match_csv_blanks(self):
+        transfer = {
+            "run_id": "run",
+            "target_peer": "B",
+            "first_byte_monotonic_ms": "100",
+            "last_byte_monotonic_ms": "200",
+            "setup_ms": "50",
+            "goodput_bps": "123",
+        }
+        details = {"processes": {"B_rx": {
+            "first_progress_monotonic_s": 1.25,
+            "first_progress_percent": 82,
+            "full_progress_monotonic_s": 1.75,
+        }}}
+        normalized = normalize_evidence_transfer(transfer, details)
+        self.assertEqual(normalized["first_byte_monotonic_ms"], "")
+        self.assertEqual(normalized["last_byte_monotonic_ms"], "")
+        self.assertEqual(normalized["setup_ms"], "")
+        self.assertEqual(normalized["goodput_bps"], "")
+        self.assertEqual(normalized["progress_estimate"]["first_progress_percent"], 82)
+
+    def test_verified_transfers_status_requires_all_sizes_scenarios(self):
+        import csv
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs_file = root / "runs.csv"
+            transfers_file = root / "transfers.csv"
+
+            run_rows = []
+            transfer_rows = []
+            for size_mib in (32, 64, 128):
+                for scenario in ("sequential", "concurrent"):
+                    for repeat in range(1, 4):
+                        run_id = f"{size_mib}-{scenario}-{repeat}"
+                        run_rows.append({
+                            "run_id": run_id,
+                            "batch_mib": str(size_mib),
+                            "scenario": scenario,
+                            "status": "pass",
+                        })
+                        for batch in range(1 if scenario == "sequential" else 2):
+                            transfer_rows.append({
+                                "run_id": run_id,
+                                "status": "pass",
+                                "verified_sha256": "a" * 64,
+                            })
+
+            with runs_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "batch_mib", "scenario", "status"))
+                writer.writeheader()
+                writer.writerows(run_rows)
+            with transfers_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "status", "verified_sha256"))
+                writer.writeheader()
+                writer.writerows(transfer_rows)
+
+            status, reason = verified_transfers_status(runs_file, transfers_file)
+            self.assertEqual(status, "pass")
+            self.assertEqual(reason, "")
+
+            run_rows[-1]["status"] = "fail"
+            with runs_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "batch_mib", "scenario", "status"))
+                writer.writeheader()
+                writer.writerows(run_rows)
+            status, reason = verified_transfers_status(runs_file, transfers_file)
+            self.assertEqual(status, "blocked")
+            self.assertIn("128 MiB concurrent", reason)
 
 
 if __name__ == "__main__":
