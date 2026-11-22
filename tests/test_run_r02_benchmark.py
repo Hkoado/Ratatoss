@@ -89,6 +89,21 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         overlap = calculate_payload_overlap_ms("", "2000", "1500", "2500")
         self.assertIsNone(overlap)
 
+    def test_progress_measurements_are_not_standard_byte_markers(self):
+        from run_r02_benchmark import SIZE_PROFILES, payload_goodput_bps, setup_measure
+        from unittest.mock import MagicMock
+        from ratatoss.transport import ProcessRun
+
+        run = ProcessRun(
+            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
+            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(), first_byte_monotonic=101.0,
+            last_byte_monotonic=104.0, first_progress_percent=82,
+        )
+        self.assertEqual(setup_measure(run), "")
+        self.assertEqual(payload_goodput_bps(33554432, run), "")
+        self.assertEqual(set(SIZE_PROFILES), {32, 64, 128})
+
     def test_payload_makespan_uses_sha256_completion(self):
         from unittest.mock import MagicMock
         from ratatoss.transport import ProcessRun
@@ -186,7 +201,7 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         run = SimpleNamespace(
             first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
         )
-        self.assertEqual(payload_goodput_bps(1024, run), "3072")
+        self.assertEqual(payload_goodput_bps(1024, run), "")
 
 
 if __name__ == "__main__":

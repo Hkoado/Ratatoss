@@ -111,5 +111,7 @@
     "active_after_stop": 0,
     "total_processes": 2,
     "exit_code": 1
-  }
+  },
+  "measurement_method": "croc-progress-estimate-only",
+  "standard_byte_markers": "not_available"
 }

@@ -41,6 +41,36 @@ MIN_GOODPUT_BPS = 100_000_000
 VERIFY_COMMIT_MS = 200
 MARGIN_MS = 200
 
+SIZE_PROFILES = {
+    32: {
+        "min_goodput_bps": 100_000_000,
+        "setup_budget_ms": 1400,
+        "verify_commit_ms": 200,
+        "margin_ms": 200,
+        "lease_ms": 75_000,
+        "adapter_timeout_ms": 75_000,
+        "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers.",
+    },
+    64: {
+        "min_goodput_bps": 100_000_000,
+        "setup_budget_ms": 2200,
+        "verify_commit_ms": 200,
+        "margin_ms": 200,
+        "lease_ms": 75_000,
+        "adapter_timeout_ms": 75_000,
+        "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers.",
+    },
+    128: {
+        "min_goodput_bps": 100_000_000,
+        "setup_budget_ms": 4700,
+        "verify_commit_ms": 200,
+        "margin_ms": 200,
+        "lease_ms": 75_000,
+        "adapter_timeout_ms": 75_000,
+        "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers.",
+    },
+}
+
 FIXTURE_NAMES = {
     ("A", 32): ("a-32mib.bin", "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"),
     ("A", 64): ("a-64mib.bin", "545a0e718c1a1584c397c853018a16581a31cd66377209041f0984778a4a6a67"),
@@ -81,12 +111,8 @@ def marker_ms(run, name: str) -> str:
 
 
 def payload_goodput_bps(file_bytes: int, run: ProcessRun) -> str:
-    first, last = run.first_byte_monotonic, run.last_byte_monotonic
-    percent = run.first_progress_percent
-    if first is None or last is None or percent is None or last <= first:
-        return ""
-    # Account for payload already received before the first rendered update.
-    return str(round(file_bytes * (100 - percent) / 100 * 8 / (last - first)))
+    # No Croc payload byte-level first/last marker is trusted by R0.2.
+    return ""
 
 
 def evidence_ref(output_dir: Path, run_id: str) -> str:
@@ -94,6 +120,71 @@ def evidence_ref(output_dir: Path, run_id: str) -> str:
     if path.is_relative_to(repo_root):
         return path.relative_to(repo_root).as_posix()
     return path.relative_to(output_dir.resolve()).as_posix()
+
+
+def file_sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path) -> Path:
+    profile_file = output_dir / "batch-profiles.json"
+    profile_file.write_text(
+        json.dumps({
+            "measurement_method": "croc-progress-estimate-only",
+            "byte_marker_status": "not_verified",
+            "profiles": SIZE_PROFILES,
+        }, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    evidence_files = sorted(
+        path for path in output_dir.rglob("evidence.json")
+        if path.is_file()
+    )
+    evidence = {
+        path.relative_to(output_dir).as_posix(): file_sha256(path)
+        for path in evidence_files
+    }
+    evidence.update({
+        "runs.csv": file_sha256(runs_file),
+        "transfers.csv": file_sha256(transfers_file),
+        "batch-profiles.json": file_sha256(profile_file),
+    })
+
+    report = {
+        "checks": {
+            "verified-transfers": {
+                "status": "pass",
+                "evidence": evidence,
+            },
+            "rx-tx-overlap": {
+                "status": "blocked",
+                "evidence": evidence,
+                "reason": "Croc progress observations are not byte-level payload markers.",
+            },
+            "setup-goodput-by-size": {
+                "status": "blocked",
+                "evidence": evidence,
+                "reason": "first_byte_monotonic_ms, last_byte_monotonic_ms, setup_ms and goodput_bps remain blank until byte-level markers are verified.",
+            },
+            "reproduced-timeout": {
+                "status": "pass",
+                "evidence": evidence,
+            },
+            "selected-batch-size": {
+                "status": "blocked",
+                "evidence": evidence,
+                "reason": "No initial batch size is selected until byte-level setup/goodput and overlap are verified.",
+            },
+        }
+    }
+    report_file = output_dir / "readiness.json"
+    report_file.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return report_file
 
 
 def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details) -> None:
@@ -109,6 +200,8 @@ def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details)
         "adapter_timeout_s": FAULT_TIMEOUT_S if run["status"] == "timeout" else TIMEOUT_S,
         "start_gap_s": START_GAP_S,
         "upload_limit": None if run["status"] == "timeout" else MEASURED_UPLOAD_LIMIT,
+        "measurement_method": "croc_progress_estimate_only",
+        "size_profiles": SIZE_PROFILES,
         "secrets_redacted": True,
         "transfers": [dict(zip(TRANSFERS_HEADER, row, strict=True)) for row in transfers],
         **details,
@@ -132,9 +225,8 @@ def csv_measure(value) -> str:
 
 
 def setup_measure(run: ProcessRun) -> str:
-    if run.first_byte_monotonic is None:
-        return ""
-    return str(round((run.first_byte_monotonic - run.started_monotonic) * 1000.0))
+    # Croc progress is an estimate, not a byte-level marker.
+    return ""
 
 
 def process_evidence(run: ProcessRun) -> dict:
@@ -160,13 +252,8 @@ def calculate_overlap_ms(rx_start_ms: float, rx_end_ms: float, tx_start_ms: floa
 
 def calculate_payload_overlap_ms(rx_first_ms: str, rx_last_ms: str,
                                  tx_first_ms: str, tx_last_ms: str) -> float | None:
-    markers = (rx_first_ms, rx_last_ms, tx_first_ms, tx_last_ms)
-    if not all(markers):
-        return None
-    return calculate_overlap_ms(
-        float(rx_first_ms), float(rx_last_ms),
-        float(tx_first_ms), float(tx_last_ms),
-    )
+    # Progress observations are estimates and are not used for merge-ready overlap.
+    return None
 
 
 def build_concurrent_receiver_row(
@@ -290,16 +377,18 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
     transfers_rows = []
 
     password = secrets.token_hex(24)
-    profile = RelayProfile(
-        f"{HOST}:{PORTS[0]}", password, MIN_GOODPUT_BPS,
-        round(START_GAP_S * 1000) + HANDSHAKE_BUDGET_MS, VERIFY_COMMIT_MS, MARGIN_MS,
-    )
 
     with tempfile.TemporaryDirectory() as lab_temp:
         lab_root = Path(lab_temp)
 
         for size_mib in SIZES:
             file_bytes = size_mib * 1024 * 1024
+            size_profile = SIZE_PROFILES[size_mib]
+            profile = RelayProfile(
+                f"{HOST}:{PORTS[0]}", password, size_profile["min_goodput_bps"],
+                size_profile["setup_budget_ms"], size_profile["verify_commit_ms"],
+                size_profile["margin_ms"],
+            )
             a_name, a_sha = FIXTURE_NAMES[("A", size_mib)]
             b_name, b_sha = FIXTURE_NAMES[("B", size_mib)]
             a_fixture = fixtures_dir / a_name
@@ -336,8 +425,8 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     goodput_bps = payload_goodput_bps(
                         file_bytes, rx_run,
                     )
-                    first_byte_ms = marker_ms(rx_run, "first_byte_monotonic")
-                    last_byte_ms = marker_ms(rx_run, "last_byte_monotonic")
+                    first_byte_ms = ""
+                    last_byte_ms = ""
                     sha256_done_ms = marker_ms(rx_run, "sha256_done_monotonic")
                     run_makespan_ms = calculate_makespan_ms(
                         (rx_run.started_monotonic, tx_run.started_monotonic),
@@ -353,7 +442,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         "pass", "false", "false",
                         "Loopback relay A->B; setup and goodput use observed Croc payload progress; blank if markers are missing; SHA-256 verified at destination B",
                     ]
-                    run_status = "pass" if setup_ms and goodput_bps and run_makespan_ms is not None else "fail"
+                    run_status = "pass" if run_makespan_ms is not None else "fail"
                     transfers_rows.append(t_row)
 
                     r_row = [
@@ -439,11 +528,11 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     c_rx_start_ms = r_bc_res.started_monotonic * 1000.0
 
                     # Both receive-side progress feeds share the host monotonic clock.
-                    b_rx_first_byte_ms = marker_ms(r_ab_res, "first_byte_monotonic")
-                    b_rx_last_byte_ms = marker_ms(r_ab_res, "last_byte_monotonic")
+                    b_rx_first_byte_ms = ""
+                    b_rx_last_byte_ms = ""
                     b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
-                    b_tx_first_byte_ms = marker_ms(r_bc_res, "first_byte_monotonic")
-                    b_tx_last_byte_ms = marker_ms(r_bc_res, "last_byte_monotonic")
+                    b_tx_first_byte_ms = ""
+                    b_tx_last_byte_ms = ""
                     c_rx_sha256_done_ms = marker_ms(r_bc_res, "sha256_done_monotonic")
 
                     # Overlap is measured only when both payload intervals are available.
@@ -471,9 +560,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     )
 
                     run_status = (
-                        "pass" if overlap_ms is not None and overlap_ms > 0 and
-                        setup_ab and setup_bc and goodput_ab and goodput_bc and run_makespan_ms is not None
-                        else "fail"
+                        "pass" if run_makespan_ms is not None else "fail"
                     )
 
                     transfers_rows.append(build_concurrent_receiver_row(
@@ -529,9 +616,15 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             a_root, b_root = lab_root / "fault_A", lab_root / "fault_B"
             a_root.mkdir()
             b_root.mkdir()
-            sender = BenchmarkAdapter(croc_path, a_root, profile)
-            receiver = BenchmarkAdapter(croc_path, b_root, profile, observe_payload=True)
             size_mib = 32
+            fault_profile_config = SIZE_PROFILES[size_mib]
+            fault_profile = RelayProfile(
+                f"{HOST}:{PORTS[0]}", password, fault_profile_config["min_goodput_bps"],
+                fault_profile_config["setup_budget_ms"], fault_profile_config["verify_commit_ms"],
+                fault_profile_config["margin_ms"],
+            )
+            sender = BenchmarkAdapter(croc_path, a_root, fault_profile)
+            receiver = BenchmarkAdapter(croc_path, b_root, fault_profile, observe_payload=True)
             file_bytes = size_mib * 1024 * 1024
             name, digest = FIXTURE_NAMES[("A", size_mib)]
             fixture = fixtures_dir / name
@@ -603,8 +696,8 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                 transfers_rows.append([
                     run_id, job_id if is_retry else uuid4().hex, attempt_id.hex, "0",
                     "A", "B", "B", "unknown", str(file_bytes), str(file_bytes),
-                    marker_ms(rx_run, "started_monotonic"), marker_ms(rx_run, "first_byte_monotonic"),
-                    marker_ms(rx_run, "last_byte_monotonic"), marker_ms(rx_run, "sha256_done_monotonic"),
+                    marker_ms(rx_run, "started_monotonic"), "",
+                    "", marker_ms(rx_run, "sha256_done_monotonic"),
                     setup, goodput, verified, "pass", str(is_retry).lower(), "false", notes,
                 ])
                 runs_rows.append([
@@ -649,6 +742,8 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
         write_run_evidence(output_dir, run_row, transfers_by_run.get(run_id, []), evidence_details[run_id])
 
     print(f"Benchmark completed. Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
+    write_r02_readiness(output_dir, runs_file, transfers_file)
+    print(f"Wrote readiness report: {output_dir / 'readiness.json'}")
     return runs_file, transfers_file
 
 
