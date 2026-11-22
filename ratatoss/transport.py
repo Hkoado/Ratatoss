@@ -81,6 +81,10 @@ class ProcessRun:
     exit_code: int
     job: JobCleanup
     staging_cleanup_pending: bool = False
+    # Payload-level timing markers (monotonic seconds)
+    first_byte_monotonic: float | None = None
+    last_byte_monotonic: float | None = None
+    sha256_done_monotonic: float | None = None
 
 
 class CrocError(RuntimeError):
