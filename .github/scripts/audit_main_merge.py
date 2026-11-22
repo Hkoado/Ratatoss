@@ -9,7 +9,7 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from merge_policy import is_authorized_merger
+from merge_policy import is_authorized_merger, is_eligible_reviewer
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class GitHub:
 
 
 def has_approval(pr, reviews, owner, timeline):
-    author = pr["user"]["login"].casefold()
+    author = pr["user"]["login"]
     merge_time = datetime.fromisoformat(pr["merged_at"])
     decisions = {}
     dismissals = {
@@ -84,10 +84,7 @@ def has_approval(pr, reviews, owner, timeline):
     for login, (_, state, decision) in decisions.items():
         if state != "APPROVED" or decision["commit_id"] != pr["head"]["sha"]:
             continue
-        if author != owner and login == owner:
-            return True
-        if (author == owner and login != owner
-                and decision["author_association"] in {"COLLABORATOR", "MEMBER", "OWNER"}):
+        if is_eligible_reviewer(login, author, owner, decision["author_association"]):
             return True
     return False
 
@@ -145,7 +142,7 @@ def audit_push(event, github, *, wait=sleep):
         if pr["user"]["login"].casefold() == owner:
             expected = "another repository collaborator"
         else:
-            expected = "the repository owner"
+            expected = "an authorized reviewer other than the PR author"
         violations.append(f"No valid approval from {expected} on the final PR commit before merging.")
     return Audit(actor, after, number, merger, tuple(violations))
 
