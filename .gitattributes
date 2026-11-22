@@ -5,3 +5,6 @@ spec/governance/originals.sha256.json -text
 spec/governance/verify_originals.py -text
 spec/ui-kit/** -text
 spec/api/examples/sample.txt text eol=lf
+bench/artifacts/r02/*.csv text eol=lf
+bench/artifacts/r02/*.json text eol=lf
+bench/artifacts/r02/**/*.json text eol=lf

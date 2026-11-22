@@ -43,6 +43,7 @@ else:
             calculate_payload_overlap_ms,
             fault_profile_for_size,
             fault_timeout_receive_plan,
+            evidence_ref,
             normalize_evidence_transfer,
             payload_goodput_bps,
             setup_measure,
@@ -232,6 +233,15 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         self.assertEqual(plan["remaining_setup_ms"], 1400)
         self.assertEqual(plan["timeout"], 4.5)
         self.assertEqual(plan["lease_deadline"], 4500.0)
+
+    def test_evidence_ref_uses_repo_relative_r02_path(self):
+        from pathlib import Path
+        root = REPO_ROOT or Path(__file__).resolve().parents[1]
+        output_dir = root / "bench" / "artifacts" / "r02"
+        self.assertEqual(
+            evidence_ref(output_dir, "r02-seq-32mib-rep1-test"),
+            "bench/artifacts/r02/r02-seq-32mib-rep1-test/evidence.json",
+        )
 
     def test_evidence_standard_transfer_fields_match_csv_blanks(self):
         transfer = {

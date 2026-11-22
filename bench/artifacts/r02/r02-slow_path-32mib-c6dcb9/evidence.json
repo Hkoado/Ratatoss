@@ -28,7 +28,7 @@
   "setup_p50_ms": "",
   "setup_p95_ms": "",
   "peer_utilization_ref": "",
-  "evidence_ref": "bench/artifacts/r02-final/r02-slow_path-32mib-c6dcb9/evidence.json",
+  "evidence_ref": "bench/artifacts/r02/r02-slow_path-32mib-c6dcb9/evidence.json",
   "notes": "Sender upload capped at 4M; SHA-256 verified. Setup and goodput are blank if observed Croc payload progress is unavailable.",
   "measured_at": "2026-11-22T15:49:22.406380+00:00",
   "os_version": "10.0.26200",
