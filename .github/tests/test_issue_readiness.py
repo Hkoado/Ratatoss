@@ -153,7 +153,23 @@ class IssueReadinessTests(unittest.TestCase):
         self.github.reviews[0]["user"] = {"login": OWNER}
         self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
         self.github.reviews[0]["user"] = {"login": "NguyenHuy1804"}
+        self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
+
+    def test_delegate_approval_requires_a_different_author_and_a_current_review(self):
+        delegate = "NguyenHuy1804"
+        self.github.merge["user"] = {"login": "worker"}
+        review = self.github.reviews[0]
+        review["user"] = {"login": delegate}
+        for change in ({"commit_id": "b" * 40}, {"state": "DISMISSED"}, {"author_association": "NONE"}):
+            with self.subTest(change=change):
+                self.github.reviews = [dict(review, **change)]
+                self.assert_blocked("lacks approval on the final PR commit before merge")
+
+        self.github.reviews = [review]
+        self.github.merge["user"] = {"login": delegate}
         self.assert_blocked("lacks approval on the final PR commit before merge")
+        review["user"] = {"login": OWNER}
+        self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
 
     def test_merge_requires_authorized_account_main_and_a_commit_reachable_in_main(self):
         for fields, reason in (({"base": {"ref": "other"}}, "merge by an authorized account into main"),

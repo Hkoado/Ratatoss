@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from merge_policy import is_authorized_merger
+from merge_policy import is_authorized_merger, is_eligible_reviewer
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -216,7 +216,7 @@ def main_commit_has_one_parent(root, sha):
 
 
 def has_approval(pr, reviews, owner):
-    author = pr["user"]["login"].casefold()
+    author = pr["user"]["login"]
     merged_at = datetime.fromisoformat(pr["merged_at"])
     latest = {}
     for review in reviews:
@@ -230,10 +230,7 @@ def has_approval(pr, reviews, owner):
     for reviewer, (_, review) in latest.items():
         if review["state"] != "APPROVED" or review["commit_id"] != pr["head"]["sha"]:
             continue
-        if author != owner.casefold() and reviewer == owner.casefold():
-            return True
-        if (author == owner.casefold() and reviewer != author
-                and review["author_association"] in {"COLLABORATOR", "MEMBER", "OWNER"}):
+        if is_eligible_reviewer(reviewer, author, owner, review["author_association"]):
             return True
     return False
 

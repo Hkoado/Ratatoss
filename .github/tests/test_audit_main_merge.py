@@ -104,11 +104,20 @@ class MergeAuditTests(unittest.TestCase):
         audit = self.audit(FakeGitHub(merger=delegate, reviews=[review()]), push(actor=delegate.lower()))
         self.assertFalse(audit.violations)
 
-    def test_delegate_still_needs_owner_approval_for_a_member_pr(self):
+    def test_delegate_approval_alone_is_enough_for_a_member_pr(self):
         delegate = "NguyenHuy1804"
-        audit = self.audit(FakeGitHub(merger=delegate, reviews=[review(delegate)]), push(actor=delegate))
-        self.assertEqual(len(audit.violations), 1)
-        self.assertIn("No valid approval from the repository owner", audit.violations[0])
+        for merger in (OWNER, delegate):
+            with self.subTest(merger=merger):
+                audit = self.audit(FakeGitHub(merger=merger, reviews=[review(delegate)]), push(actor=merger))
+                self.assertFalse(audit.violations)
+
+    def test_delegate_cannot_approve_own_pr_or_review_without_collaborator_status(self):
+        delegate = "NguyenHuy1804"
+        for author, approval in ((delegate, review(delegate)), ("teammate", review(delegate, role="NONE"))):
+            with self.subTest(author=author, approval=approval):
+                audit = self.audit(FakeGitHub(author=author, reviews=[approval]))
+                self.assertIn("No valid approval from an authorized reviewer", audit.violations[0])
+        self.assertFalse(self.audit(FakeGitHub(author=delegate, reviews=[review()])).violations)
 
     def test_flags_unauthorized_merge_even_if_pr_was_approved(self):
         audit = self.audit(FakeGitHub(merger="teammate", reviews=[review()]), push(actor="teammate"))
@@ -119,15 +128,17 @@ class MergeAuditTests(unittest.TestCase):
         audit = self.audit(FakeGitHub(reviews=[review()]), push(actor="NguyenHuy1804"))
         self.assertIn("must match an authorized PR merger", audit.violations[0])
 
-    def test_flags_wrong_push_actor_and_missing_owner_approval(self):
+    def test_flags_wrong_push_actor_and_ineligible_approval(self):
         audit = self.audit(FakeGitHub(reviews=[review("teammate")]), push(actor="teammate"))
         self.assertEqual(len(audit.violations), 2)
-        self.assertIn("No valid approval from the repository owner", audit.violations[1])
+        self.assertIn("No valid approval from an authorized reviewer", audit.violations[1])
 
     def test_approval_must_match_head_and_predate_merge(self):
-        for approval in (review(sha=OLD_HEAD), review(time=LATE), review(time=MERGE)):
-            with self.subTest(approval=approval):
-                self.assertTrue(self.audit(FakeGitHub(reviews=[approval])).violations)
+        for reviewer in (OWNER, "NguyenHuy1804"):
+            for approval in (review(reviewer, sha=OLD_HEAD), review(reviewer, time=LATE),
+                             review(reviewer, time=MERGE)):
+                with self.subTest(approval=approval):
+                    self.assertTrue(self.audit(FakeGitHub(reviews=[approval])).violations)
 
     def test_latest_decisive_review_counts(self):
         change_request = review(state="CHANGES_REQUESTED", time=LATER, id=2)
