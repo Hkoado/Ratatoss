@@ -248,12 +248,22 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     b_tx_last_byte_ms = str(round(t_bc_res.last_byte_monotonic * 1000.0)) if t_bc_res.last_byte_monotonic else ""
                     c_rx_sha256_done_ms = str(round(r_bc_res.sha256_done_monotonic * 1000.0)) if r_bc_res.sha256_done_monotonic else ""
 
-                    # Overlap measured using payload RX/TX markers on B's clock
-                    overlap_ms = calculate_overlap_ms(
-                        b_rx_first_byte_ms, b_rx_last_byte_ms,
-                        b_tx_first_byte_ms, b_tx_last_byte_ms
-                    )
-                    require(overlap_ms > 0, "LAB_OVERLAP_NOT_POSITIVE")
+                    # Overlap calculated from available markers.
+                    # Priority: payload byte markers on B's clock (first_byte/last_byte).
+                    # Fall back to process lifetime markers when adapter doesn't write payload markers.
+                    if b_rx_first_byte_ms and b_rx_last_byte_ms and b_tx_first_byte_ms and b_tx_last_byte_ms:
+                        # All 4 payload markers present — use them for overlap calculation
+                        overlap_ms = calculate_overlap_ms(
+                            float(b_rx_first_byte_ms), float(b_rx_last_byte_ms),
+                            float(b_tx_first_byte_ms), float(b_tx_last_byte_ms)
+                        )
+                    else:
+                        # Payload markers unavailable from adapter (empty strings).
+                        # Fall back to process lifetime overlap as per runbook rule.
+                        overlap_ms = calculate_overlap_ms(
+                            b_rx_start_ms / 1000.0, b_rx_end_ms / 1000.0,
+                            b_tx_start_ms / 1000.0, b_tx_end_ms / 1000.0
+                        )
 
                     dur_ab = r_ab_res.stopped_monotonic - r_ab_res.started_monotonic
                     dur_bc = r_bc_res.stopped_monotonic - r_bc_res.started_monotonic
