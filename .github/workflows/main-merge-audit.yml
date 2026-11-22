@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/main-merge-audit.yml'
       - '.github/scripts/audit_main_merge.py'
+      - '.github/scripts/merge_policy.py'
       - '.github/tests/test_audit_main_merge.py'
 
 permissions:

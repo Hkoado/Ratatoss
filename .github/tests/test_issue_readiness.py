@@ -146,11 +146,18 @@ class IssueReadinessTests(unittest.TestCase):
 
     def test_unmerged_output_pr_blocks_even_with_another_merged_output(self):
         self.github.prs[43] = dict(self.github.merge, number=43, state="open", merged=False)
-        self.assert_blocked("PR #43 needs a merge by the owner into main")
+        self.assert_blocked("PR #43 needs a merge by an authorized account into main")
 
-    def test_merge_requires_owner_main_and_a_commit_reachable_in_main(self):
-        for fields, reason in (({"base": {"ref": "other"}}, "merge by the owner into main"),
-                               ({"merged_by": {"login": "worker"}}, "merge by the owner into main"),
+    def test_delegate_merge_is_eligible_with_approval_and_ci(self):
+        self.github.merge.update(user={"login": "worker"}, merged_by={"login": "NguyenHuy1804"})
+        self.github.reviews[0]["user"] = {"login": OWNER}
+        self.assertEqual(self.reconcile(dry_run=True), ["#6 is eligible for ready (dry run)"])
+        self.github.reviews[0]["user"] = {"login": "NguyenHuy1804"}
+        self.assert_blocked("lacks approval on the final PR commit before merge")
+
+    def test_merge_requires_authorized_account_main_and_a_commit_reachable_in_main(self):
+        for fields, reason in (({"base": {"ref": "other"}}, "merge by an authorized account into main"),
+                               ({"merged_by": {"login": "worker"}}, "merge by an authorized account into main"),
                                ({"merge_commit_sha": "b" * 40}, "squash commit in main history")):
             with self.subTest(fields=fields):
                 previous = self.github.merge.copy()

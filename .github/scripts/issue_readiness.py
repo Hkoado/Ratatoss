@@ -12,6 +12,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from merge_policy import is_authorized_merger
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -111,10 +113,6 @@ class GitHub:
             if not any(label["name"] == "ready" for label in result):
                 raise ValueError("GitHub did not confirm the ready label")
         self.request(f"{path}/blocked", method="DELETE")
-
-
-def from_owner(account, owner):
-    return bool(account and account["login"].casefold() == owner.casefold())
 
 
 def repo_file(root, name):
@@ -269,8 +267,9 @@ def dependency_blocker(github, root, dependency, output, required):
         return f"dependency #{number} needs a linked delivery PR"
     for pr in prs:
         label = f"dependency #{number}, PR #{pr['number']}"
-        if not pr["merged"] or pr["base"]["ref"] != "main" or not from_owner(pr["merged_by"], github.owner):
-            return f"{label} needs a merge by the owner into main"
+        merger = (pr.get("merged_by") or {}).get("login")
+        if not pr["merged"] or pr["base"]["ref"] != "main" or not is_authorized_merger(merger, github.owner):
+            return f"{label} needs a merge by an authorized account into main"
         merge_sha = github.merge_commit_sha(pr)
         if not merge_sha:
             return f"{label} has no merge commit SHA in GitHub"

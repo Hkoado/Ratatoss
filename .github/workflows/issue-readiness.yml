@@ -19,6 +19,7 @@ on:
       - '.github/workflows/issue-readiness.yml'
       - '.github/issue-readiness.json'
       - '.github/scripts/issue_readiness.py'
+      - '.github/scripts/merge_policy.py'
       - '.github/tests/test_issue_readiness.py'
 
 permissions:

@@ -9,6 +9,8 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from merge_policy import is_authorized_merger
+
 
 @dataclass(frozen=True)
 class Audit:
@@ -132,8 +134,8 @@ def audit_push(event, github, *, wait=sleep):
     commit = github.get(f"/commits/{after}")
     if [parent["sha"] for parent in commit["parents"]] != [before]:
         violations.append("The commit did not have the previous main tip as its sole parent.")
-    if actor.casefold() != owner or merger.casefold() != owner:
-        violations.append("The push or PR merge was performed by an account other than the repository owner.")
+    if actor.casefold() != merger.casefold() or not is_authorized_merger(merger, owner):
+        violations.append("The push actor must match an authorized PR merger.")
 
     reviews = list(github.items(f"/pulls/{number}/reviews"))
     timeline = ()
