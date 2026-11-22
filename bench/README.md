@@ -6,6 +6,8 @@ Sao chép mẫu CSV cho mỗi bộ ca chạy theo [runbook](../docs/experiments.
 
 ## Báo cáo và Luận cứ chọn cỡ Batch ban đầu (R0.2)
 
+> Trạng thái bằng chứng: các số liệu và kết luận 64 MiB trong các bản CSV/README trước đây chưa được xem là đủ bằng chứng cho gate R0.2 nếu thiếu hiện vật lược bí mật hoặc fixture chạy lại khớp commit. Chỉ kết luận từ một lượt chạy thật sau khi CSV, evidence JSON, mã commit, marker payload và hash đã khớp cùng commit được ghi trong PR.
+
 Dựa trên kết quả đo đạc thực nghiệm 19 runs (gồm cả tuần tự, đồng thời và timeout tái hiện) được lưu tại `bench/artifacts/r02/runs.csv` và `bench/artifacts/r02/transfers.csv`:
 
 ### 1. Phân tích số liệu thực nghiệm theo kích thước Batch

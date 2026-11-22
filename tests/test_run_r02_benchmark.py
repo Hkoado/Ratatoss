@@ -36,6 +36,8 @@ else:
         sys.path.insert(0, scripts_dir)
     try:
         from run_r02_benchmark import (
+            build_concurrent_receiver_row,
+            build_concurrent_sender_row,
             calculate_makespan_ms,
             calculate_overlap_ms,
             calculate_payload_overlap_ms,
@@ -101,6 +103,21 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             job=MagicMock(), sha256_done_monotonic=105.0,
         )
         self.assertEqual(calculate_makespan_ms((100.0, 101.0), (rx, tx)), 6000)
+
+    def test_concurrent_rows_keep_sha_marker_as_string(self):
+        receiver = build_concurrent_receiver_row(
+            "run", "job", "attempt", 1024,
+            1000.0, "1100", "1200", "1300",
+            "100", "800000", "a" * 64, "50.0",
+        )
+        sender = build_concurrent_sender_row(
+            "run", "job", "attempt-bc", 1024,
+            1050.0, "1150", "1250", "1300",
+            "100", "800000", "b" * 64, "50.0",
+        )
+        self.assertEqual(receiver[13], "1300")
+        self.assertEqual(sender[13], "1300")
+        self.assertNotIn("e: ", receiver)
 
     def test_setup_ms_empty_when_first_byte_missing(self):
         """Missing payload markers must produce empty CSV measurements, not a proxy."""

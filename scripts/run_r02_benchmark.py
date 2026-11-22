@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -50,6 +51,17 @@ FIXTURE_NAMES = {
 }
 
 
+def git_commit_short(repo_root: Path | None = None) -> str:
+    root = repo_root or Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
+
+
+GIT_COMMIT = git_commit_short(repo_root)
+
 def marker_ms(run, name: str) -> str:
     value = getattr(run, name, None)
     return str(round(value * 1000.0)) if value is not None else ""
@@ -75,6 +87,30 @@ def sha256_done_marker_ms(run) -> float:
     return stopped_marker_ms(run)
 
 
+def evidence_ref(output_dir: Path, run_id: str) -> str:
+    return (output_dir / run_id / "evidence.json").as_posix()
+
+
+def write_run_evidence(output_dir: Path, run_row: list[str]) -> None:
+    run_id = run_row[0]
+    directory = output_dir / run_id
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_id": run_id,
+        "commit": GIT_COMMIT,
+        "scenario": run_row[2],
+        "status": run_row[16],
+        "measured_at": datetime.now(timezone.utc).isoformat(),
+        "croc_version": CROC_VERSION,
+        "croc_sha256": WINDOWS_X64_SHA256,
+        "secrets_redacted": True,
+    }
+    (directory / "evidence.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def calculate_makespan_ms(starts_monotonic: tuple[float, ...],
                           runs: tuple[object, ...]) -> int:
     overall_start_ms = min(starts_monotonic) * 1000.0
@@ -98,6 +134,43 @@ def calculate_payload_overlap_ms(rx_first_ms: str, rx_last_ms: str,
         float(rx_first_ms), float(rx_last_ms),
         float(tx_first_ms), float(tx_last_ms),
     )
+
+
+def build_concurrent_receiver_row(
+    run_id: str, job_id: str, assignment_id: str, file_bytes: int,
+    start_ms: float, first_byte_ms: str, last_byte_ms: str,
+    sha256_done_ms: str, setup_ms: str, goodput_bps: str,
+    digest: str, overlap_text: str,
+) -> list[str]:
+    return [
+        run_id, job_id, assignment_id, "0",
+        "A", "B", "B", "relay",
+        str(file_bytes), str(file_bytes),
+        f"{start_ms:.3f}", first_byte_ms, last_byte_ms, sha256_done_ms,
+        setup_ms, goodput_bps, digest,
+        "pass", "false", "false",
+        f"Concurrent RX on B; payload first_byte={first_byte_ms or 'empty'}ms "
+        f"last_byte={last_byte_ms or 'empty'}ms; "
+        f"SHA-256 done at {sha256_done_ms or 'empty'}ms; overlap={overlap_text}ms",
+    ]
+
+
+def build_concurrent_sender_row(
+    run_id: str, job_id: str, assignment_id: str, file_bytes: int,
+    start_ms: float, first_byte_ms: str, last_byte_ms: str,
+    sha256_done_ms: str, setup_ms: str, goodput_bps: str,
+    digest: str, overlap_text: str,
+) -> list[str]:
+    return [
+        run_id, job_id, assignment_id, "1",
+        "B", "C", "B", "relay",
+        str(file_bytes), str(file_bytes),
+        f"{start_ms:.3f}", first_byte_ms, last_byte_ms, sha256_done_ms,
+        setup_ms, goodput_bps, digest,
+        "pass", "false", "false",
+        f"Concurrent TX on B; payload first_byte={first_byte_ms or 'empty'}ms "
+        f"last_byte={last_byte_ms or 'empty'}ms; observer=B; overlap={overlap_text}ms",
+    ]
 
 
 async def execute_transfer(
@@ -214,12 +287,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
 
                     r_row = [
                         run_id, "gate0", "sequential", "croc_relay", str(repeat), "42",
-                        "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                        GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                         "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
                         str(size_mib), "1", "1", "pass",
                         str(run_makespan_ms), str(file_bytes), "", "", "",
                         "", "", "", str(setup_ms), str(setup_ms), "",
-                        f"bench/artifacts/r02/{run_id}/evidence.json",
+                        evidence_ref(output_dir, run_id),
                         f"Sequential transport run; setup_ms from handshake first-byte marker; SHA-256 verified at B; evidence at bench/artifacts/r02/{run_id}/",
                     ]
                     runs_rows.append(r_row)
@@ -285,8 +358,8 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     b_rx_first_byte_ms = marker_ms(r_ab_res, "first_byte_monotonic")
                     b_rx_last_byte_ms = marker_ms(r_ab_res, "last_byte_monotonic")
                     b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
-                    b_tx_first_byte_ms = marker_ms(t_bc_res, "first_byte_monotonic")
-                    b_tx_last_byte_ms = marker_ms(t_bc_res, "last_byte_monotonic")
+                    b_tx_first_byte_ms = marker_ms(r_bc_res, "first_byte_monotonic")
+                    b_tx_last_byte_ms = marker_ms(r_bc_res, "last_byte_monotonic")
                     c_rx_sha256_done_ms = marker_ms(r_bc_res, "sha256_done_monotonic")
 
                     # Overlap is measured only when both payload intervals are available.
@@ -295,6 +368,10 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         b_tx_first_byte_ms, b_tx_last_byte_ms,
                     )
                     overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
+                    require(
+                        overlap_ms is not None and overlap_ms > 0,
+                        "CONCURRENT_PAYLOAD_OVERLAP_EMPTY",
+                    )
 
                     dur_ab = r_ab_res.stopped_monotonic - r_ab_res.started_monotonic
                     dur_bc = r_bc_res.stopped_monotonic - r_bc_res.started_monotonic
@@ -304,6 +381,14 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     goodput_bc = payload_goodput_bps(
                         file_bytes, r_bc_res.first_byte_monotonic, r_bc_res.last_byte_monotonic,
                     )
+                    setup_bc = (
+                        str(round((r_bc_res.first_byte_monotonic - r_bc_res.started_monotonic) * 1000.0))
+                        if r_bc_res.first_byte_monotonic is not None else ""
+                    )
+                    setup_ab = (
+                        str(round((r_ab_res.first_byte_monotonic - r_ab_res.started_monotonic) * 1000.0))
+                        if r_ab_res.first_byte_monotonic is not None else ""
+                    )
 
                     # Makespan = from B RX start to C RX SHA-256 verification completion
                     # Use sha256_done_monotonic when available, fall back to stopped_monotonic
@@ -312,33 +397,27 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         (r_ab_res, r_bc_res),
                     )
 
-                    transfers_rows.append([
-                        run_id, job_id, batch_ab.attempt_id.hex, "0",
-                        "A", "B", "B", "relay",
-                        str(file_bytes), str(file_bytes),
-                        f"{b_rx_start_ms:.3f}", str(b_rx_first_byte_ms), str(b_rx_last_byte_ms), f"{b_rx_sha256_done_ms:.3f}",
-                        str(round(START_GAP_S * 1000.0)), str(goodput_ab), sha256_file(dest_b),
-                        "pass", "false", "false",
-                        f"Concurrent RX on B; payload first_byte={b_rx_first_byte_ms or 'empty'}ms last_byte={b_rx_last_byte_ms or 'empty'}ms; SHA-256 done at {b_rx_sha256_done_ms or 'empty'}ms; overlap={overlap_text}ms",
-                    ])
-                    transfers_rows.append([
-                        run_id, job_id, batch_bc.attempt_id.hex, "1",
-                        "B", "C", "B", "relay",
-                        str(file_bytes), str(file_bytes),
-                        f"{b_tx_start_ms:.3f}", str(b_tx_first_byte_ms), str(b_tx_last_byte_ms), f"{b_tx_end_ms:.3f}",
-                        str(HANDSHAKE_BUDGET_MS), str(goodput_bc), sha256_file(dest_c),
-                        "pass", "false", "false",
-                        f"Concurrent TX on B; payload first_byte={b_tx_first_byte_ms or 'empty'}ms last_byte={b_tx_last_byte_ms or 'empty'}ms; observer=B; overlap={overlap_text}ms",
-                    ])
+                    transfers_rows.append(build_concurrent_receiver_row(
+                        run_id, job_id, batch_ab.attempt_id.hex, file_bytes,
+                        b_rx_start_ms, b_rx_first_byte_ms, b_rx_last_byte_ms,
+                        b_rx_sha256_done_ms, setup_ab, goodput_ab,
+                        sha256_file(dest_b), overlap_text,
+                    ))
+                    transfers_rows.append(build_concurrent_sender_row(
+                        run_id, job_id, batch_bc.attempt_id.hex, file_bytes,
+                        b_tx_start_ms, b_tx_first_byte_ms, b_tx_last_byte_ms,
+                        c_rx_sha256_done_ms, setup_bc, goodput_bc,
+                        sha256_file(dest_c), overlap_text,
+                    ))
 
                     runs_rows.append([
                         run_id, "gate0", "concurrent", "croc_relay", str(repeat), "42",
-                        "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                        GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                         "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes * 2),
                         str(size_mib), "1", "1", "pass",
                         str(run_makespan_ms), str(file_bytes * 2), "", "", "",
-                        "", "", "", str(round(START_GAP_S * 1000.0)), str(round(START_GAP_S * 1000.0)), "",
-                        f"bench/artifacts/r02/{run_id}/evidence.json",
+                        "", "", "", str(setup_ab), str(setup_bc), "",
+                        evidence_ref(output_dir, run_id),
                         f"Concurrent RX/TX run on B; overlap={overlap_text}ms on B payload clock; C RX SHA-256 verified at {c_rx_sha256_done_ms or 'empty'}ms; evidence at bench/artifacts/r02/{run_id}/",
                     ])
                     overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
@@ -389,12 +468,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             ])
             runs_rows.append([
                 run_id, "gate0", "timeout_reproduce", "croc_relay", "1", "42",
-                "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                 "loopback-127.0.0.1", "windows-loopback", FIXTURE_NAMES[("A", 32)][1], str(timeout_file_bytes),
                 "32", "1", "0", "timeout",
                 str(round(t_end - t_start)), "0", "", "", "",
                 "", "", "", "", "", "",
-                f"bench/artifacts/r02/{run_id}/evidence.json",
+                evidence_ref(output_dir, run_id),
                 f"Timeout reproducibility: exit code TRANSPORT_TIMEOUT, clean abort, staging empty, evidence to be collected from real run; marker unavailability justified in notes",
             ])
             print("Timeout reproducibility run passed.")
@@ -431,12 +510,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                 ])
                 runs_rows.append([
                     retry_run_id, "gate0", "retry", "croc_relay", "1", "42",
-                    "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                    GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                     "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
                     str(size_mib), "1", "1", "pass",
                     str(retry_end_ms - retry_start_ms), str(file_bytes), "", "", "",
                     "", "", "", str(retry_setup_ms), str(retry_setup_ms), "",
-                    f"bench/artifacts/r02/{retry_run_id}/evidence.json",
+                    evidence_ref(output_dir, retry_run_id),
                     f"Retry run successful after timeout; unique job_id={retry_job_id}, assignment_id={retry_assignment_id}; SHA-256 verified; payload marker availability is documented in the CSV",
                 ])
                 print(f"Retry run passed ({size_mib} MiB, makespan: {retry_end_ms - retry_start_ms}ms, goodput: {retry_goodput}bps)")
@@ -452,12 +531,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                 ])
                 runs_rows.append([
                     retry_run_id, "gate0", "retry_blocked", "croc_relay", "1", "42",
-                    "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                    GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                     "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
                     str(size_mib), "1", "1", "blocked",
                     "0", "", "", "", "",
                     "", "", "", "", "", "",
-                    f"bench/artifacts/r02/{retry_run_id}/evidence.json",
+                    evidence_ref(output_dir, retry_run_id),
                     f"Retry blocked after timeout; evidence at bench/artifacts/r02/{retry_run_id}/",
                 ])
                 print(f"Retry blocked ({size_mib} MiB)")
@@ -497,12 +576,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                 ])
                 runs_rows.append([
                     slow_run_id, "gate0", "slow_path", "croc_relay", "1", "42",
-                    "fe0bebc", platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                    GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                     "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
                     str(size_mib), "1", "1", "pass",
                     str(slow_end_ms - slow_start_ms), str(file_bytes), "", "", "",
                     "", "", "", str(slow_setup_ms), str(slow_setup_ms), "",
-                    f"bench/artifacts/r02/{slow_run_id}/evidence.json",
+                    evidence_ref(output_dir, slow_run_id),
                     f"Slow path run completed; commit hash {verified_sha_slow[:12]}... matches expected; SHA-256 verified at B; evidence at bench/artifacts/r02/{slow_run_id}/",
                 ])
                 print(f"Slow path run passed ({size_mib} MiB, makespan: {slow_end_ms - slow_start_ms}ms, SHA-256 verified)")
@@ -525,6 +604,9 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
         writer = csv.writer(f)
         writer.writerow(TRANSFERS_HEADER)
         writer.writerows(transfers_rows)
+
+    for run_row in runs_rows:
+        write_run_evidence(output_dir, run_row)
 
     print(f"Benchmark completed successfully! Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
     return runs_file, transfers_file
