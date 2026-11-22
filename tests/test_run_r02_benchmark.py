@@ -42,6 +42,7 @@ else:
             calculate_overlap_ms,
             calculate_payload_overlap_ms,
             fault_profile_for_size,
+            fault_timeout_receive_plan,
             normalize_evidence_transfer,
             payload_goodput_bps,
             setup_measure,
@@ -224,6 +225,13 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             margin_ms=profile.margin_ms,
         )
         self.assertTrue(budget.fits)
+
+    def test_timeout_receive_plan_uses_fault_profile_not_last_size_profile(self):
+        profile = fault_profile_for_size("test-password", 32)
+        plan = fault_timeout_receive_plan(profile, 4500.0, 4.5)
+        self.assertEqual(plan["remaining_setup_ms"], 1400)
+        self.assertEqual(plan["timeout"], 4.5)
+        self.assertEqual(plan["lease_deadline"], 4500.0)
 
     def test_evidence_standard_transfer_fields_match_csv_blanks(self):
         transfer = {

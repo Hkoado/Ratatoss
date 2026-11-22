@@ -10,15 +10,15 @@ Bộ [runs.csv](artifacts/r02/runs.csv) và [transfers.csv](artifacts/r02/transf
 
 | Batch (MiB) | Kịch bản | Đạt/tổng | Mốc byte đầu/cuối | Setup/goodput chuẩn | Makespan trung vị (ms) | Overlap byte payload |
 | --- | --- | --- | --- | --- | --- | --- |
-| 32 | Tuần tự | 3/3 | Không có | Để trống | 2148 | — |
-| 32 | Đồng thời | 3/3 | Không có | Để trống | 2665 | Chưa xác minh |
-| 64 | Tuần tự | 3/3 | Không có | Để trống | 3987 | — |
-| 64 | Đồng thời | 3/3 | Không có | Để trống | 4808 | Chưa xác minh |
-| 128 | Tuần tự | 3/3 | Không có | Để trống | 8287 | — |
-| 128 | Đồng thời | 3/4 | Không có | Để trống | 9840 | Chưa xác minh |
+| 32 | Tuần tự | 3/3 | Không có | Để trống | 1312 | — |
+| 32 | Đồng thời | 3/3 | Không có | Để trống | 1328 | Chưa xác minh |
+| 64 | Tuần tự | 3/3 | Không có | Để trống | 2703 | — |
+| 64 | Đồng thời | 3/3 | Không có | Để trống | 2781 | Chưa xác minh |
+| 128 | Tuần tự | 3/3 | Không có | Để trống | 5532 | — |
+| 128 | Đồng thời | 3/3 | Không có | Để trống | 8718 | Chưa xác minh |
 
 Các trường `first_byte_monotonic_ms`, `last_byte_monotonic_ms`, `setup_ms` và `goodput_bps` để trống trong CSV chuẩn vì lần báo tiến độ Croc không phải mốc byte tin cậy. Các cập nhật tiến độ và phần trăm tương ứng chỉ được giữ trong `evidence.json` dưới dạng ước tính. Chúng không được dùng để xác nhận setup, goodput, overlap RX/TX hay chọn batch mặc định. Makespan tính đến lần xác minh SHA-256 cuối cùng. Xem [runbook Cổng 0](../docs/experiments.md#cổng-0--transport), [quy tắc lưu bằng chứng](../docs/experiments.md#thu-thập-và-lưu-bằng-chứng) và [hồ sơ ngân sách theo cỡ batch](artifacts/r02/batch-profiles.json).
 
-Ca không có bên gửi trả `TRANSPORT_TIMEOUT` sau 4509 ms. Báo cáo ghi cây tiến trình về 0, staging sạch và không publish dữ liệu. Lượt retry dùng cùng fixture 32 MiB với ID lần thử mới và xác minh đúng SHA-256. Lượt upload giới hạn 4M cũng xác minh đúng SHA-256. [Bằng chứng timeout](artifacts/r02/r02-timeout-reproduce-83133c/evidence.json) · [Bằng chứng retry](artifacts/r02/r02-retry-32mib-586ecc/evidence.json) · [Bằng chứng đường chậm](artifacts/r02/r02-slow_path-32mib-997f6d/evidence.json).
+Ca không có bên gửi trả `TRANSPORT_TIMEOUT` sau 4500 ms. Báo cáo ghi cây tiến trình về 0, staging sạch và không publish dữ liệu. Lượt retry dùng cùng fixture 32 MiB với ID lần thử mới và xác minh đúng SHA-256. Lượt upload giới hạn 4M cũng xác minh đúng SHA-256. [Bằng chứng timeout](artifacts/r02/r02-timeout-reproduce-14f71d/evidence.json) · [Bằng chứng retry](artifacts/r02/r02-retry-32mib-f4bb7f/evidence.json) · [Bằng chứng đường chậm](artifacts/r02/r02-slow_path-32mib-c6dcb9/evidence.json).
 
 **Chưa chọn batch mặc định.** Bộ số liệu hiện tại không gồm mốc byte đầu/cuối đáng tin cậy và không thể nghiệm thu setup/goodput hoặc overlap theo quy tắc R0.2. Không đưa ra đề xuất 32, 64 hoặc 128 MiB làm lựa chọn mặc định cho đến khi có mốc payload byte-level và kết quả overlap đã xác minh.

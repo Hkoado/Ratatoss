@@ -102,6 +102,15 @@ def fault_profile_for_size(password: str, size_mib: int) -> RelayProfile:
     )
 
 
+def fault_timeout_receive_plan(profile: RelayProfile, lease_deadline: float,
+                               timeout_s: float) -> dict:
+    return {
+        "timeout": timeout_s,
+        "lease_deadline": lease_deadline,
+        "remaining_setup_ms": profile.setup_ms,
+    }
+
+
 class BenchmarkAdapter(CrocAdapter):
     upload_limit = MEASURED_UPLOAD_LIMIT
 
@@ -723,9 +732,14 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             timeout_batch = Batch(uuid4(), file_bytes, digest)
             deadline = time.monotonic() + FAULT_TIMEOUT_S
             try:
+                timeout_plan = fault_timeout_receive_plan(
+                    fault_profile, deadline, FAULT_TIMEOUT_S,
+                )
                 await receiver.receive(
-                    destination, new_code(rooms), batch=timeout_batch, timeout=FAULT_TIMEOUT_S,
-                    lease_deadline=deadline, remaining_setup_ms=fault_profile.setup_ms,
+                    destination, new_code(rooms), batch=timeout_batch,
+                    timeout=timeout_plan["timeout"],
+                    lease_deadline=timeout_plan["lease_deadline"],
+                    remaining_setup_ms=timeout_plan["remaining_setup_ms"],
                 )
             except CrocError as error:
                 if error.code != "TRANSPORT_TIMEOUT":
