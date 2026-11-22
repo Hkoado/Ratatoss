@@ -166,8 +166,8 @@ class CrocAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertTrue(successful.stopped)
         self.assertEqual(self.destination.read_bytes(), self.payload)
-        self.assertIsNotNone(result.first_byte_monotonic)
-        self.assertIsNotNone(result.last_byte_monotonic)
+        self.assertIsNone(result.first_byte_monotonic)
+        self.assertIsNone(result.last_byte_monotonic)
         self.assertIsNotNone(result.sha256_done_monotonic)
 
     async def test_wrong_hash_after_exit_never_delivers(self):

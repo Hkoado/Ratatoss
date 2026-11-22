@@ -1,41 +1,70 @@
-"""Summarize validated R0.2 benchmark CSV artifacts."""
+#!/usr/bin/env python3
+"""Đếm lượt chạy R0.2 theo batch_mib, scenario và status."""
 
 import argparse
 import csv
-from collections import defaultdict
+from collections import Counter
 from pathlib import Path
+import sys
+
+try:
+    from .validate_bench_csv import validate_csv
+except ImportError:
+    from validate_bench_csv import validate_csv
 
 
-def summarize(runs_path: Path) -> dict:
-    with runs_path.open("r", encoding="utf-8", newline="") as source:
-        rows = list(csv.DictReader(source))
+def summarize_runs(runs_path: Path) -> list[tuple[str, str, str, int]]:
+    counts: Counter[tuple[str, str, str]] = Counter()
 
-    scenarios = defaultdict(list)
-    for row in rows:
-        if row["status"] == "pass":
-            scenarios[(row["batch_mib"], row["scenario"])].append(row)
+    with runs_path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            key = (
+                row["batch_mib"].strip(),
+                row["scenario"].strip(),
+                row["status"].strip(),
+            )
+            counts[key] += 1
 
-    summary = []
-    for (size_mib, scenario), rows_in_group in sorted(
-        scenarios.items(), key=lambda item: (int(item[0][0]), item[0][1])
-    ):
-        makespans = [int(row["makespan_ms"]) for row in rows_in_group if row["makespan_ms"]]
-        summary.append({
-            "size_mib": int(size_mib),
-            "scenario": scenario,
-            "passes": len(rows_in_group),
-            "makespan_ms_avg": round(sum(makespans) / len(makespans)) if makespans else None,
-        })
-    return {"passes": sum(item["passes"] for item in summary), "scenarios": summary}
+    return [
+        (batch_mib, scenario, status, count)
+        for (batch_mib, scenario, status), count in sorted(counts.items())
+    ]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("runs_csv", type=Path)
+    parser = argparse.ArgumentParser(
+        description="Rà cặp CSV benchmark và đếm lượt chạy R0.2."
+    )
+    parser.add_argument("runs", type=Path, help="Path to runs.csv")
+    parser.add_argument("transfers", type=Path, help="Path to transfers.csv")
     args = parser.parse_args()
-    print(summarize(args.runs_csv))
+
+    errors = validate_csv(args.runs, args.transfers)
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1
+
+    try:
+        rows = summarize_runs(args.runs)
+    except (csv.Error, KeyError, OSError) as error:
+        print(f"Could not summarize runs.csv: {error}", file=sys.stderr)
+        return 1
+
+    if not rows:
+        print("0 run(s).")
+        return 0
+
+    sys.stdout.reconfigure(newline="")
+    writer = csv.writer(sys.stdout, lineterminator="\n")
+    writer.writerow(["batch_mib", "scenario", "status", "count"])
+
+    for batch_mib, scenario, status, count in rows:
+        writer.writerow([batch_mib, scenario, status, count])
+
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

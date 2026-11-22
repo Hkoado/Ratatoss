@@ -42,6 +42,7 @@ else:
             calculate_overlap_ms,
             calculate_payload_overlap_ms,
             payload_goodput_bps,
+            setup_measure,
         )
     except ImportError as exc:
         # ImportError inside a checkout is a real failure, not a skip.
@@ -140,10 +141,8 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             sha256_done_monotonic=None,
         )
 
-        setup_ms = str(round((run.first_byte_monotonic - run.started_monotonic) * 1000.0)) if run.first_byte_monotonic is not None else ""
-        goodput_bps = ""
-        self.assertEqual(setup_ms, "")
-        self.assertEqual(goodput_bps, "")
+        self.assertEqual(setup_measure(run), "")
+        self.assertEqual(payload_goodput_bps(1024, run), "")
 
     def test_last_byte_missing_produces_empty_goodput(self):
         """Missing last-byte payload marker must not substitute process duration."""
@@ -164,49 +163,30 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             sha256_done_monotonic=None,
         )
 
-        goodput_bps = payload_goodput_bps(
-            1024 * 1024, run.first_byte_monotonic, run.last_byte_monotonic,
+        self.assertEqual(payload_goodput_bps(1024, run), "")
+        self.assertIsNone(calculate_makespan_ms((run.started_monotonic,), (run,)))
+
+    def test_progress_observer_ignores_unrelated_and_incomplete_frames(self):
+        from ratatoss.transport import _PayloadProgress
+
+        progress = _PayloadProgress()
+        progress.feed(b"Hashing batch-test 50% |", 1.0)
+        progress.feed(b"batch-test   0% |", 2.0)
+        progress.feed(b"batch-test 100% |", 3.0)
+        self.assertIsNone(progress.first)
+        self.assertIsNone(progress.last)
+        progress.feed(b"batch-test  25% |", 4.0)
+        progress.feed(b"batch-test  50% |", 5.0)
+        progress.feed(b"batch-test 100% |", 6.0)
+        self.assertEqual((progress.first, progress.first_percent, progress.last), (4.0, 25, 6.0))
+
+    def test_goodput_excludes_payload_already_received_at_first_sample(self):
+        from types import SimpleNamespace
+
+        run = SimpleNamespace(
+            first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
         )
-        self.assertEqual(goodput_bps, "")
-
-    def test_sha256_done_missing_falls_back_to_stopped(self):
-        """Regression: SHA-256 done marker falls back to stopped_monotonic when missing."""
-        from unittest.mock import MagicMock
-        from ratatoss.transport import ProcessRun
-
-        run = ProcessRun(
-            pid=1234,
-            started_at="2026-01-01T00:00:00Z",
-            stopped_at="2026-01-01T00:00:05Z",
-            started_monotonic=1000.0,
-            stopped_monotonic=1005.0,
-            deadline_monotonic=1045.0,
-            exit_code=0,
-            job=MagicMock(),
-            first_byte_monotonic=1001.0,
-            last_byte_monotonic=1004.0,
-            sha256_done_monotonic=None,  # Missing marker
-        )
-
-        # sha256_done_ms should fall back to stopped_monotonic
-        sha256_done_ms = round(run.sha256_done_monotonic * 1000.0) if run.sha256_done_monotonic else round(run.stopped_monotonic * 1000.0)
-        self.assertEqual(sha256_done_ms, 1005000)  # 1005.0 * 1000
-
-    def test_empty_measurement_fields_require_notes(self):
-        """Regression: empty measurement fields must have notes justification per runbook."""
-        # Simulate empty measurement fields with notes justification
-        empty_fields = ["setup_ms", "goodput_bps", "first_byte_monotonic_ms", "last_byte_monotonic_ms"]
-        notes = "setup_ms and goodput_bps measured via payload markers per runbook; empty fields documented here."
-
-        # Notes must justify empty measurement fields per runbook rules
-        self.assertIn("empty fields documented", notes)
-        self.assertIn("per runbook", notes)
-
-        # Verify that when fields are empty, notes must be non-empty (validate_bench_csv.py rule)
-        for field_name in empty_fields:
-            field_value = ""  # empty measurement field
-            if not field_value:
-                self.assertTrue(notes, f"notes required when {field_name} is empty")
+        self.assertEqual(payload_goodput_bps(1024, run), "3072")
 
 
 if __name__ == "__main__":

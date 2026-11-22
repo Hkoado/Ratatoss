@@ -5,8 +5,6 @@ import asyncio
 import csv
 import hashlib
 import json
-import math
-import os
 from pathlib import Path
 import platform
 import secrets
@@ -15,7 +13,7 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timezone
-from dataclasses import dataclass
+from dataclasses import asdict
 from uuid import uuid4
 
 repo_root = Path(__file__).resolve().parent.parent
@@ -24,7 +22,7 @@ if str(repo_root) not in sys.path:
 
 from ratatoss._croc_process import WindowsChild
 from ratatoss.transport import (
-    Batch, COMMON_FLAGS, CROC_VERSION, WINDOWS_X64_SHA256, CrocAdapter, CrocError, RelayProfile,
+    Batch, COMMON_FLAGS, CROC_VERSION, WINDOWS_X64_SHA256, CrocAdapter, CrocError, ProcessRun, RelayProfile,
     child_environment, sha256_file,
 )
 from scripts.croc_smoke import (
@@ -33,10 +31,12 @@ from scripts.croc_smoke import (
 from scripts.validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER
 
 SIZES = (32, 64, 128)
-SCENARIOS = ("sequential", "concurrent")
 REPEATS = 3
+MAX_ATTEMPTS_PER_CASE = 6
 TIMEOUT_S = 45
-FAULT_TIMEOUT_S = 6
+FAULT_TIMEOUT_S = 4.5
+MEASURED_UPLOAD_LIMIT = "24M"
+SLOW_UPLOAD_LIMIT = "4M"
 MIN_GOODPUT_BPS = 100_000_000
 VERIFY_COMMIT_MS = 200
 MARGIN_MS = 200
@@ -51,59 +51,64 @@ FIXTURE_NAMES = {
 }
 
 
-def git_commit_short(repo_root: Path | None = None) -> str:
+def benchmark_commit(repo_root: Path | None = None) -> str:
     root = repo_root or Path(__file__).resolve().parent.parent
     result = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
         capture_output=True, text=True, check=True,
     )
     return result.stdout.strip()
 
 
-GIT_COMMIT = git_commit_short(repo_root)
+class BenchmarkAdapter(CrocAdapter):
+    upload_limit = MEASURED_UPLOAD_LIMIT
+
+    def argv(self, role, batch):
+        argv = super().argv(role, batch)
+        if role == "tx":
+            argv[1:1] = ["--throttleUpload", self.upload_limit]
+        return argv
+
+
+class SlowSender(BenchmarkAdapter):
+    upload_limit = SLOW_UPLOAD_LIMIT
+
 
 def marker_ms(run, name: str) -> str:
     value = getattr(run, name, None)
     return str(round(value * 1000.0)) if value is not None else ""
 
 
-def payload_goodput_bps(file_bytes: int, first_monotonic: float | None,
-                        last_monotonic: float | None) -> str:
-    if first_monotonic is None or last_monotonic is None:
+def payload_goodput_bps(file_bytes: int, run: ProcessRun) -> str:
+    first, last = run.first_byte_monotonic, run.last_byte_monotonic
+    percent = run.first_progress_percent
+    if first is None or last is None or percent is None or last <= first:
         return ""
-    duration_s = last_monotonic - first_monotonic
-    if duration_s <= 0:
-        return ""
-    return str(round((file_bytes * 8.0) / duration_s))
-
-
-def stopped_marker_ms(run) -> float:
-    return run.stopped_monotonic * 1000.0
-
-
-def sha256_done_marker_ms(run) -> float:
-    if run.sha256_done_monotonic is not None:
-        return run.sha256_done_monotonic * 1000.0
-    return stopped_marker_ms(run)
+    # Account for payload already received before the first rendered update.
+    return str(round(file_bytes * (100 - percent) / 100 * 8 / (last - first)))
 
 
 def evidence_ref(output_dir: Path, run_id: str) -> str:
-    return (output_dir / run_id / "evidence.json").as_posix()
+    path = output_dir.resolve() / run_id / "evidence.json"
+    if path.is_relative_to(repo_root):
+        return path.relative_to(repo_root).as_posix()
+    return path.relative_to(output_dir.resolve()).as_posix()
 
 
-def write_run_evidence(output_dir: Path, run_row: list[str]) -> None:
-    run_id = run_row[0]
-    directory = output_dir / run_id
-    directory.mkdir(parents=True, exist_ok=True)
+def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details) -> None:
+    run = dict(zip(RUNS_HEADER, run_row, strict=True))
+    directory = output_dir / run["run_id"]
+    directory.mkdir(exist_ok=False)
     payload = {
-        "run_id": run_id,
-        "commit": GIT_COMMIT,
-        "scenario": run_row[2],
-        "status": run_row[16],
+        **run,
         "measured_at": datetime.now(timezone.utc).isoformat(),
-        "croc_version": CROC_VERSION,
-        "croc_sha256": WINDOWS_X64_SHA256,
+        "os_version": platform.version(),
+        "relay_ports": PORTS,
+        "start_gap_s": START_GAP_S,
+        "upload_limit": None if run["status"] == "timeout" else MEASURED_UPLOAD_LIMIT,
         "secrets_redacted": True,
+        "transfers": [dict(zip(TRANSFERS_HEADER, row, strict=True)) for row in transfers],
+        **details,
     }
     (directory / "evidence.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -112,10 +117,35 @@ def write_run_evidence(output_dir: Path, run_row: list[str]) -> None:
 
 
 def calculate_makespan_ms(starts_monotonic: tuple[float, ...],
-                          runs: tuple[object, ...]) -> int:
-    overall_start_ms = min(starts_monotonic) * 1000.0
-    overall_end_ms = max(sha256_done_marker_ms(run) for run in runs)
-    return round(overall_end_ms - overall_start_ms)
+                          runs: tuple[ProcessRun, ...]) -> int | None:
+    verified = [run.sha256_done_monotonic for run in runs]
+    if not verified or any(value is None for value in verified):
+        return None
+    return round((max(verified) - min(starts_monotonic)) * 1000.0)
+
+
+def csv_measure(value) -> str:
+    return "" if value is None else str(value)
+
+
+def setup_measure(run: ProcessRun) -> str:
+    if run.first_byte_monotonic is None:
+        return ""
+    return str(round((run.first_byte_monotonic - run.started_monotonic) * 1000.0))
+
+
+def process_evidence(run: ProcessRun) -> dict:
+    return {
+        "started_monotonic_s": run.started_monotonic,
+        "stopped_monotonic_s": run.stopped_monotonic,
+        "deadline_monotonic_s": run.deadline_monotonic,
+        "first_progress_monotonic_s": run.first_byte_monotonic,
+        "first_progress_percent": run.first_progress_percent,
+        "full_progress_monotonic_s": run.last_byte_monotonic,
+        "sha256_done_monotonic_s": run.sha256_done_monotonic,
+        "job": asdict(run.job),
+        "staging_cleanup_pending": run.staging_cleanup_pending,
+    }
 
 
 def calculate_overlap_ms(rx_start_ms: float, rx_end_ms: float, tx_start_ms: float, tx_end_ms: float) -> float:
@@ -144,13 +174,13 @@ def build_concurrent_receiver_row(
 ) -> list[str]:
     return [
         run_id, job_id, assignment_id, "0",
-        "A", "B", "B", "relay",
+        "A", "B", "B", "unknown",
         str(file_bytes), str(file_bytes),
         f"{start_ms:.3f}", first_byte_ms, last_byte_ms, sha256_done_ms,
         setup_ms, goodput_bps, digest,
         "pass", "false", "false",
-        f"Concurrent RX on B; payload first_byte={first_byte_ms or 'empty'}ms "
-        f"last_byte={last_byte_ms or 'empty'}ms; "
+        f"Concurrent RX on B; observed payload progress first={first_byte_ms or 'empty'}ms "
+        f"full={last_byte_ms or 'empty'}ms; "
         f"SHA-256 done at {sha256_done_ms or 'empty'}ms; overlap={overlap_text}ms",
     ]
 
@@ -163,13 +193,13 @@ def build_concurrent_sender_row(
 ) -> list[str]:
     return [
         run_id, job_id, assignment_id, "1",
-        "B", "C", "B", "relay",
+        "B", "C", "C", "unknown",
         str(file_bytes), str(file_bytes),
         f"{start_ms:.3f}", first_byte_ms, last_byte_ms, sha256_done_ms,
         setup_ms, goodput_bps, digest,
         "pass", "false", "false",
-        f"Concurrent TX on B; payload first_byte={first_byte_ms or 'empty'}ms "
-        f"last_byte={last_byte_ms or 'empty'}ms; observer=B; overlap={overlap_text}ms",
+        f"Concurrent B->C observed at C on the shared clock; observed payload progress first={first_byte_ms or 'empty'}ms "
+        f"full={last_byte_ms or 'empty'}ms; observer=C; overlap={overlap_text}ms",
     ]
 
 
@@ -182,8 +212,10 @@ async def execute_transfer(
     file_bytes: int,
     session_code: str,
     timeout_s: float = TIMEOUT_S,
+    *,
+    attempt_id=None,
 ):
-    batch = Batch(uuid4(), file_bytes, expected_digest)
+    batch = Batch(attempt_id or uuid4(), file_bytes, expected_digest)
     deadline = time.monotonic() + timeout_s
 
     async with asyncio.TaskGroup() as tasks:
@@ -212,7 +244,16 @@ async def execute_transfer(
 
 
 async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
+    commit = benchmark_commit()
+    for (_, size_mib), (name, digest) in FIXTURE_NAMES.items():
+        fixture = fixtures_dir / name
+        require(fixture.stat().st_size == size_mib * 1024 * 1024, "LAB_FIXTURE_SIZE_MISMATCH")
+        require(sha256_file(fixture) == digest, "LAB_FIXTURE_HASH_MISMATCH")
+    require(sha256_file(croc_path) == WINDOWS_X64_SHA256, "LAB_CROC_PIN_MISMATCH")
     output_dir.mkdir(parents=True, exist_ok=True)
+    require(not any((output_dir / name).exists() for name in ("runs.csv", "transfers.csv")),
+            "LAB_OUTPUT_ALREADY_EXISTS")
+    evidence_details = {}
     runs_rows = []
     transfers_rows = []
 
@@ -233,17 +274,18 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             b_fixture = fixtures_dir / b_name
 
             # 1. SEQUENTIAL (A -> B only)
-            for repeat in range(1, REPEATS + 1):
+            passed = 0
+            for repeat in range(1, MAX_ATTEMPTS_PER_CASE + 1):
                 relay_root = lab_root / f"relay_seq_{size_mib}_{repeat}"
                 relay_root.mkdir(parents=True, exist_ok=True)
                 argv = [str(croc_path), *COMMON_FLAGS, "relay", "--host", HOST, "--ports", ",".join(map(str, PORTS))]
                 relay = WindowsChild(argv, cwd=relay_root, env=child_environment(relay_root) | {"CROC_PASS": password})
-                wait_for_relay(relay)
                 try:
+                    wait_for_relay(relay)
                     peer_roots = {role: lab_root / f"peer_seq_{size_mib}_{repeat}_{role}" for role in "AB"}
                     for p in peer_roots.values():
                         p.mkdir(parents=True, exist_ok=True)
-                    peers = {role: CrocAdapter(croc_path, p, profile) for role, p in peer_roots.items()}
+                    peers = {role: BenchmarkAdapter(croc_path, p, profile, observe_payload=True) for role, p in peer_roots.items()}
                     rooms = set()
 
                     run_id = f"r02-seq-{size_mib}mib-rep{repeat}-{uuid4().hex[:6]}"
@@ -258,60 +300,63 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     )
 
                     start_ms = rx_run.started_monotonic * 1000.0
-                    end_ms = rx_run.stopped_monotonic * 1000.0
-                    setup_ms = (
-                        str(round((rx_run.first_byte_monotonic - rx_run.started_monotonic) * 1000.0))
-                        if rx_run.first_byte_monotonic is not None else ""
-                    )
+                    setup_ms = setup_measure(rx_run)
                     goodput_bps = payload_goodput_bps(
-                        file_bytes, rx_run.first_byte_monotonic, rx_run.last_byte_monotonic,
+                        file_bytes, rx_run,
                     )
                     first_byte_ms = marker_ms(rx_run, "first_byte_monotonic")
                     last_byte_ms = marker_ms(rx_run, "last_byte_monotonic")
                     sha256_done_ms = marker_ms(rx_run, "sha256_done_monotonic")
                     run_makespan_ms = calculate_makespan_ms(
                         (rx_run.started_monotonic, tx_run.started_monotonic),
-                        (rx_run, tx_run),
+                        (rx_run,),
                     )
 
                     t_row = [
                         run_id, job_id, assignment_id, str(batch_id),
-                        "A", "B", "B", "relay",
+                        "A", "B", "B", "unknown",
                         str(file_bytes), str(file_bytes),
-                        f"{start_ms:.3f}", str(first_byte_ms) if first_byte_ms != "" else "", str(last_byte_ms) if last_byte_ms != "" else "", f"{end_ms:.3f}",
+                        f"{start_ms:.3f}", first_byte_ms, last_byte_ms, sha256_done_ms,
                         str(setup_ms), str(goodput_bps), verified_sha,
                         "pass", "false", "false",
-                        "Loopback relay A->B; setup_ms from handshake first-byte marker; goodput_bps from payload transfer time; SHA-256 verified at destination B",
+                        "Loopback relay A->B; setup and goodput use observed Croc payload progress; blank if markers are missing; SHA-256 verified at destination B",
                     ]
+                    run_status = "pass" if setup_ms and goodput_bps and run_makespan_ms is not None else "fail"
                     transfers_rows.append(t_row)
 
                     r_row = [
-                        run_id, "gate0", "sequential", "croc_relay", str(repeat), "42",
-                        GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                        run_id, "gate0", "sequential", "croc_relay", str(repeat), "",
+                        commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                         "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
-                        str(size_mib), "1", "1", "pass",
-                        str(run_makespan_ms), str(file_bytes), "", "", "",
+                        str(size_mib), "1", "1", run_status,
+                        csv_measure(run_makespan_ms), str(file_bytes), "", "", "",
                         "", "", "", str(setup_ms), str(setup_ms), "",
                         evidence_ref(output_dir, run_id),
-                        f"Sequential transport run; setup_ms from handshake first-byte marker; SHA-256 verified at B; evidence at bench/artifacts/r02/{run_id}/",
+                        f"Sequential transport run; setup is blank if payload progress is unavailable; SHA-256 verified at B; evidence at {evidence_ref(output_dir, run_id)}",
                     ]
                     runs_rows.append(r_row)
-                    print(f"Sequential {size_mib} MiB repeat {repeat} passed (makespan: {run_makespan_ms}ms, goodput: {goodput_bps or 'empty'}bps)")
+                    evidence_details[run_id] = {"processes": {"A_tx": process_evidence(tx_run), "B_rx": process_evidence(rx_run)}}
+                    print(f"Sequential {size_mib} MiB repeat {repeat} {run_status} (makespan: {run_makespan_ms}ms, goodput: {goodput_bps or 'empty'}bps)")
                 finally:
-                    relay.stop()
+                    cleanup = relay.stop()
+                evidence_details[run_id]["relay_cleanup"] = asdict(cleanup)
+                passed += run_status == "pass"
+                if passed == REPEATS:
+                    break
 
-            # 2. CONCURRENT (A -> B and B -> C simultaneously on B clock)
-            for repeat in range(1, REPEATS + 1):
+            # 2. CONCURRENT (A -> B and B -> C on the same host clock)
+            passed = 0
+            for repeat in range(1, MAX_ATTEMPTS_PER_CASE + 1):
                 relay_root = lab_root / f"relay_concur_{size_mib}_{repeat}"
                 relay_root.mkdir(parents=True, exist_ok=True)
                 argv = [str(croc_path), *COMMON_FLAGS, "relay", "--host", HOST, "--ports", ",".join(map(str, PORTS))]
                 relay = WindowsChild(argv, cwd=relay_root, env=child_environment(relay_root) | {"CROC_PASS": password})
-                wait_for_relay(relay)
                 try:
+                    wait_for_relay(relay)
                     peer_roots = {role: lab_root / f"peer_concur_{size_mib}_{repeat}_{role}" for role in "ABC"}
                     for p in peer_roots.values():
                         p.mkdir(parents=True, exist_ok=True)
-                    peers = {role: CrocAdapter(croc_path, p, profile) for role, p in peer_roots.items()}
+                    peers = {role: BenchmarkAdapter(croc_path, p, profile, observe_payload=True) for role, p in peer_roots.items()}
                     rooms = set()
 
                     run_id = f"r02-concur-{size_mib}mib-rep{repeat}-{uuid4().hex[:6]}"
@@ -347,14 +392,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     t_ab_res = tx_a.result()
                     r_bc_res = rx_c.result()
                     t_bc_res = tx_b.result()
+                    require(all(not run.job.active_after_stop for run in (r_ab_res, t_ab_res, r_bc_res, t_bc_res)),
+                            "LAB_PROCESS_NOT_REAPED")
 
                     b_rx_start_ms = r_ab_res.started_monotonic * 1000.0
-                    b_rx_end_ms = r_ab_res.stopped_monotonic * 1000.0
-                    b_tx_start_ms = t_bc_res.started_monotonic * 1000.0
-                    b_tx_end_ms = t_bc_res.stopped_monotonic * 1000.0
+                    c_rx_start_ms = r_bc_res.started_monotonic * 1000.0
 
-                    # Payload byte markers on B's clock (first_byte / last_byte / sha256_done)
-                    # Use empty string when adapter doesn't write markers; notes will justify
+                    # Both receive-side progress feeds share the host monotonic clock.
                     b_rx_first_byte_ms = marker_ms(r_ab_res, "first_byte_monotonic")
                     b_rx_last_byte_ms = marker_ms(r_ab_res, "last_byte_monotonic")
                     b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
@@ -368,33 +412,28 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         b_tx_first_byte_ms, b_tx_last_byte_ms,
                     )
                     overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
-                    require(
-                        overlap_ms is not None and overlap_ms > 0,
-                        "CONCURRENT_PAYLOAD_OVERLAP_EMPTY",
-                    )
 
-                    dur_ab = r_ab_res.stopped_monotonic - r_ab_res.started_monotonic
-                    dur_bc = r_bc_res.stopped_monotonic - r_bc_res.started_monotonic
                     goodput_ab = payload_goodput_bps(
-                        file_bytes, r_ab_res.first_byte_monotonic, r_ab_res.last_byte_monotonic,
+                        file_bytes, r_ab_res,
                     )
                     goodput_bc = payload_goodput_bps(
-                        file_bytes, r_bc_res.first_byte_monotonic, r_bc_res.last_byte_monotonic,
+                        file_bytes, r_bc_res,
                     )
-                    setup_bc = (
-                        str(round((r_bc_res.first_byte_monotonic - r_bc_res.started_monotonic) * 1000.0))
-                        if r_bc_res.first_byte_monotonic is not None else ""
-                    )
-                    setup_ab = (
-                        str(round((r_ab_res.first_byte_monotonic - r_ab_res.started_monotonic) * 1000.0))
-                        if r_ab_res.first_byte_monotonic is not None else ""
+                    setup_bc = setup_measure(r_bc_res)
+                    setup_ab = setup_measure(r_ab_res)
+                    setup_values = sorted(int(value) for value in (setup_ab, setup_bc) if value)
+                    setup_p50 = csv_measure(round(sum(setup_values) / 2) if len(setup_values) == 2 else None)
+                    setup_p95 = csv_measure(setup_values[-1] if len(setup_values) == 2 else None)
+
+                    run_makespan_ms = calculate_makespan_ms(
+                        (r_ab_res.started_monotonic, t_ab_res.started_monotonic, r_bc_res.started_monotonic, t_bc_res.started_monotonic),
+                        (r_ab_res, r_bc_res),
                     )
 
-                    # Makespan = from B RX start to C RX SHA-256 verification completion
-                    # Use sha256_done_monotonic when available, fall back to stopped_monotonic
-                    run_makespan_ms = calculate_makespan_ms(
-                        (r_ab_res.started_monotonic, t_bc_res.started_monotonic),
-                        (r_ab_res, r_bc_res),
+                    run_status = (
+                        "pass" if overlap_ms is not None and overlap_ms > 0 and
+                        setup_ab and setup_bc and goodput_ab and goodput_bc and run_makespan_ms is not None
+                        else "fail"
                     )
 
                     transfers_rows.append(build_concurrent_receiver_row(
@@ -405,191 +444,140 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     ))
                     transfers_rows.append(build_concurrent_sender_row(
                         run_id, job_id, batch_bc.attempt_id.hex, file_bytes,
-                        b_tx_start_ms, b_tx_first_byte_ms, b_tx_last_byte_ms,
+                        c_rx_start_ms, b_tx_first_byte_ms, b_tx_last_byte_ms,
                         c_rx_sha256_done_ms, setup_bc, goodput_bc,
                         sha256_file(dest_c), overlap_text,
                     ))
 
                     runs_rows.append([
-                        run_id, "gate0", "concurrent", "croc_relay", str(repeat), "42",
-                        GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                        run_id, "gate0", "concurrent", "croc_relay", str(repeat), "",
+                        commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
                         "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes * 2),
-                        str(size_mib), "1", "1", "pass",
-                        str(run_makespan_ms), str(file_bytes * 2), "", "", "",
-                        "", "", "", str(setup_ab), str(setup_bc), "",
+                        str(size_mib), "1", "1", run_status,
+                        csv_measure(run_makespan_ms), str(file_bytes), "", "", "",
+                        "", "", "", setup_p50, setup_p95, "",
                         evidence_ref(output_dir, run_id),
-                        f"Concurrent RX/TX run on B; overlap={overlap_text}ms on B payload clock; C RX SHA-256 verified at {c_rx_sha256_done_ms or 'empty'}ms; evidence at bench/artifacts/r02/{run_id}/",
+                        f"Concurrent RX/TX run on B; overlap={overlap_text}ms on the shared Windows monotonic clock; C RX SHA-256 verified at {c_rx_sha256_done_ms or 'empty'}ms; evidence at {evidence_ref(output_dir, run_id)}",
                     ])
                     overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
-                    print(f"Concurrent {size_mib} MiB repeat {repeat} passed (makespan: {run_makespan_ms}ms, overlap: {overlap_text}ms)")
+                    evidence_details[run_id] = {"processes": {
+                        "A_tx": process_evidence(t_ab_res), "B_rx": process_evidence(r_ab_res),
+                        "B_tx": process_evidence(t_bc_res), "C_rx": process_evidence(r_bc_res),
+                    }}
+                    print(f"Concurrent {size_mib} MiB repeat {repeat} {run_status} (makespan: {run_makespan_ms}ms, overlap: {overlap_text}ms)")
                 finally:
-                    relay.stop()
+                    cleanup = relay.stop()
+                evidence_details[run_id]["relay_cleanup"] = asdict(cleanup)
+                passed += run_status == "pass"
+                if passed == REPEATS:
+                    break
 
-        # 3. TIMEOUT REPRODUCIBILITY (Receiver starts, sender never appears)
-        relay_root = lab_root / "relay_timeout"
-        relay_root.mkdir(parents=True, exist_ok=True)
+        relay_root = lab_root / "relay_faults"
+        relay_root.mkdir()
         argv = [str(croc_path), *COMMON_FLAGS, "relay", "--host", HOST, "--ports", ",".join(map(str, PORTS))]
         relay = WindowsChild(argv, cwd=relay_root, env=child_environment(relay_root) | {"CROC_PASS": password})
-        wait_for_relay(relay)
         try:
-            peer_b_root = lab_root / "peer_timeout_B"
-            peer_b_root.mkdir(parents=True, exist_ok=True)
-            peer_b = CrocAdapter(croc_path, peer_b_root, profile)
-
-            run_id = f"r02-timeout-reproduce-{uuid4().hex[:6]}"
-            timeout_file_bytes = 32 * 1024 * 1024
-            batch_timeout = Batch(uuid4(), timeout_file_bytes, FIXTURE_NAMES[("A", 32)][1])
-            dest_timeout = lab_root / "dest_timeout.bin"
-            timeout_s = 4.5
-            lease_deadline = time.monotonic() + 15.0
-            timeout_caught = False
-            t_start = time.monotonic() * 1000.0
-
+            wait_for_relay(relay)
+            a_root, b_root = lab_root / "fault_A", lab_root / "fault_B"
+            a_root.mkdir()
+            b_root.mkdir()
+            sender = BenchmarkAdapter(croc_path, a_root, profile)
+            receiver = BenchmarkAdapter(croc_path, b_root, profile, observe_payload=True)
+            size_mib = 32
+            file_bytes = size_mib * 1024 * 1024
+            name, digest = FIXTURE_NAMES[("A", size_mib)]
+            fixture = fixtures_dir / name
+            destination = lab_root / "retried.bin"
+            rooms = set()
+            job_id = uuid4().hex
+            timeout_batch = Batch(uuid4(), file_bytes, digest)
+            deadline = time.monotonic() + FAULT_TIMEOUT_S
             try:
-                await peer_b.receive(
-                    dest_timeout, new_code(set()), batch=batch_timeout,
-                    timeout=timeout_s, lease_deadline=lease_deadline, remaining_setup_ms=profile.setup_ms,
+                await receiver.receive(
+                    destination, new_code(rooms), batch=timeout_batch, timeout=FAULT_TIMEOUT_S,
+                    lease_deadline=deadline, remaining_setup_ms=profile.setup_ms,
                 )
-            except CrocError as exc:
-                if exc.code == "TRANSPORT_TIMEOUT":
-                    timeout_caught = True
-                    require(exc.partial_isolated is False, "PARTIAL_SHOULD_BE_FALSE")
-                    require(not dest_timeout.exists(), "DEST_SHOULD_NOT_EXIST")
-            t_end = time.monotonic() * 1000.0
-            require(timeout_caught, "TIMEOUT_NOT_REPRODUCED")
+            except CrocError as error:
+                if error.code != "TRANSPORT_TIMEOUT":
+                    raise
+                process = error.process
+                require(process is not None and process.job.active_before_stop > 0
+                        and process.job.active_after_stop == 0, "LAB_TIMEOUT_PROCESS_NOT_REAPED")
+                require(not error.partial_isolated and not error.staging_cleanup_pending
+                        and not destination.exists(), "LAB_TIMEOUT_STAGING_NOT_CLEAN")
+            else:
+                raise CrocError("TIMEOUT_NOT_REPRODUCED")
 
+            timeout_id = f"r02-timeout-reproduce-{uuid4().hex[:6]}"
+            timeout_duration_ms = round((process.stopped_monotonic - process.started_monotonic) * 1000)
+            timeout_notes = (
+                f"TRANSPORT_TIMEOUT after {timeout_duration_ms} ms with peer absent; "
+                "no partial payload or published file; process tree reaped and staging cleaned."
+            )
             transfers_rows.append([
-                run_id, uuid4().hex, batch_timeout.attempt_id.hex, "0",
-                "A", "B", "B", "relay",
-                str(timeout_file_bytes), "0",
-                f"{t_start:.3f}", "", "", f"{t_end:.3f}",
-                "", "", "", "timeout", "false", "false",
-                "Timeout exit code: TRANSPORT_TIMEOUT; process tree cleaned; staging quarantined empty; deadline enforced at lease_deadline; first_byte/last_byte/sha256_done markers unavailable from adapter; setup/goodput via process lifecycle proxy; evidence to be collected from real run",
+                timeout_id, job_id, timeout_batch.attempt_id.hex, "0", "A", "B", "B", "unknown",
+                str(file_bytes), "0", marker_ms(process, "started_monotonic"), "", "",
+                marker_ms(process, "stopped_monotonic"), "", "", "", "timeout", "false", "false", timeout_notes,
             ])
             runs_rows.append([
-                run_id, "gate0", "timeout_reproduce", "croc_relay", "1", "42",
-                GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
-                "loopback-127.0.0.1", "windows-loopback", FIXTURE_NAMES[("A", 32)][1], str(timeout_file_bytes),
-                "32", "1", "0", "timeout",
-                str(round(t_end - t_start)), "0", "", "", "",
-                "", "", "", "", "", "",
-                evidence_ref(output_dir, run_id),
-                f"Timeout reproducibility: exit code TRANSPORT_TIMEOUT, clean abort, staging empty, evidence to be collected from real run; marker unavailability justified in notes",
+                timeout_id, "gate0", "timeout_reproduce", "croc_relay", "1", "",
+                commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                "loopback-127.0.0.1", "windows-loopback", digest, str(file_bytes),
+                str(size_mib), "1", "0", "timeout", "", "0", "", "", "", "", "", "",
+                "", "", "", evidence_ref(output_dir, timeout_id), timeout_notes,
             ])
-            print("Timeout reproducibility run passed.")
+            evidence_details[timeout_id] = {
+                "processes": {"B_rx": process_evidence(process)},
+                "timeout_ms": timeout_duration_ms, "partial_isolated": False, "destination_published": False,
+            }
+            print("Timeout reproduced; child cleanup verified.")
 
-            # Retry after timeout: successful retry with unique attempt ID
-            retry_run_id = f"r02-retry-{size_mib}mib-{uuid4().hex[:6]}"
-            retry_dest = lab_root / f"dest_retry_{size_mib}.bin"
-            retry_batch = Batch(uuid4(), file_bytes, a_sha)
-            retry_job_id = uuid4().hex
-            retry_assignment_id = uuid4().hex
-
-            try:
-                rx_retry, tx_retry, verified_sha_retry = await execute_transfer(
-                    peers["A"], peers["B"], a_fixture, retry_dest, a_sha, file_bytes, new_code(set()),
+            for scenario, source, dest, is_retry in (
+                ("retry", sender, destination, True),
+                ("slow_path", SlowSender(croc_path, a_root, profile), lab_root / "slow.bin", False),
+            ):
+                run_id = f"r02-{scenario}-{size_mib}mib-{uuid4().hex[:6]}"
+                attempt_id = uuid4()
+                if is_retry:
+                    require(attempt_id != timeout_batch.attempt_id, "LAB_ATTEMPT_REUSED")
+                rx_run, tx_run, verified = await execute_transfer(
+                    source, receiver, fixture, dest, digest, file_bytes, new_code(rooms),
+                    timeout_s=TIMEOUT_S, attempt_id=attempt_id,
                 )
-                retry_start_ms = round(rx_retry.started_monotonic * 1000.0)
-                retry_end_ms = round(rx_retry.stopped_monotonic * 1000.0)
-                retry_setup_ms = (
-                    str(round((rx_retry.first_byte_monotonic - rx_retry.started_monotonic) * 1000.0))
-                    if rx_retry.first_byte_monotonic is not None else ""
+                makespan = calculate_makespan_ms((rx_run.started_monotonic, tx_run.started_monotonic), (rx_run,))
+                setup = setup_measure(rx_run)
+                goodput = payload_goodput_bps(file_bytes, rx_run)
+                notes = (
+                    f"Same fixture and destination as {timeout_id}; verified with a new attempt."
+                    if is_retry else f"Sender upload capped at {SLOW_UPLOAD_LIMIT}; SHA-256 verified."
                 )
-                retry_goodput = payload_goodput_bps(
-                    file_bytes, rx_retry.first_byte_monotonic, rx_retry.last_byte_monotonic,
-                )
-
+                notes += " Setup and goodput are blank if observed Croc payload progress is unavailable."
                 transfers_rows.append([
-                    retry_run_id, retry_job_id, retry_assignment_id, "0",
-                    "A", "B", "B", "relay",
-                    str(file_bytes), str(file_bytes),
-                    f"{retry_start_ms:.3f}", "", "", f"{retry_end_ms:.3f}",
-                    str(retry_setup_ms), str(retry_goodput), verified_sha_retry,
-                    "pass", "false", "false",
-                    "Successful retry after timeout; unique attempt ID; clean staging before retry; payload measurements empty unless receive-side markers were captured",
+                    run_id, job_id if is_retry else uuid4().hex, attempt_id.hex, "0",
+                    "A", "B", "B", "unknown", str(file_bytes), str(file_bytes),
+                    marker_ms(rx_run, "started_monotonic"), marker_ms(rx_run, "first_byte_monotonic"),
+                    marker_ms(rx_run, "last_byte_monotonic"), marker_ms(rx_run, "sha256_done_monotonic"),
+                    setup, goodput, verified, "pass", str(is_retry).lower(), "false", notes,
                 ])
                 runs_rows.append([
-                    retry_run_id, "gate0", "retry", "croc_relay", "1", "42",
-                    GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
-                    "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
-                    str(size_mib), "1", "1", "pass",
-                    str(retry_end_ms - retry_start_ms), str(file_bytes), "", "", "",
-                    "", "", "", str(retry_setup_ms), str(retry_setup_ms), "",
-                    evidence_ref(output_dir, retry_run_id),
-                    f"Retry run successful after timeout; unique job_id={retry_job_id}, assignment_id={retry_assignment_id}; SHA-256 verified; payload marker availability is documented in the CSV",
+                    run_id, "gate0", scenario, "croc_relay", "1", "",
+                    commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+                    "loopback-127.0.0.1", "windows-loopback", digest, str(file_bytes),
+                    str(size_mib), "1", "1", "pass", csv_measure(makespan), str(file_bytes),
+                    "", "", "", "", "", "", setup, setup, "",
+                    evidence_ref(output_dir, run_id), notes,
                 ])
-                print(f"Retry run passed ({size_mib} MiB, makespan: {retry_end_ms - retry_start_ms}ms, goodput: {retry_goodput}bps)")
-            except CrocError:
-                # If retry also fails, record as blocked
-                transfers_rows.append([
-                    retry_run_id, retry_job_id, retry_assignment_id, "0",
-                    "A", "B", "B", "relay",
-                    str(file_bytes), "0",
-                    "0", "", "", "0",
-                    "", "", "", "blocked", "false", "false",
-                    "Retry blocked; timeout recurred; staging preserved for diagnosis; first_byte/last_byte/sha256_done markers unavailable; evidence to be collected from real run",
-                ])
-                runs_rows.append([
-                    retry_run_id, "gate0", "retry_blocked", "croc_relay", "1", "42",
-                    GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
-                    "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
-                    str(size_mib), "1", "1", "blocked",
-                    "0", "", "", "", "",
-                    "", "", "", "", "", "",
-                    evidence_ref(output_dir, retry_run_id),
-                    f"Retry blocked after timeout; evidence at bench/artifacts/r02/{retry_run_id}/",
-                ])
-                print(f"Retry blocked ({size_mib} MiB)")
-
-            # Slow path: transfer still progresses and reaches correct commit hash
-            slow_run_id = f"r02-slow-{size_mib}mib-{uuid4().hex[:6]}"
-            slow_dest = lab_root / f"dest_slow_{size_mib}.bin"
-            slow_batch = Batch(uuid4(), file_bytes, a_sha)
-            slow_job_id = uuid4().hex
-            slow_assignment_id = uuid4().hex
-
-            try:
-                rx_slow, tx_slow, verified_sha_slow = await execute_transfer(
-                    peers["A"], peers["B"], a_fixture, slow_dest, a_sha, file_bytes, new_code(set()),
-                    timeout_s=TIMEOUT_S * 2,  # Extended timeout for slow path
-                )
-                slow_start_ms = round(rx_slow.started_monotonic * 1000.0)
-                slow_end_ms = round(rx_slow.stopped_monotonic * 1000.0)
-                slow_setup_ms = (
-                    str(round((rx_slow.first_byte_monotonic - rx_slow.started_monotonic) * 1000.0))
-                    if rx_slow.first_byte_monotonic is not None else ""
-                )
-                slow_goodput = payload_goodput_bps(
-                    file_bytes, rx_slow.first_byte_monotonic, rx_slow.last_byte_monotonic,
-                )
-                # Verify commit hash matches expected
-                require(verified_sha_slow == a_sha, "SLOW_COMMIT_HASH_MISMATCH")
-
-                transfers_rows.append([
-                    slow_run_id, slow_job_id, slow_assignment_id, "0",
-                    "A", "B", "B", "relay",
-                    str(file_bytes), str(file_bytes),
-                    f"{slow_start_ms:.3f}", "", "", f"{slow_end_ms:.3f}",
-                    str(slow_setup_ms), str(slow_goodput), verified_sha_slow,
-                    "pass", "false", "false",
-                    "Slow path transfer completed; SHA-256 commit hash verified matches expected; progresses to correct commit",
-                ])
-                runs_rows.append([
-                    slow_run_id, "gate0", "slow_path", "croc_relay", "1", "42",
-                    GIT_COMMIT, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
-                    "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
-                    str(size_mib), "1", "1", "pass",
-                    str(slow_end_ms - slow_start_ms), str(file_bytes), "", "", "",
-                    "", "", "", str(slow_setup_ms), str(slow_setup_ms), "",
-                    evidence_ref(output_dir, slow_run_id),
-                    f"Slow path run completed; commit hash {verified_sha_slow[:12]}... matches expected; SHA-256 verified at B; evidence at bench/artifacts/r02/{slow_run_id}/",
-                ])
-                print(f"Slow path run passed ({size_mib} MiB, makespan: {slow_end_ms - slow_start_ms}ms, SHA-256 verified)")
-            except CrocError:
-                print(f"Slow path blocked ({size_mib} MiB)")
-
+                evidence_details[run_id] = {
+                    "processes": {"A_tx": process_evidence(tx_run), "B_rx": process_evidence(rx_run)},
+                    "retry_of": timeout_id if is_retry else None,
+                    "upload_limit": source.upload_limit,
+                }
+                print(f"{scenario} {size_mib} MiB passed (makespan: {makespan}ms)")
         finally:
-            relay.stop()
+            cleanup = relay.stop()
+            for run_id in evidence_details:
+                if run_id.startswith(("r02-timeout-", "r02-retry-", "r02-slow_path-")):
+                    evidence_details[run_id]["relay_cleanup"] = asdict(cleanup)
 
     # Write CSVs
     runs_file = output_dir / "runs.csv"
@@ -605,10 +593,14 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
         writer.writerow(TRANSFERS_HEADER)
         writer.writerows(transfers_rows)
 
+    transfers_by_run = {}
+    for transfer in transfers_rows:
+        transfers_by_run.setdefault(transfer[0], []).append(transfer)
     for run_row in runs_rows:
-        write_run_evidence(output_dir, run_row)
+        run_id = run_row[0]
+        write_run_evidence(output_dir, run_row, transfers_by_run[run_id], evidence_details[run_id])
 
-    print(f"Benchmark completed successfully! Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
+    print(f"Benchmark completed. Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
     return runs_file, transfers_file
 
 
@@ -620,7 +612,7 @@ def main():
                         help="Output directory for runs.csv and transfers.csv (default: bench/artifacts/r02)")
     args = parser.parse_args()
 
-    asyncio.run(run_benchmark(args.croc, args.fixtures, args.output))
+    asyncio.run(run_benchmark(args.croc.resolve(), args.fixtures.resolve(), args.output))
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -25,6 +26,43 @@ CROC_VERSION = "11.6.5"
 WINDOWS_X64_SHA256 = "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e"
 COMMON_FLAGS = ("--disable-clipboard", "--no-update-check")
 MAX_BATCH_BYTES = 128 * 1024 * 1024
+
+
+class _PayloadProgress:
+    """Keep only timestamps from Croc's receive progress bar."""
+
+    _frame = re.compile(rb"^\s*(?:1/1 )?batch-[^\r\n]*?\s+(\d{1,3})%\s*\|")
+
+    def __init__(self):
+        self.first = None
+        self.last = None
+        self.first_percent = None
+
+    def feed(self, frame: bytes, observed: float):
+        match = self._frame.match(frame)
+        if match is None:
+            return
+        percent = int(match[1])
+        if 0 < percent < 100 and self.first is None:
+            self.first = observed
+            self.first_percent = percent
+        elif percent == 100 and self.first is not None and self.last is None:
+            if observed > self.first:
+                self.last = observed
+
+    def drain(self, read_fd):
+        # Discard all child output after inspecting a bounded frame in memory.
+        with os.fdopen(read_fd, "rb", buffering=0) as pipe:
+            pending = b""
+            while chunk := pipe.read(4096):
+                observed = time.monotonic()
+                *frames, pending = re.split(rb"[\r\n]", pending + chunk)
+                for frame in frames:
+                    self.feed(frame, observed)
+                self.feed(pending, observed)
+                if len(pending) > 4096:
+                    pending = b""
+            self.feed(pending, time.monotonic())
 
 
 @dataclass(frozen=True)
@@ -85,6 +123,7 @@ class ProcessRun:
     first_byte_monotonic: float | None = None
     last_byte_monotonic: float | None = None
     sha256_done_monotonic: float | None = None
+    first_progress_percent: int | None = None
 
 
 class CrocError(RuntimeError):
@@ -159,10 +198,11 @@ class CrocAdapter:
     RX delivers a verified file into caller staging for a separate store commit.
     """
 
-    def __init__(self, executable: Path, root: Path, relay: RelayProfile):
+    def __init__(self, executable: Path, root: Path, relay: RelayProfile, *, observe_payload=False):
         self.executable = executable
         self.root = root
         self.relay = relay
+        self.observe_payload = observe_payload
         try:
             _check_path(root, directory=True)
         except OSError as exc:
@@ -260,10 +300,9 @@ class CrocAdapter:
             self._check_budget(batch, adapter_deadline, lease_deadline, setup_ms)
             process = await self._run(role, batch, stage, env, deadline)
             if role == "rx":
-                verified_monotonic = await self._verify_received(stage, payload, batch)
+                await self._verify_received(stage, payload, batch)
                 process = replace(
                     process,
-                    last_byte_monotonic=verified_monotonic,
                     sha256_done_monotonic=time.monotonic(),
                 )
                 # Dispatch queued cancellation before entering the atomic handoff.
@@ -303,7 +342,6 @@ class CrocAdapter:
             self._check_payload(payload, batch)
             with payload.open("r+b") as stream:
                 os.fsync(stream.fileno())
-            return time.monotonic()
 
         verification = asyncio.create_task(asyncio.to_thread(verify_and_flush))
         try:
@@ -396,10 +434,22 @@ class CrocAdapter:
     async def _run(self, role, batch, stage, env, deadline):
         started = time.monotonic()
         started_at = _utc_now()
-        first_byte_monotonic = None
-        last_byte_monotonic = None
+        progress = _PayloadProgress() if role == "rx" and self.observe_payload else None
+        reader = None
         try:
-            child = WindowsChild(self.argv(role, batch), cwd=stage, env=env)
+            argv = self.argv(role, batch)
+            if progress is None:
+                child = WindowsChild(argv, cwd=stage, env=env)
+            else:
+                read_fd, write_fd = os.pipe()
+                try:
+                    with os.fdopen(write_fd, "wb", buffering=0) as stderr:
+                        child = WindowsChild(argv, cwd=stage, env=env, stderr=stderr)
+                except BaseException:
+                    os.close(read_fd)
+                    raise
+                reader = threading.Thread(target=progress.drain, args=(read_fd,), daemon=True)
+                reader.start()
         except OSError:
             raise CrocError("CROC_SPAWN_FAILED") from None
         exit_code = None
@@ -409,17 +459,9 @@ class CrocAdapter:
                 exit_code = child.poll()
                 if role == "rx":
                     self._check_receive_directory(stage, batch, running=exit_code is None)
-                    payload = stage / batch.filename
-                    if payload.exists():
-                        payload_size = payload.stat().st_size
-                        if payload_size > 0:
-                            if first_byte_monotonic is None:
-                                first_byte_monotonic = time.monotonic()
-                            if payload_size >= batch.size and last_byte_monotonic is None:
-                                last_byte_monotonic = time.monotonic()
                 if exit_code is not None:
                     break
-                await asyncio.sleep(min(0.001, max(0, deadline - time.monotonic())))
+                await asyncio.sleep(min(0.025, max(0, deadline - time.monotonic())))
             if exit_code is None:
                 error = CrocError("TRANSPORT_TIMEOUT")
             elif exit_code:
@@ -431,10 +473,14 @@ class CrocAdapter:
                 cleanup = child.stop()
             except OSError:
                 raise CrocError("PROCESS_CLEANUP_FAILED") from None
+            finally:
+                if reader is not None:
+                    reader.join(timeout=1)
         result = ProcessRun(
             child.pid, started_at, _utc_now(), started, time.monotonic(), deadline, cleanup.exit_code, cleanup,
-            first_byte_monotonic=first_byte_monotonic,
-            last_byte_monotonic=last_byte_monotonic,
+            first_byte_monotonic=progress.first if progress else None,
+            last_byte_monotonic=progress.last if progress else None,
+            first_progress_percent=progress.first_percent if progress else None,
         )
         if error:
             error.process = result
