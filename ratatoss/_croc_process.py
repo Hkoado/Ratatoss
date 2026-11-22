@@ -143,7 +143,12 @@ class WindowsChild:
         try:
             before = self._accounting()
             if before.active_processes:
-                _require(_kernel.TerminateJobObject(self._job, 1))
+                terminated = _kernel.TerminateJobObject(self._job, 1)
+                if not terminated:
+                    # The last member can exit between accounting and termination.
+                    error = ctypes.WinError(ctypes.get_last_error())
+                    if self._accounting().active_processes:
+                        raise error
             deadline = time.monotonic() + 5
             while True:
                 after = self._accounting()

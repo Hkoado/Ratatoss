@@ -33,7 +33,7 @@ from scripts.validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER
 SIZES = (32, 64, 128)
 REPEATS = 3
 MAX_ATTEMPTS_PER_CASE = 6
-TIMEOUT_S = 45
+TIMEOUT_S = 75
 FAULT_TIMEOUT_S = 4.5
 MEASURED_UPLOAD_LIMIT = "24M"
 SLOW_UPLOAD_LIMIT = "4M"
@@ -67,6 +67,7 @@ class BenchmarkAdapter(CrocAdapter):
         argv = super().argv(role, batch)
         if role == "tx":
             argv[1:1] = ["--throttleUpload", self.upload_limit]
+            argv[-1:-1] = ["--no-local", "--transport", "relay", "--no-multi"]
         return argv
 
 
@@ -104,6 +105,8 @@ def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details)
         "measured_at": datetime.now(timezone.utc).isoformat(),
         "os_version": platform.version(),
         "relay_ports": PORTS,
+        "sender_route_flags": ["--no-local", "--transport", "relay", "--no-multi"],
+        "adapter_timeout_s": FAULT_TIMEOUT_S if run["status"] == "timeout" else TIMEOUT_S,
         "start_gap_s": START_GAP_S,
         "upload_limit": None if run["status"] == "timeout" else MEASURED_UPLOAD_LIMIT,
         "secrets_redacted": True,
@@ -243,6 +246,35 @@ async def execute_transfer(
     return rx_run, tx_run, actual_hash
 
 
+def failed_measurement(run_id, scenario, repeat, commit, digest, size_mib, error, output_dir):
+    def croc_failures(exc):
+        if isinstance(exc, BaseExceptionGroup):
+            return [failure for member in exc.exceptions for failure in croc_failures(member)]
+        if isinstance(exc, CrocError):
+            return [exc]
+        raise exc
+
+    failures = croc_failures(error)
+    notes = "Transfer did not complete; observed errors: " + ", ".join(failure.code for failure in failures)
+    file_bytes = size_mib * 1024 * 1024
+    row = [
+        run_id, "gate0", scenario, "croc_relay", str(repeat), "",
+        commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
+        "loopback-127.0.0.1", "windows-loopback", digest,
+        str(file_bytes * (2 if scenario == "concurrent" else 1)),
+        str(size_mib), "1", "1", "fail", "", "", "", "", "", "", "", "", "", "", "",
+        evidence_ref(output_dir, run_id), notes,
+    ]
+    details = {
+        "errors": [failure.code for failure in failures],
+        "processes": {
+            f"observed_failure_{index}": process_evidence(failure.process)
+            for index, failure in enumerate(failures, 1) if failure.process is not None
+        },
+    }
+    return row, details
+
+
 async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
     commit = benchmark_commit()
     for (_, size_mib), (name, digest) in FIXTURE_NAMES.items():
@@ -276,6 +308,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             # 1. SEQUENTIAL (A -> B only)
             passed = 0
             for repeat in range(1, MAX_ATTEMPTS_PER_CASE + 1):
+                run_id = f"r02-seq-{size_mib}mib-rep{repeat}-{uuid4().hex[:6]}"
                 relay_root = lab_root / f"relay_seq_{size_mib}_{repeat}"
                 relay_root.mkdir(parents=True, exist_ok=True)
                 argv = [str(croc_path), *COMMON_FLAGS, "relay", "--host", HOST, "--ports", ",".join(map(str, PORTS))]
@@ -288,7 +321,6 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     peers = {role: BenchmarkAdapter(croc_path, p, profile, observe_payload=True) for role, p in peer_roots.items()}
                     rooms = set()
 
-                    run_id = f"r02-seq-{size_mib}mib-rep{repeat}-{uuid4().hex[:6]}"
                     dest_b = lab_root / f"dest_b_seq_{size_mib}_{repeat}.bin"
                     code = new_code(rooms)
                     job_id = uuid4().hex
@@ -337,6 +369,14 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     runs_rows.append(r_row)
                     evidence_details[run_id] = {"processes": {"A_tx": process_evidence(tx_run), "B_rx": process_evidence(rx_run)}}
                     print(f"Sequential {size_mib} MiB repeat {repeat} {run_status} (makespan: {run_makespan_ms}ms, goodput: {goodput_bps or 'empty'}bps)")
+                except (CrocError, ExceptionGroup) as error:
+                    run_status = "fail"
+                    failed_row, details = failed_measurement(
+                        run_id, "sequential", repeat, commit, a_sha, size_mib, error, output_dir,
+                    )
+                    runs_rows.append(failed_row)
+                    evidence_details[run_id] = details
+                    print(f"Sequential {size_mib} MiB repeat {repeat} failed: {', '.join(details['errors'])}")
                 finally:
                     cleanup = relay.stop()
                 evidence_details[run_id]["relay_cleanup"] = asdict(cleanup)
@@ -347,6 +387,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
             # 2. CONCURRENT (A -> B and B -> C on the same host clock)
             passed = 0
             for repeat in range(1, MAX_ATTEMPTS_PER_CASE + 1):
+                run_id = f"r02-concur-{size_mib}mib-rep{repeat}-{uuid4().hex[:6]}"
                 relay_root = lab_root / f"relay_concur_{size_mib}_{repeat}"
                 relay_root.mkdir(parents=True, exist_ok=True)
                 argv = [str(croc_path), *COMMON_FLAGS, "relay", "--host", HOST, "--ports", ",".join(map(str, PORTS))]
@@ -359,7 +400,6 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                     peers = {role: BenchmarkAdapter(croc_path, p, profile, observe_payload=True) for role, p in peer_roots.items()}
                     rooms = set()
 
-                    run_id = f"r02-concur-{size_mib}mib-rep{repeat}-{uuid4().hex[:6]}"
                     dest_b = lab_root / f"dest_b_concur_{size_mib}_{repeat}.bin"
                     dest_c = lab_root / f"dest_c_concur_{size_mib}_{repeat}.bin"
                     code_ab = new_code(rooms)
@@ -465,6 +505,14 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
                         "B_tx": process_evidence(t_bc_res), "C_rx": process_evidence(r_bc_res),
                     }}
                     print(f"Concurrent {size_mib} MiB repeat {repeat} {run_status} (makespan: {run_makespan_ms}ms, overlap: {overlap_text}ms)")
+                except (CrocError, ExceptionGroup) as error:
+                    run_status = "fail"
+                    failed_row, details = failed_measurement(
+                        run_id, "concurrent", repeat, commit, a_sha, size_mib, error, output_dir,
+                    )
+                    runs_rows.append(failed_row)
+                    evidence_details[run_id] = details
+                    print(f"Concurrent {size_mib} MiB repeat {repeat} failed: {', '.join(details['errors'])}")
                 finally:
                     cleanup = relay.stop()
                 evidence_details[run_id]["relay_cleanup"] = asdict(cleanup)
@@ -598,7 +646,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path):
         transfers_by_run.setdefault(transfer[0], []).append(transfer)
     for run_row in runs_rows:
         run_id = run_row[0]
-        write_run_evidence(output_dir, run_row, transfers_by_run[run_id], evidence_details[run_id])
+        write_run_evidence(output_dir, run_row, transfers_by_run.get(run_id, []), evidence_details[run_id])
 
     print(f"Benchmark completed. Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
     return runs_file, transfers_file
