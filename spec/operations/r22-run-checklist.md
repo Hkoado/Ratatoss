@@ -170,6 +170,7 @@ wan_wire_bytes:
 wan_measurement_scope:
 retry_payload_bytes:
 recovery_ms:
+optional_replication_bytes:
 setup_p50_ms:
 setup_p95_ms:
 peer_utilization_ref:
