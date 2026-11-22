@@ -21,4 +21,4 @@ Các trường `first_byte_monotonic_ms`, `last_byte_monotonic_ms`, `setup_ms` v
 
 Ca không có bên gửi trả `TRANSPORT_TIMEOUT` sau 4509 ms. Báo cáo ghi cây tiến trình về 0, staging sạch và không publish dữ liệu. Lượt retry dùng cùng fixture 32 MiB với ID lần thử mới và xác minh đúng SHA-256. Lượt upload giới hạn 4M cũng xác minh đúng SHA-256. [Bằng chứng timeout](artifacts/r02/r02-timeout-reproduce-83133c/evidence.json) · [Bằng chứng retry](artifacts/r02/r02-retry-32mib-586ecc/evidence.json) · [Bằng chứng đường chậm](artifacts/r02/r02-slow_path-32mib-997f6d/evidence.json).
 
-**Chưa chọn batch mặc định.** Bộ số liệu hiện tại không gồm mốc byte đầu/cuối đáng tin cậy và không thể nghiệm thu setup/goodput hoặc overlap theo quy tắc R0.2. Nên giữ 64 MiB ở trạng thái đề xuất và chờ mốc payload byte-level trước khi chốt profile demo.
+**Chưa chọn batch mặc định.** Bộ số liệu hiện tại không gồm mốc byte đầu/cuối đáng tin cậy và không thể nghiệm thu setup/goodput hoặc overlap theo quy tắc R0.2. Không đưa ra đề xuất 32, 64 hoặc 128 MiB làm lựa chọn mặc định cho đến khi có mốc payload byte-level và kết quả overlap đã xác minh.
