@@ -103,6 +103,29 @@ class TestSummarizeR02(unittest.TestCase):
             ],
         )
 
+    def test_cli_embedded_newline_in_scenario_preserved(self):
+        row_lf = self.make_run_row("run-lf", "64", "WAN\nshared", "pass")
+        row_crlf = self.make_run_row("run-crlf", "64", "WAN\r\nshared", "pass")
+
+        self.write_csv(self.runs, RUNS_HEADER, [row_lf, row_crlf])
+        self.write_csv(self.transfers, TRANSFERS_HEADER, [])
+
+        result = subprocess.run(
+            [sys.executable, str(self.script), str(self.runs), str(self.transfers)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0)
+
+        import io
+        raw_text = result.stdout.decode("utf-8")
+        parsed = list(csv.reader(io.StringIO(raw_text, newline="")))
+        scenarios = {row[1] for row in parsed[1:]}
+
+        self.assertIn("WAN\nshared", scenarios)
+        self.assertIn("WAN\r\nshared", scenarios)
+
     def test_empty_templates_report_zero(self):
         self.write_csv(self.runs, RUNS_HEADER, [])
         self.write_csv(self.transfers, TRANSFERS_HEADER, [])
