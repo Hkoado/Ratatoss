@@ -99,10 +99,25 @@ class MergeAuditTests(unittest.TestCase):
             self.assertIn("another repository collaborator",
                           self.audit(FakeGitHub(author=OWNER, reviews=[wrong])).violations[0])
 
-    def test_flags_non_owner_merge_even_if_pr_was_approved(self):
+    def test_delegate_merges_pr_with_owner_approval(self):
+        delegate = "NguyenHuy1804"
+        audit = self.audit(FakeGitHub(merger=delegate, reviews=[review()]), push(actor=delegate.lower()))
+        self.assertFalse(audit.violations)
+
+    def test_delegate_still_needs_owner_approval_for_a_member_pr(self):
+        delegate = "NguyenHuy1804"
+        audit = self.audit(FakeGitHub(merger=delegate, reviews=[review(delegate)]), push(actor=delegate))
+        self.assertEqual(len(audit.violations), 1)
+        self.assertIn("No valid approval from the repository owner", audit.violations[0])
+
+    def test_flags_unauthorized_merge_even_if_pr_was_approved(self):
         audit = self.audit(FakeGitHub(merger="teammate", reviews=[review()]), push(actor="teammate"))
         self.assertEqual((audit.actor, audit.pr, audit.merger), ("teammate", PR, "teammate"))
-        self.assertIn("other than the repository owner", audit.violations[0])
+        self.assertIn("must match an authorized PR merger", audit.violations[0])
+
+    def test_flags_mismatched_actor_even_when_both_accounts_are_authorized(self):
+        audit = self.audit(FakeGitHub(reviews=[review()]), push(actor="NguyenHuy1804"))
+        self.assertIn("must match an authorized PR merger", audit.violations[0])
 
     def test_flags_wrong_push_actor_and_missing_owner_approval(self):
         audit = self.audit(FakeGitHub(reviews=[review("teammate")]), push(actor="teammate"))
