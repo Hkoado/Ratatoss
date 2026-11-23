@@ -14,6 +14,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from dataclasses import asdict
+from statistics import median
 from uuid import uuid4
 
 repo_root = Path(__file__).resolve().parent.parent
@@ -146,8 +147,11 @@ def marker_ms(run, name: str) -> str:
 
 
 def payload_goodput_bps(file_bytes: int, run: ProcessRun) -> str:
-    # No Croc payload byte-level first/last marker is trusted by R0.2.
-    return ""
+    first = run.first_byte_monotonic
+    last = run.last_byte_monotonic
+    if first is None or last is None or last <= first:
+        return ""
+    return str(round((file_bytes * 8.0) / (last - first)))
 
 
 def evidence_ref(output_dir: Path, run_id: str) -> str:
@@ -164,11 +168,6 @@ def file_sha256(path: Path) -> str:
 
 def normalize_evidence_transfer(transfer: dict, details: dict) -> dict:
     transfer = transfer.copy()
-    transfer["first_byte_monotonic_ms"] = ""
-    transfer["last_byte_monotonic_ms"] = ""
-    transfer["setup_ms"] = ""
-    transfer["goodput_bps"] = ""
-
     process_name = (
         "B_rx" if transfer["target_peer"] == "B"
         else "C_rx" if transfer["target_peer"] == "C"
@@ -239,13 +238,105 @@ def verified_transfers_status(runs_file: Path, transfers_file: Path,
     return "pass", ""
 
 
+def measured_matrix_status(runs_file: Path, transfers_file: Path,
+                           selected_sizes: tuple[int, ...] = SIZES) -> dict:
+    with runs_file.open("r", encoding="utf-8", newline="") as source:
+        runs = list(csv.DictReader(source))
+    with transfers_file.open("r", encoding="utf-8", newline="") as source:
+        transfers = list(csv.DictReader(source))
+
+    transfer_by_run = {}
+    for transfer in transfers:
+        transfer_by_run.setdefault(transfer["run_id"], []).append(transfer)
+
+    missing_setup = []
+    missing_overlap = []
+    measured_runs = []
+    goodputs = {size: [] for size in selected_sizes}
+    makespans = {size: [] for size in selected_sizes}
+
+    for size_mib in selected_sizes:
+        for scenario in ("sequential", "concurrent"):
+            matching = [
+                run for run in runs
+                if run["batch_mib"] == str(size_mib)
+                and run["scenario"] == scenario
+                and run["status"] == "pass"
+                and run["makespan_ms"]
+            ]
+            if len(matching) < REPEATS:
+                missing_setup.append(f"{size_mib} MiB {scenario}")
+                missing_overlap.append(f"{size_mib} MiB {scenario}")
+                continue
+
+            for run in matching[:REPEATS]:
+                measured_runs.append(run)
+                makespans[size_mib].append(int(run["makespan_ms"]))
+                run_transfers = transfer_by_run.get(run["run_id"], [])
+                for transfer in run_transfers:
+                    if not transfer["first_byte_monotonic_ms"] or not transfer["last_byte_monotonic_ms"]:
+                        missing_setup.append(f"{run['run_id']} first/last byte")
+                    if not transfer["setup_ms"] or not transfer["goodput_bps"]:
+                        missing_setup.append(f"{run['run_id']} setup/goodput")
+                    if transfer["goodput_bps"]:
+                        goodputs[size_mib].append(int(transfer["goodput_bps"]))
+
+                if scenario == "concurrent":
+                    if len(run_transfers) != 2:
+                        missing_overlap.append(f"{run['run_id']} transfers")
+                        continue
+                    intervals = []
+                    for transfer in run_transfers:
+                        first = transfer["first_byte_monotonic_ms"]
+                        last = transfer["last_byte_monotonic_ms"]
+                        if not first or not last:
+                            missing_overlap.append(f"{run['run_id']} markers")
+                            break
+                        intervals.append((float(first), float(last)))
+                    else:
+                        overlap = calculate_overlap_ms(
+                            intervals[0][0], intervals[0][1],
+                            intervals[1][0], intervals[1][1],
+                        )
+                        if overlap <= 0:
+                            missing_overlap.append(f"{run['run_id']} overlap")
+
+    setup_status = "pass" if not missing_setup else "blocked"
+    overlap_status = "pass" if not missing_overlap else "blocked"
+    selected = None
+    if setup_status == "pass" and overlap_status == "pass" and set(selected_sizes) == {32, 64, 128}:
+        goodput_medians = {
+            size: median(goodputs[size]) if goodputs[size] else 0
+            for size in selected_sizes
+        }
+        makespan_medians = {
+            size: median(makespans[size]) if makespans[size] else float("inf")
+            for size in selected_sizes
+        }
+        if (64 in goodput_medians
+                and goodput_medians[64] >= goodput_medians[32]
+                and makespan_medians[64] <= makespan_medians[128]):
+            selected = 64
+
+    return {
+        "setup_status": setup_status,
+        "setup_reason": "; ".join(sorted(set(missing_setup))) if missing_setup else "",
+        "overlap_status": overlap_status,
+        "overlap_reason": "; ".join(sorted(set(missing_overlap))) if missing_overlap else "",
+        "selected_batch_mib": selected,
+        "measured_runs": len(measured_runs),
+    }
+
+
 def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
                         selected_sizes: tuple[int, ...] = SIZES) -> Path:
     profile_file = output_dir / "batch-profiles.json"
+    measured = measured_matrix_status(runs_file, transfers_file, selected_sizes)
     profile_file.write_text(
         json.dumps({
-            "measurement_method": "croc-progress-estimate-only",
-            "byte_marker_status": "not_verified",
+            "measurement_method": "staged-file-payload-marker",
+            "byte_marker_status": "verified" if measured["setup_status"] == "pass" else "not_verified",
+            "selected_batch_mib": measured["selected_batch_mib"],
             "profiles": SIZE_PROFILES,
         }, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -277,23 +368,27 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
                 **({"reason": verified_reason} if verified_reason else {}),
             },
             "rx-tx-overlap": {
-                "status": "blocked",
+                "status": measured["overlap_status"],
                 "evidence": evidence,
-                "reason": "Croc progress observations are not byte-level payload markers.",
+                **({"reason": measured["overlap_reason"]}
+                   if measured["overlap_reason"] else {}),
             },
             "setup-goodput-by-size": {
-                "status": "blocked",
+                "status": measured["setup_status"],
                 "evidence": evidence,
-                "reason": "first_byte_monotonic_ms, last_byte_monotonic_ms, setup_ms and goodput_bps remain blank until byte-level markers are verified.",
+                **({"reason": measured["setup_reason"]}
+                   if measured["setup_reason"] else {}),
             },
             "reproduced-timeout": {
                 "status": "pass",
                 "evidence": evidence,
             },
             "selected-batch-size": {
-                "status": "blocked",
+                "status": "pass" if measured["selected_batch_mib"] is not None else "blocked",
                 "evidence": evidence,
-                "reason": "No initial batch size is selected until byte-level setup/goodput and overlap are verified.",
+                **({"reason": "64 MiB selected by loopback makespan/goodput policy"}
+                   if measured["selected_batch_mib"] is not None
+                   else {"reason": "No batch size is selected until byte-level setup/goodput and overlap are verified."}),
             },
         }
     }
@@ -318,7 +413,7 @@ def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details)
         "adapter_timeout_s": FAULT_TIMEOUT_S if run["status"] == "timeout" else TIMEOUT_S,
         "start_gap_s": START_GAP_S,
         "upload_limit": None if run["status"] == "timeout" else MEASURED_UPLOAD_LIMIT,
-        "measurement_method": "croc_progress_estimate_only",
+        "measurement_method": "staged-file-payload-marker",
         "size_profiles": SIZE_PROFILES,
         "secrets_redacted": True,
         "transfers": [
@@ -346,8 +441,9 @@ def csv_measure(value) -> str:
 
 
 def setup_measure(run: ProcessRun) -> str:
-    # Croc progress is an estimate, not a byte-level marker.
-    return ""
+    if run.first_byte_monotonic is None:
+        return ""
+    return str(round((run.first_byte_monotonic - run.started_monotonic) * 1000.0))
 
 
 def process_evidence(run: ProcessRun) -> dict:
@@ -543,8 +639,8 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     goodput_bps = payload_goodput_bps(
                         file_bytes, rx_run,
                     )
-                    first_byte_ms = ""
-                    last_byte_ms = ""
+                    first_byte_ms = marker_ms(rx_run, "first_byte_monotonic")
+                    last_byte_ms = marker_ms(rx_run, "last_byte_monotonic")
                     sha256_done_ms = marker_ms(rx_run, "sha256_done_monotonic")
                     run_makespan_ms = calculate_makespan_ms(
                         (rx_run.started_monotonic, tx_run.started_monotonic),
@@ -560,7 +656,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                         "pass", "false", "false",
                         "Loopback relay A->B; setup and goodput use observed Croc payload progress; blank if markers are missing; SHA-256 verified at destination B",
                     ]
-                    run_status = "pass" if run_makespan_ms is not None else "fail"
+                    run_status = (
+                        "pass"
+                        if run_makespan_ms is not None
+                        and first_byte_ms and last_byte_ms
+                        and setup_ms and goodput_bps
+                        else "fail"
+                    )
                     transfers_rows.append(t_row)
 
                     r_row = [
@@ -646,11 +748,11 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     c_rx_start_ms = r_bc_res.started_monotonic * 1000.0
 
                     # Both receive-side progress feeds share the host monotonic clock.
-                    b_rx_first_byte_ms = ""
-                    b_rx_last_byte_ms = ""
+                    b_rx_first_byte_ms = marker_ms(r_ab_res, "first_byte_monotonic")
+                    b_rx_last_byte_ms = marker_ms(r_ab_res, "last_byte_monotonic")
                     b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
-                    b_tx_first_byte_ms = ""
-                    b_tx_last_byte_ms = ""
+                    b_tx_first_byte_ms = marker_ms(r_bc_res, "first_byte_monotonic")
+                    b_tx_last_byte_ms = marker_ms(r_bc_res, "last_byte_monotonic")
                     c_rx_sha256_done_ms = marker_ms(r_bc_res, "sha256_done_monotonic")
 
                     # Overlap is measured only when both payload intervals are available.
@@ -678,7 +780,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     )
 
                     run_status = (
-                        "pass" if run_makespan_ms is not None else "fail"
+                        "pass"
+                        if run_makespan_ms is not None
+                        and overlap_ms is not None and overlap_ms > 0
+                        and setup_ab and setup_bc
+                        and goodput_ab and goodput_bc
+                        else "fail"
                     )
 
                     transfers_rows.append(build_concurrent_receiver_row(

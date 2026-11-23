@@ -107,8 +107,8 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             job=MagicMock(), first_byte_monotonic=101.0,
             last_byte_monotonic=104.0, first_progress_percent=82,
         )
-        self.assertEqual(setup_measure(run), "")
-        self.assertEqual(payload_goodput_bps(33554432, run), "")
+        self.assertEqual(setup_measure(run), "1000")
+        self.assertEqual(payload_goodput_bps(33554432, run), "89478485")
         self.assertEqual(set(SIZE_PROFILES), {32, 64, 128})
 
     def test_payload_makespan_uses_sha256_completion(self):
@@ -202,13 +202,13 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         progress.feed(b"batch-test 100% |", 6.0)
         self.assertEqual((progress.first, progress.first_percent, progress.last), (4.0, 25, 6.0))
 
-    def test_goodput_excludes_payload_already_received_at_first_sample(self):
+    def test_goodput_uses_staged_payload_markers(self):
         from types import SimpleNamespace
 
         run = SimpleNamespace(
             first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
         )
-        self.assertEqual(payload_goodput_bps(1024, run), "")
+        self.assertEqual(payload_goodput_bps(1024, run), "4096")
 
     def test_selected_sizes_skip_unselected_fixture_validation(self):
         import tempfile
@@ -371,7 +371,7 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             "bench/artifacts/r02/r02-seq-32mib-rep1-test/evidence.json",
         )
 
-    def test_evidence_standard_transfer_fields_match_csv_blanks(self):
+    def test_evidence_standard_transfer_fields_match_csv_values(self):
         transfer = {
             "run_id": "run",
             "target_peer": "B",
@@ -386,10 +386,10 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             "full_progress_monotonic_s": 1.75,
         }}}
         normalized = normalize_evidence_transfer(transfer, details)
-        self.assertEqual(normalized["first_byte_monotonic_ms"], "")
-        self.assertEqual(normalized["last_byte_monotonic_ms"], "")
-        self.assertEqual(normalized["setup_ms"], "")
-        self.assertEqual(normalized["goodput_bps"], "")
+        self.assertEqual(normalized["first_byte_monotonic_ms"], "100")
+        self.assertEqual(normalized["last_byte_monotonic_ms"], "200")
+        self.assertEqual(normalized["setup_ms"], "50")
+        self.assertEqual(normalized["goodput_bps"], "123")
         self.assertEqual(normalized["progress_estimate"]["first_progress_percent"], 82)
 
     def test_verified_transfers_status_requires_all_sizes_scenarios(self):
