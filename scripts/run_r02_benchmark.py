@@ -340,6 +340,7 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
             "profiles": SIZE_PROFILES,
         }, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
     evidence_files = sorted(
@@ -396,6 +397,7 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
     report_file.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return report_file
 
@@ -425,6 +427,7 @@ def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details)
     (directory / "evidence.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 
@@ -955,12 +958,12 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
     transfers_file = output_dir / "transfers.csv"
 
     with runs_file.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(RUNS_HEADER)
         writer.writerows(runs_rows)
 
     with transfers_file.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(TRANSFERS_HEADER)
         writer.writerows(transfers_rows)
 
