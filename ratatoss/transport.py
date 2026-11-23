@@ -471,7 +471,8 @@ class CrocAdapter:
                             last_byte_monotonic = now
                 if exit_code is not None:
                     break
-                await asyncio.sleep(min(0.001, max(0, deadline - time.monotonic())))
+                poll_interval = 0.001 if self.observe_payload else 0.025
+                await asyncio.sleep(min(poll_interval, max(0, deadline - time.monotonic())))
             if exit_code is None:
                 error = CrocError("TRANSPORT_TIMEOUT")
             elif exit_code:

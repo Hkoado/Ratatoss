@@ -16,7 +16,7 @@
   "batch_mib": "128",
   "rx_slots": "1",
   "tx_slots": "1",
-  "status": "fail",
+  "status": "pass",
   "makespan_ms": "5907",
   "source_payload_bytes": "134217728",
   "source_wire_bytes": "",

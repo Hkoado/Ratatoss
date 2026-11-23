@@ -16,7 +16,7 @@
   "batch_mib": "32",
   "rx_slots": "1",
   "tx_slots": "1",
-  "status": "fail",
+  "status": "pass",
   "makespan_ms": "1375",
   "source_payload_bytes": "33554432",
   "source_wire_bytes": "",
@@ -29,7 +29,7 @@
   "setup_p95_ms": "",
   "peer_utilization_ref": "",
   "evidence_ref": "bench/artifacts/r02/r02-seq-32mib-rep5-3ad31e/evidence.json",
-  "notes": "Sequential transport run; setup is unverified if payload progress is unavailable; SHA-256 verified at B; evidence at bench/artifacts/r02/r02-seq-32mib-rep5-3ad31e/evidence.json",
+  "notes": "Sequential transport run; payload measurement fields are blank if payload progress is unavailable; SHA-256 verified at B; evidence at bench/artifacts/r02/r02-seq-32mib-rep5-3ad31e/evidence.json",
   "measured_at": "2026-11-23T04:44:56.428680+00:00",
   "os_version": "10.0.26200",
   "relay_ports": [

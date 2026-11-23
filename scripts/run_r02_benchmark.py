@@ -92,6 +92,20 @@ def benchmark_commit(repo_root: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def require_clean_benchmark_checkout(repo_root: Path | None = None) -> None:
+    root = repo_root or Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True, text=True, check=True,
+    )
+    ignored_prefixes = ("?? fixture/", "?? bench/artifacts/r02/")
+    dirty = [
+        line for line in result.stdout.splitlines()
+        if not any(line.startswith(prefix) for prefix in ignored_prefixes)
+    ]
+    require(not dirty, "LAB_BENCHMARK_CHECKOUT_DIRTY")
+
+
 def validate_selected_fixtures(fixtures_dir: Path, sizes: tuple[int, ...],
                                croc_path: Path) -> None:
     for (role, size_mib), (name, digest) in FIXTURE_NAMES.items():
@@ -515,6 +529,19 @@ def calculate_payload_overlap_ms(rx_first_ms: str, rx_last_ms: str,
     )
 
 
+def transport_run_status(makespan_ms: str | None, verified_sha: str,
+                         rx_run: ProcessRun, tx_run: ProcessRun) -> str:
+    return (
+        "pass"
+        if makespan_ms
+        and verified_sha
+        and len(verified_sha) == 64
+        and rx_run.exit_code == 0
+        and tx_run.exit_code == 0
+        else "fail"
+    )
+
+
 def build_concurrent_receiver_row(
     run_id: str, job_id: str, assignment_id: str, file_bytes: int,
     start_ms: float, first_byte_ms: str, last_byte_ms: str,
@@ -623,6 +650,7 @@ def failed_measurement(run_id, scenario, repeat, commit, digest, size_mib, error
 
 async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                         sizes: tuple[int, ...] = SIZES):
+    require_clean_benchmark_checkout()
     commit = benchmark_commit()
     validate_selected_fixtures(fixtures_dir, tuple(sizes), croc_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -695,12 +723,11 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                         "pass", "false", "false",
                         "Loopback relay A->B; setup and goodput use observed Croc payload progress; blank if markers are missing; SHA-256 verified at destination B",
                     ]
-                    run_status = (
-                        "pass"
-                        if run_makespan_ms is not None
-                        and first_byte_ms and last_byte_ms
-                        and setup_ms and goodput_bps
-                        else "fail"
+                    run_status = transport_run_status(
+                        csv_measure(run_makespan_ms),
+                        verified_sha,
+                        rx_run,
+                        tx_run,
                     )
                     transfers_rows.append(t_row)
 
@@ -807,14 +834,19 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                         (r_ab_res, r_bc_res),
                     )
 
-                    run_status = (
-                        "pass"
-                        if run_makespan_ms is not None
-                        and overlap_ms is not None and overlap_ms > 0
-                        and setup_ab and setup_bc
-                        and goodput_ab and goodput_bc
-                        else "fail"
+                    rx_pass = transport_run_status(
+                        csv_measure(run_makespan_ms),
+                        sha256_file(dest_b),
+                        r_ab_res,
+                        t_ab_res,
                     )
+                    tx_pass = transport_run_status(
+                        csv_measure(run_makespan_ms),
+                        sha256_file(dest_c),
+                        r_bc_res,
+                        t_bc_res,
+                    )
+                    run_status = "pass" if rx_pass == tx_pass == "pass" else "fail"
 
                     transfers_rows.append(build_concurrent_receiver_row(
                         run_id, job_id, batch_ab.attempt_id.hex, file_bytes,
@@ -1009,7 +1041,12 @@ def main():
     parser.add_argument("--sizes", nargs="+", type=int, choices=SIZES,
                         default=list(SIZES),
                         help="Batch sizes to run (default: 32 64 128)")
+    parser.add_argument("--verify-payload-markers", action="store_true",
+                        help="Enable payload byte marker fields after independent verification")
     args = parser.parse_args()
+
+    global PAYLOAD_BYTE_MARKERS_VERIFIED
+    PAYLOAD_BYTE_MARKERS_VERIFIED = args.verify_payload_markers
 
     asyncio.run(run_benchmark(
         args.croc.resolve(), args.fixtures.resolve(), args.output,

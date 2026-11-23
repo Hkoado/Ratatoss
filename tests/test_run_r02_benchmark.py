@@ -48,6 +48,7 @@ else:
             normalize_evidence_transfer,
             payload_goodput_bps,
             setup_measure,
+            transport_run_status,
             validate_selected_fixtures,
             verified_transfers_status,
         )
@@ -125,6 +126,25 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         self.assertEqual(
             payload_measurement_fields(run, 33554432),
             ("", "", "", "", ""),
+        )
+
+    def test_transport_status_does_not_depend_on_payload_measurements(self):
+        from unittest.mock import MagicMock
+        from ratatoss.transport import ProcessRun
+
+        rx = ProcessRun(
+            pid=1, started_at="", stopped_at="", started_monotonic=100.0,
+            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(),
+        )
+        tx = ProcessRun(
+            pid=2, started_at="", stopped_at="", started_monotonic=101.0,
+            stopped_monotonic=104.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(),
+        )
+        self.assertEqual(
+            transport_run_status("4000", "a" * 64, rx, tx),
+            "pass",
         )
 
     def test_payload_makespan_uses_sha256_completion(self):
@@ -357,8 +377,8 @@ class TestR02BenchmarkLogic(unittest.TestCase):
                         binary, staging, profile, observe_payload=True,
                     )
 
-                deadline = time.monotonic() + 4.5
-                plan = fault_timeout_receive_plan(profile, deadline, 4.5)
+                deadline = time.monotonic() + 5.0
+                plan = fault_timeout_receive_plan(profile, deadline, 5.0)
                 child = TimedOutChild()
 
                 with patch("ratatoss.transport.WindowsChild", return_value=child):
