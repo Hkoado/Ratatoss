@@ -313,10 +313,31 @@ def measured_matrix_status(runs_file: Path, transfers_file: Path,
             size: median(makespans[size]) if makespans[size] else float("inf")
             for size in selected_sizes
         }
-        if (64 in makespan_medians
-                and makespan_medians[64] <= makespan_medians[128]
-                and goodput_medians[64] > 0):
-            selected = 64
+        # R0.2 uses the primary loopback batch-size policy:
+        # maximize payload goodput, then minimize median makespan,
+        # and use setup cost per MiB as the final tie-breaker.
+        setup_ms_medians = {}
+        for size in selected_sizes:
+            values = []
+            for run in measured_runs:
+                if run["batch_mib"] == str(size):
+                    for transfer in transfer_by_run.get(run["run_id"], []):
+                        if transfer["setup_ms"]:
+                            values.append(int(transfer["setup_ms"]))
+            setup_ms_medians[size] = median(values) if values else float("inf")
+
+        candidates = [
+            (
+                goodput_medians[size],
+                -makespan_medians[size],
+                -(setup_ms_medians[size] / size),
+                size,
+            )
+            for size in selected_sizes
+            if goodput_medians[size] > 0 and makespan_medians[size] < float("inf")
+        ]
+        if candidates:
+            selected = max(candidates)[3]
 
     return {
         "setup_status": setup_status,
@@ -387,7 +408,7 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
             "selected-batch-size": {
                 "status": "pass" if measured["selected_batch_mib"] is not None else "blocked",
                 "evidence": evidence,
-                **({"reason": "64 MiB selected by loopback makespan/goodput policy"}
+                **({"reason": f"{measured['selected_batch_mib']} MiB selected by loopback goodput/makespan/setup-per-MiB policy"}
                    if measured["selected_batch_mib"] is not None
                    else {"reason": "No batch size is selected until byte-level setup/goodput and overlap are verified."}),
             },

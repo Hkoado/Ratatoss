@@ -28,8 +28,8 @@
   "setup_p50_ms": "1040",
   "setup_p95_ms": "1094",
   "peer_utilization_ref": "",
-  "evidence_ref": "bench/artifacts/r02-complete-final/r02-concur-32mib-rep3-bc124d/evidence.json",
-  "notes": "Concurrent RX/TX run on B; overlap=312.0ms on the shared Windows monotonic clock; C RX SHA-256 verified at 85871671ms; evidence at bench/artifacts/r02-complete-final/r02-concur-32mib-rep3-bc124d/evidence.json",
+  "evidence_ref": "bench/artifacts/r02/r02-concur-32mib-rep3-bc124d/evidence.json",
+  "notes": "Concurrent RX/TX run on B; overlap=312.0ms on the shared Windows monotonic clock; C RX SHA-256 verified at 85871671ms; evidence at bench/artifacts/r02/r02-concur-32mib-rep3-bc124d/evidence.json",
   "measured_at": "2026-11-23T04:18:07.110681+00:00",
   "os_version": "10.0.26200",
   "relay_ports": [

@@ -28,8 +28,8 @@
   "setup_p50_ms": "1047",
   "setup_p95_ms": "1047",
   "peer_utilization_ref": "",
-  "evidence_ref": "bench/artifacts/r02-complete-final/r02-seq-64mib-rep2-80b17a/evidence.json",
-  "notes": "Sequential transport run; setup is blank if payload progress is unavailable; SHA-256 verified at B; evidence at bench/artifacts/r02-complete-final/r02-seq-64mib-rep2-80b17a/evidence.json",
+  "evidence_ref": "bench/artifacts/r02/r02-seq-64mib-rep2-80b17a/evidence.json",
+  "notes": "Sequential transport run; setup is blank if payload progress is unavailable; SHA-256 verified at B; evidence at bench/artifacts/r02/r02-seq-64mib-rep2-80b17a/evidence.json",
   "measured_at": "2026-11-23T04:18:07.113204+00:00",
   "os_version": "10.0.26200",
   "relay_ports": [

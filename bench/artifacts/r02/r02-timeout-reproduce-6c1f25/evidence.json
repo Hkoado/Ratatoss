@@ -28,7 +28,7 @@
   "setup_p50_ms": "",
   "setup_p95_ms": "",
   "peer_utilization_ref": "",
-  "evidence_ref": "bench/artifacts/r02-complete-final/r02-timeout-reproduce-6c1f25/evidence.json",
+  "evidence_ref": "bench/artifacts/r02/r02-timeout-reproduce-6c1f25/evidence.json",
   "notes": "TRANSPORT_TIMEOUT after 4500 ms with peer absent; no partial payload or published file; process tree reaped and staging cleaned.",
   "measured_at": "2026-11-23T04:18:07.122236+00:00",
   "os_version": "10.0.26200",
