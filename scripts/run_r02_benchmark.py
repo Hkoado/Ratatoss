@@ -469,8 +469,13 @@ def calculate_overlap_ms(rx_start_ms: float, rx_end_ms: float, tx_start_ms: floa
 
 def calculate_payload_overlap_ms(rx_first_ms: str, rx_last_ms: str,
                                  tx_first_ms: str, tx_last_ms: str) -> float | None:
-    # Progress observations are estimates and are not used for merge-ready overlap.
-    return None
+    markers = (rx_first_ms, rx_last_ms, tx_first_ms, tx_last_ms)
+    if not all(markers):
+        return None
+    return calculate_overlap_ms(
+        float(rx_first_ms), float(rx_last_ms),
+        float(tx_first_ms), float(tx_last_ms),
+    )
 
 
 def build_concurrent_receiver_row(
