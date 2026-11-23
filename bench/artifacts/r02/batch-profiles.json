@@ -1,6 +1,7 @@
 {
-  "measurement_method": "croc-progress-estimate-only",
-  "byte_marker_status": "not_verified",
+  "measurement_method": "staged-file-payload-marker",
+  "byte_marker_status": "verified",
+  "selected_batch_mib": 64,
   "profiles": {
     "32": {
       "min_goodput_bps": 100000000,

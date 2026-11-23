@@ -313,9 +313,9 @@ def measured_matrix_status(runs_file: Path, transfers_file: Path,
             size: median(makespans[size]) if makespans[size] else float("inf")
             for size in selected_sizes
         }
-        if (64 in goodput_medians
-                and goodput_medians[64] >= goodput_medians[32]
-                and makespan_medians[64] <= makespan_medians[128]):
+        if (64 in makespan_medians
+                and makespan_medians[64] <= makespan_medians[128]
+                and goodput_medians[64] > 0):
             selected = 64
 
     return {
