@@ -300,9 +300,10 @@ class CrocAdapter:
             self._check_budget(batch, adapter_deadline, lease_deadline, setup_ms)
             process = await self._run(role, batch, stage, env, deadline)
             if role == "rx":
-                await self._verify_received(stage, payload, batch)
+                payload_complete_monotonic = await self._verify_received(stage, payload, batch)
                 process = replace(
                     process,
+                    last_byte_monotonic=payload_complete_monotonic,
                     sha256_done_monotonic=time.monotonic(),
                 )
                 # Dispatch queued cancellation before entering the atomic handoff.
@@ -342,6 +343,7 @@ class CrocAdapter:
             self._check_payload(payload, batch)
             with payload.open("r+b") as stream:
                 os.fsync(stream.fileno())
+            return time.monotonic()
 
         verification = asyncio.create_task(asyncio.to_thread(verify_and_flush))
         try:
