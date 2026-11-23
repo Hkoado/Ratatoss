@@ -111,6 +111,22 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         self.assertEqual(payload_goodput_bps(33554432, run), "89478485")
         self.assertEqual(set(SIZE_PROFILES), {32, 64, 128})
 
+    def test_unverified_payload_markers_remain_blank(self):
+        from run_r02_benchmark import payload_measurement_fields
+        from unittest.mock import MagicMock
+        from ratatoss.transport import ProcessRun
+
+        run = ProcessRun(
+            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
+            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(), first_byte_monotonic=101.0,
+            last_byte_monotonic=104.0,
+        )
+        self.assertEqual(
+            payload_measurement_fields(run, 33554432),
+            ("", "", "", "", ""),
+        )
+
     def test_payload_makespan_uses_sha256_completion(self):
         from unittest.mock import MagicMock
         from ratatoss.transport import ProcessRun

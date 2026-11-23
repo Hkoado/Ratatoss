@@ -1,7 +1,7 @@
 {
   "measurement_method": "staged-file-payload-marker",
-  "byte_marker_status": "verified",
-  "selected_batch_mib": 64,
+  "byte_marker_status": "not_verified",
+  "selected_batch_mib": null,
   "profiles": {
     "32": {
       "min_goodput_bps": 100000000,

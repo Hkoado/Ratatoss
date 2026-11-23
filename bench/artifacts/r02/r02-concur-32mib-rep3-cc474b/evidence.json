@@ -1,0 +1,210 @@
+{
+  "run_id": "r02-concur-32mib-rep3-cc474b",
+  "gate": "gate0",
+  "scenario": "concurrent",
+  "baseline": "croc_relay",
+  "repeat": "3",
+  "seed": "",
+  "commit": "e30c20ceea3800fec715adaa310d4f80b1f8b86b",
+  "os": "Windows",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "relay_config": "loopback-127.0.0.1",
+  "network_profile": "windows-loopback",
+  "fixture_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+  "file_bytes": "67108864",
+  "batch_mib": "32",
+  "rx_slots": "1",
+  "tx_slots": "1",
+  "status": "fail",
+  "makespan_ms": "1375",
+  "source_payload_bytes": "33554432",
+  "source_wire_bytes": "",
+  "wan_wire_bytes": "",
+  "wan_measurement_scope": "",
+  "retry_payload_bytes": "",
+  "recovery_ms": "",
+  "optional_replication_bytes": "",
+  "setup_p50_ms": "",
+  "setup_p95_ms": "",
+  "peer_utilization_ref": "",
+  "evidence_ref": "bench/artifacts/r02/r02-concur-32mib-rep3-cc474b/evidence.json",
+  "notes": "Concurrent RX/TX run on B; overlap=empty (byte markers not verified) on the shared Windows monotonic clock; C RX SHA-256 verified at 87417187ms; evidence at bench/artifacts/r02/r02-concur-32mib-rep3-cc474b/evidence.json",
+  "measured_at": "2026-11-23T04:44:56.432901+00:00",
+  "os_version": "10.0.26200",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "sender_route_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "adapter_timeout_s": 75,
+  "start_gap_s": 0.75,
+  "upload_limit": "24M",
+  "measurement_method": "staging-progress-not-verified-byte-marker",
+  "size_profiles": {
+    "32": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 1400,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers."
+    },
+    "64": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 2200,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers."
+    },
+    "128": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 4700,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers."
+    }
+  },
+  "secrets_redacted": true,
+  "transfers": [
+    {
+      "run_id": "r02-concur-32mib-rep3-cc474b",
+      "job_id": "950ce2f5f2974c65ac4f08caa5256eb4",
+      "assignment_id": "7ffffdfa9e254586830dc862c5cee425",
+      "batch_id": "0",
+      "source_peer": "A",
+      "target_peer": "B",
+      "observer_peer": "B",
+      "path_kind": "unknown",
+      "payload_bytes": "33554432",
+      "payload_sent_bytes": "33554432",
+      "start_monotonic_ms": "87415812.000",
+      "first_byte_monotonic_ms": "",
+      "last_byte_monotonic_ms": "",
+      "end_monotonic_ms": "87417140",
+      "setup_ms": "",
+      "goodput_bps": "",
+      "verified_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "status": "pass",
+      "is_retry": "false",
+      "is_replication": "false",
+      "notes": "Concurrent RX on B; payload progress estimate only first=87416718ms full=87416718ms; SHA-256 done at 87417140ms; overlap=empty (byte markers not verified)",
+      "progress_estimate": {
+        "first_progress_monotonic_ms": 87416718,
+        "first_progress_percent": 82,
+        "full_progress_monotonic_ms": 87416718
+      }
+    },
+    {
+      "run_id": "r02-concur-32mib-rep3-cc474b",
+      "job_id": "950ce2f5f2974c65ac4f08caa5256eb4",
+      "assignment_id": "e79f670f3b4b4fe3afff9e9f50f66ee6",
+      "batch_id": "1",
+      "source_peer": "B",
+      "target_peer": "C",
+      "observer_peer": "C",
+      "path_kind": "unknown",
+      "payload_bytes": "33554432",
+      "payload_sent_bytes": "33554432",
+      "start_monotonic_ms": "87415828.000",
+      "first_byte_monotonic_ms": "",
+      "last_byte_monotonic_ms": "",
+      "end_monotonic_ms": "87417187",
+      "setup_ms": "",
+      "goodput_bps": "",
+      "verified_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679",
+      "status": "pass",
+      "is_retry": "false",
+      "is_replication": "false",
+      "notes": "Concurrent B->C observed at C on the shared clock; payload progress estimate only first=87416781ms full=87416781ms; observer=C; overlap=empty (byte markers not verified)",
+      "progress_estimate": {
+        "first_progress_monotonic_ms": 87416781,
+        "first_progress_percent": 82,
+        "full_progress_monotonic_ms": 87416781
+      }
+    }
+  ],
+  "processes": {
+    "A_tx": {
+      "started_monotonic_s": 87416.64,
+      "stopped_monotonic_s": 87417.078,
+      "deadline_monotonic_s": 87490.812,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_rx": {
+      "started_monotonic_s": 87415.812,
+      "stopped_monotonic_s": 87417.078,
+      "deadline_monotonic_s": 87490.812,
+      "first_progress_monotonic_s": 87416.718,
+      "first_progress_percent": 82,
+      "full_progress_monotonic_s": 87416.718,
+      "sha256_done_monotonic_s": 87417.14,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_tx": {
+      "started_monotonic_s": 87416.718,
+      "stopped_monotonic_s": 87417.171,
+      "deadline_monotonic_s": 87490.812,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "C_rx": {
+      "started_monotonic_s": 87415.828,
+      "stopped_monotonic_s": 87417.14,
+      "deadline_monotonic_s": 87490.812,
+      "first_progress_monotonic_s": 87416.781,
+      "first_progress_percent": 82,
+      "full_progress_monotonic_s": 87416.781,
+      "sha256_done_monotonic_s": 87417.187,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    }
+  },
+  "relay_cleanup": {
+    "active_before_stop": 2,
+    "active_after_stop": 0,
+    "total_processes": 2,
+    "exit_code": 1
+  },
+  "byte_marker_status": "not_verified"
+}

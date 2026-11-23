@@ -41,6 +41,7 @@ SLOW_UPLOAD_LIMIT = "4M"
 MIN_GOODPUT_BPS = 100_000_000
 VERIFY_COMMIT_MS = 200
 MARGIN_MS = 200
+PAYLOAD_BYTE_MARKERS_VERIFIED = False
 
 SIZE_PROFILES = {
     32: {
@@ -152,6 +153,18 @@ def payload_goodput_bps(file_bytes: int, run: ProcessRun) -> str:
     if first is None or last is None or last <= first:
         return ""
     return str(round((file_bytes * 8.0) / (last - first)))
+
+
+def payload_measurement_fields(run: ProcessRun, file_bytes: int,
+                              *, overlap_ms: float | None = None) -> tuple[str, str, str, str, str]:
+    if not PAYLOAD_BYTE_MARKERS_VERIFIED:
+        return "", "", "", "", ""
+    first = marker_ms(run, "first_byte_monotonic")
+    last = marker_ms(run, "last_byte_monotonic")
+    setup = setup_measure(run)
+    goodput = payload_goodput_bps(file_bytes, run)
+    overlap = f"{overlap_ms:.1f}" if overlap_ms is not None else ""
+    return first, last, setup, goodput, overlap
 
 
 def evidence_ref(output_dir: Path, run_id: str) -> str:
@@ -664,12 +677,9 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     )
 
                     start_ms = rx_run.started_monotonic * 1000.0
-                    setup_ms = setup_measure(rx_run)
-                    goodput_bps = payload_goodput_bps(
-                        file_bytes, rx_run,
+                    first_byte_ms, last_byte_ms, setup_ms, goodput_bps, _ = (
+                        payload_measurement_fields(rx_run, file_bytes)
                     )
-                    first_byte_ms = marker_ms(rx_run, "first_byte_monotonic")
-                    last_byte_ms = marker_ms(rx_run, "last_byte_monotonic")
                     sha256_done_ms = marker_ms(rx_run, "sha256_done_monotonic")
                     run_makespan_ms = calculate_makespan_ms(
                         (rx_run.started_monotonic, tx_run.started_monotonic),
@@ -777,28 +787,17 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     c_rx_start_ms = r_bc_res.started_monotonic * 1000.0
 
                     # Both receive-side progress feeds share the host monotonic clock.
-                    b_rx_first_byte_ms = marker_ms(r_ab_res, "first_byte_monotonic")
-                    b_rx_last_byte_ms = marker_ms(r_ab_res, "last_byte_monotonic")
+                    b_rx_first_byte_ms, b_rx_last_byte_ms, setup_ab, goodput_ab, overlap_text = (
+                        payload_measurement_fields(r_ab_res, file_bytes)
+                    )
                     b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
-                    b_tx_first_byte_ms = marker_ms(r_bc_res, "first_byte_monotonic")
-                    b_tx_last_byte_ms = marker_ms(r_bc_res, "last_byte_monotonic")
+                    b_tx_first_byte_ms, b_tx_last_byte_ms, setup_bc, goodput_bc, _ = (
+                        payload_measurement_fields(r_bc_res, file_bytes)
+                    )
                     c_rx_sha256_done_ms = marker_ms(r_bc_res, "sha256_done_monotonic")
 
-                    # Overlap is measured only when both payload intervals are available.
-                    overlap_ms = calculate_payload_overlap_ms(
-                        b_rx_first_byte_ms, b_rx_last_byte_ms,
-                        b_tx_first_byte_ms, b_tx_last_byte_ms,
-                    )
-                    overlap_text = f"{overlap_ms:.1f}" if overlap_ms is not None else "empty"
-
-                    goodput_ab = payload_goodput_bps(
-                        file_bytes, r_ab_res,
-                    )
-                    goodput_bc = payload_goodput_bps(
-                        file_bytes, r_bc_res,
-                    )
-                    setup_bc = setup_measure(r_bc_res)
-                    setup_ab = setup_measure(r_ab_res)
+                    overlap_ms = None
+                    overlap_text = "empty"
                     setup_values = sorted(int(value) for value in (setup_ab, setup_bc) if value)
                     setup_p50 = csv_measure(round(sum(setup_values) / 2) if len(setup_values) == 2 else None)
                     setup_p95 = csv_measure(setup_values[-1] if len(setup_values) == 2 else None)
