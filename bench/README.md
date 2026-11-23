@@ -13,3 +13,7 @@ Bộ [runs.csv](artifacts/r02/runs.csv), [transfers.csv](artifacts/r02/transfers
 Hiện chưa chọn batch mặc định. Chưa có kết luận makespan/goodput/overlap áp dụng cho batch 32, 64 hoặc 128 MiB. Xem [runbook Cổng 0](../docs/experiments.md#cổng-0--transport), [quy tắc lưu bằng chứng](../docs/experiments.md#thu-thập-và-lưu-bằng-chứng) và [hồ sơ ngân sách theo cỡ batch](artifacts/r02/batch-profiles.json).
 
 Ca không có bên gửi trả `TRANSPORT_TIMEOUT` sau khoảng 4500 ms. Báo cáo ghi cây tiến trình về 0, staging sạch và không publish dữ liệu. Lượt retry dùng cùng fixture 32 MiB với ID lần thử mới và xác minh đúng SHA-256. Lượt upload giới hạn 4M cũng xác minh đúng SHA-256.
+
+- [Bằng chứng timeout](artifacts/r02/r02-timeout-reproduce-930a81/evidence.json)
+- [Bằng chứng retry](artifacts/r02/r02-retry-32mib-2bc680/evidence.json)
+- [Bằng chứng đường chậm](artifacts/r02/r02-slow_path-32mib-600895/evidence.json)

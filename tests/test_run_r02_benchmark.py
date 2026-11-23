@@ -143,8 +143,12 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             job=MagicMock(),
         )
         self.assertEqual(
-            transport_run_status("4000", "a" * 64, rx, tx),
+            transport_run_status("4000", "a" * 64, "a" * 64, rx, tx),
             "pass",
+        )
+        self.assertEqual(
+            transport_run_status("4000", "b" * 64, "a" * 64, rx, tx),
+            "fail",
         )
 
     def test_payload_makespan_uses_sha256_completion(self):

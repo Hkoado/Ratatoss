@@ -530,12 +530,13 @@ def calculate_payload_overlap_ms(rx_first_ms: str, rx_last_ms: str,
 
 
 def transport_run_status(makespan_ms: str | None, verified_sha: str,
+                         expected_digest: str,
                          rx_run: ProcessRun, tx_run: ProcessRun) -> str:
     return (
         "pass"
         if makespan_ms
-        and verified_sha
-        and len(verified_sha) == 64
+        and verified_sha == expected_digest
+        and len(expected_digest) == 64
         and rx_run.exit_code == 0
         and tx_run.exit_code == 0
         else "fail"
@@ -726,6 +727,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     run_status = transport_run_status(
                         csv_measure(run_makespan_ms),
                         verified_sha,
+                        a_sha,
                         rx_run,
                         tx_run,
                     )
@@ -837,12 +839,14 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     rx_pass = transport_run_status(
                         csv_measure(run_makespan_ms),
                         sha256_file(dest_b),
+                        a_sha,
                         r_ab_res,
                         t_ab_res,
                     )
                     tx_pass = transport_run_status(
                         csv_measure(run_makespan_ms),
                         sha256_file(dest_c),
+                        b_sha,
                         r_bc_res,
                         t_bc_res,
                     )
