@@ -68,7 +68,7 @@ Dùng `Manifest.canonical_bytes()` để lưu metadata canonical và `Manifest.m
 | `active_peer_ids(connection, device_id)` | Liệt kê thiết bị người gọi có thể chọn làm đích. |
 | `issue_enrollment_code(connection, now_ms=...)` | Cấp mã ghi danh một lần, TTL 10 phút, để quản trị chia sẻ ngoài băng. |
 
-DB chỉ giữ SHA-256 của mã ghi danh, token và mã ghép. Mã đối chiếu sáu chữ số chỉ trả qua API đã xác thực cho hai thành viên. Bản ghi idempotency giữ kết quả đã lọc, không chứa mã ghép. Phát lại tạo cặp trả lại mã khi phiên còn `OPEN`, trả `409` khi đã claim và `410` khi đã hết hạn. Phát lại quyết định trả cặp theo trạng thái hiện hành. Hạn TTL loại trừ mốc hết hạn, nghĩa là yêu cầu tại đúng `expires_at` bị từ chối. Router giới hạn tốc độ ghi danh theo nguồn, và giới hạn claim theo cả nguồn lẫn thiết bị, với ngưỡng mặc định 10 và 20 request mỗi phút.
+DB chỉ giữ SHA-256 của mã ghi danh, token và mã ghép. Mã đối chiếu sáu chữ số chỉ trả qua API đã xác thực cho hai thành viên. Bản ghi idempotency giữ kết quả đã lọc, không chứa mã ghép hay mã đối chiếu. Phát lại tạo cặp trả lại mã khi phiên còn `OPEN`, trả `409` khi đã claim và `410` khi đã hết hạn. Phát lại quyết định trả đúng phản hồi đã commit lần đầu, kể cả khi cặp đã đổi trạng thái. Với phản hồi `CLAIMED`, mã đối chiếu được đọc lại từ bảng `pairs`. Thao tác ghi đọc đồng hồ sau khi có khóa `BEGIN IMMEDIATE`, nên request phải chờ khóa qua `expires_at` vẫn bị từ chối. Hạn TTL loại trừ mốc hết hạn, nghĩa là yêu cầu tại đúng `expires_at` bị từ chối. Router giới hạn tốc độ ghi danh theo nguồn, và giới hạn claim theo cả nguồn lẫn thiết bị, với ngưỡng mặc định 10 và 20 request mỗi phút.
 
 ## API loopback của starter hiện tại
 

@@ -70,7 +70,7 @@ def create_router(*, connect: Connect, pair_code_key: bytes,
             return respond(error(400))
         return await run(lambda connection: identity.enroll_device(
             connection, enrollment_code=body["enrollment_code"],
-            display_name=body["display_name"], now_ms=clock(),
+            display_name=body["display_name"], clock=clock,
         ))
 
     @router.get("/devices/me")
@@ -88,7 +88,7 @@ def create_router(*, connect: Connect, pair_code_key: bytes,
             if key is None or raw:
                 return error(400)
             return pairing.open_pair(connection, device=device, request_key=key,
-                                     now_ms=clock(), code_key=pair_code_key)
+                                     clock=clock, code_key=pair_code_key)
 
         return await run(authenticated(request, operation))
 
@@ -111,7 +111,7 @@ def create_router(*, connect: Connect, pair_code_key: bytes,
             if key is None or body is None:
                 return error(400)
             return pairing.claim_pair(connection, device=device, request_key=key,
-                                      body=body, now_ms=clock())
+                                      body=body, clock=clock)
 
         return await run(authenticated(request, operation))
 
@@ -126,7 +126,7 @@ def create_router(*, connect: Connect, pair_code_key: bytes,
             if key is None or body is None:
                 return error(400)
             return pairing.decide_pair(connection, device=device, pair_id=pair_id,
-                                       request_key=key, body=body, now_ms=clock())
+                                       request_key=key, body=body, clock=clock)
 
         return await run(authenticated(request, operation))
 

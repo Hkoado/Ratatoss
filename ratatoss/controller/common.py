@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -76,11 +76,16 @@ def payload_sha256(body: dict | None) -> bytes:
 
 
 @contextmanager
-def immediate_transaction(connection: sqlite3.Connection) -> Iterator[None]:
-    """Hold the SQLite write lock so checks and writes see the same state."""
+def immediate_transaction(connection: sqlite3.Connection,
+                          clock: Callable[[], int] | None = None) -> Iterator[int | None]:
+    """Hold the SQLite write lock so checks and writes see the same state.
+
+    With `clock`, yield the time read after the lock is held. A request that
+    waited for the lock is then judged against TTLs at the moment it runs.
+    """
     connection.execute("BEGIN IMMEDIATE")
     try:
-        yield
+        yield None if clock is None else clock()
     except BaseException:
         connection.rollback()
         raise

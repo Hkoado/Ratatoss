@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import secrets
 import sqlite3
+from collections.abc import Callable
 from uuid import uuid4
 
 from . import idempotency
@@ -74,10 +75,10 @@ def active_peer_ids(connection: sqlite3.Connection, device_id: str) -> set[str]:
 
 
 def open_pair(connection: sqlite3.Connection, *, device: Device, request_key: str,
-              now_ms: int, code_key: bytes) -> Reply:
+              clock: Callable[[], int], code_key: bytes) -> Reply:
     scope = idempotency.Scope(device.device_id, "POST", "/v1/pairs", request_key)
     digest = payload_sha256(None)
-    with immediate_transaction(connection):
+    with immediate_transaction(connection, clock) as now_ms:
         try:
             stored = idempotency.find(connection, scope, digest)
         except idempotency.KeyReuseConflict:
@@ -103,13 +104,13 @@ def open_pair(connection: sqlite3.Connection, *, device: Device, request_key: st
 
 
 def claim_pair(connection: sqlite3.Connection, *, device: Device, request_key: str,
-               body: dict, now_ms: int) -> Reply:
+               body: dict, clock: Callable[[], int]) -> Reply:
     if body.keys() != {"pair_code"} or not isinstance(body["pair_code"], str) \
             or not PAIR_CODE.fullmatch(body["pair_code"]):
         return error(400)
     scope = idempotency.Scope(device.device_id, "POST", "/v1/pairs/claim", request_key)
     digest = payload_sha256(body)
-    with immediate_transaction(connection):
+    with immediate_transaction(connection, clock) as now_ms:
         try:
             stored = idempotency.find(connection, scope, digest)
         except idempotency.KeyReuseConflict:
@@ -156,21 +157,20 @@ def list_pairs(connection: sqlite3.Connection, *, device: Device, now_ms: int) -
 
 
 def decide_pair(connection: sqlite3.Connection, *, device: Device, pair_id: str,
-                request_key: str, body: dict, now_ms: int) -> Reply:
+                request_key: str, body: dict, clock: Callable[[], int]) -> Reply:
     if not UUID4.fullmatch(pair_id):
         return error(404)
     if body.keys() != {"decision"} or body["decision"] not in ("CONFIRM", "REJECT"):
         return error(400)
     scope = idempotency.Scope(device.device_id, "POST", f"/v1/pairs/{pair_id}/decision", request_key)
     digest = payload_sha256(body)
-    with immediate_transaction(connection):
+    with immediate_transaction(connection, clock) as now_ms:
         try:
             stored = idempotency.find(connection, scope, digest)
         except idempotency.KeyReuseConflict:
             return error(409, IDEMPOTENCY_CONFLICT)
         if stored is not None:
-            # Replays show the pair as the caller may see it now.
-            return Reply(stored.status, _view(connection, pair_id, device.device_id, now_ms))
+            return Reply(stored.status, _replayed_view(connection, pair_id, stored.result))
 
         row = query_row(
             connection,
@@ -203,9 +203,11 @@ def decide_pair(connection: sqlite3.Connection, *, device: Device, pair_id: str,
                 "state = CASE WHEN ? THEN 'ACTIVE' ELSE state END WHERE pair_id = ?",
                 (now_ms, activate, pair_id),
             )
-        idempotency.record(connection, scope, digest, status=200, result={"pair_id": pair_id},
-                           pair_id=pair_id, now_ms=now_ms)
         view = _view(connection, pair_id, device.device_id, now_ms)
+        # Store the response without the comparison code; replays restore it from `pairs`.
+        stored_view = {name: value for name, value in view.items() if name != "comparison_code"}
+        idempotency.record(connection, scope, digest, status=200, result=stored_view,
+                           pair_id=pair_id, now_ms=now_ms)
     return Reply(200, view)
 
 
@@ -217,6 +219,20 @@ def _expire_if_due(connection: sqlite3.Connection, pair_id: str, now_ms: int) ->
         (pair_id, now_ms),
     )
     return query_row(connection, "SELECT state FROM pairs WHERE pair_id = ?", (pair_id,))["state"]
+
+
+def _replayed_view(connection: sqlite3.Connection, pair_id: str, stored: dict) -> dict:
+    """Rebuild the committed decision response for a pair member.
+
+    Authentication and the key's device scope already limit replays to the
+    member that made the decision. Only the comparison code is read back.
+    """
+    if stored["state"] != "CLAIMED":
+        return stored
+    row = query_row(connection, "SELECT comparison_code FROM pairs WHERE pair_id = ?", (pair_id,))
+    view = dict(stored)
+    view.pop("state")
+    return view | {"comparison_code": row["comparison_code"], "state": "CLAIMED"}
 
 
 def _view(connection: sqlite3.Connection, pair_id: str, viewer: str, now_ms: int) -> dict:

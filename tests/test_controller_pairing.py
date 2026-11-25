@@ -47,9 +47,17 @@ class ControllerServer:
     """Serve the pairing router on an ephemeral loopback port."""
 
     def __init__(self, db_path: Path, clock: Clock, **router_options):
+        self.on_connect = None  # Optional hook run on each request's connection.
+
+        def connect():
+            connection = open_database(db_path, "controller")
+            if self.on_connect is not None:
+                self.on_connect(connection)
+            return connection
+
         app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
         app.include_router(create_router(
-            connect=lambda: open_database(db_path, "controller"),
+            connect=connect,
             pair_code_key=CODE_KEY, clock=clock, **router_options,
         ))
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -470,13 +478,30 @@ class IdempotencyTests(ControllerTestCase):
         self.claim(self.birch, opened["pair_code"])
         key = str(uuid.uuid4())
         first = self.decide(self.atlas, opened["pair_id"], key=key)
-        self.assertEqual(first[0], 200)
+        self.assertEqual((first[0], first[1]["state"]), (200, "CLAIMED"))
         replay = self.decide(self.atlas, opened["pair_id"], key=key)
         self.assertEqual(replay[:2], first[:2])
         self.assert_error(self.decide(self.atlas, opened["pair_id"], "REJECT", key=key), 409, "STATE_CONFLICT")
         # The same key on another device is a separate scope.
         self.assertEqual(self.decide(self.birch, opened["pair_id"], key=key)[1]["state"], "ACTIVE")
-        self.assertEqual(self.decide(self.atlas, opened["pair_id"], key=key)[1]["state"], "ACTIVE")
+        # A replay returns the committed result, not the pair's later state.
+        self.assertEqual(self.decide(self.atlas, opened["pair_id"], key=key)[:2], first[:2])
+        self.assertEqual(self.decide(self.birch, opened["pair_id"], key=key)[1]["state"], "ACTIVE")
+
+        stored = [json.loads(row[0]) for row in self.db.execute(
+            "SELECT result_json FROM idempotency WHERE route = ?", (f"/v1/pairs/{opened['pair_id']}/decision",))]
+        self.assertEqual([result["state"] for result in stored], ["CLAIMED", "ACTIVE"])
+        self.assertFalse(any("comparison_code" in result for result in stored))
+
+    def test_rejection_replay_returns_the_declined_result(self):
+        opened = self.open_pair(self.atlas)
+        self.claim(self.birch, opened["pair_code"])
+        key = str(uuid.uuid4())
+        first = self.decide(self.birch, opened["pair_id"], "REJECT", key=key)
+        self.assertEqual(first[:2], (200, {"pair_id": opened["pair_id"], "expires_at": first[1]["expires_at"],
+                                            "state": "DECLINED"}))
+        self.clock.now_ms = START_MS + TTL_MS
+        self.assertEqual(self.decide(self.birch, opened["pair_id"], "REJECT", key=key)[:2], first[:2])
 
     def test_missing_or_malformed_keys_and_bodies_are_rejected(self):
         token = self.atlas["device_token"]
@@ -500,6 +525,75 @@ class IdempotencyTests(ControllerTestCase):
                                    key=str(uuid.uuid4()), body={"pair_code": code})
                 self.assert_error(result, 400, "INVALID_REQUEST")
         self.assertEqual(self.pair_row(opened["pair_id"])["state"], "OPEN")
+
+
+class LockWaitTests(ControllerTestCase):
+    """A request that waits for the write lock is judged at the time it gets the lock."""
+
+    def send_while_locked(self, send, *, now_ms):
+        """Run `send` while this test holds the write lock, then move the clock.
+
+        The clock moves only after the request has reached `BEGIN IMMEDIATE`
+        and is waiting, so a request that read the time earlier sees the old value.
+        """
+        waiting = threading.Event()
+        self.server.on_connect = lambda connection: connection.set_trace_callback(
+            lambda sql: waiting.set() if sql == "BEGIN IMMEDIATE" else None)
+        self.addCleanup(setattr, self.server, "on_connect", None)
+        results = []
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            worker = threading.Thread(target=lambda: results.append(send()))
+            worker.start()
+            self.assertTrue(waiting.wait(5), "Request never waited for the write lock")
+            self.clock.now_ms = now_ms
+        finally:
+            self.db.rollback()
+        worker.join(10)
+        self.server.on_connect = None
+        return results[0]
+
+    def test_enrollment_that_waits_past_the_deadline_is_rejected(self):
+        code = issue_enrollment_code(self.db, now_ms=START_MS)
+        result = self.send_while_locked(lambda: self.http(
+            "POST", "/v1/devices/enroll", body={"enrollment_code": code, "display_name": "Late"}),
+            now_ms=START_MS + TTL_MS)
+        self.assert_error(result, 404, "NOT_FOUND")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM devices").fetchone()[0], 0)
+        self.assertEqual(self.db.execute(
+            "SELECT count(*) FROM enrollments WHERE consumed_at_ms IS NULL").fetchone()[0], 1)
+
+    def test_second_confirmation_that_waits_past_the_deadline_does_not_activate(self):
+        atlas, birch = self.enroll("Atlas"), self.enroll("Birch")
+        opened = self.open_pair(atlas)
+        self.claim(birch, opened["pair_code"])
+        self.assertEqual(self.decide(atlas, opened["pair_id"])[1]["state"], "CLAIMED")
+        result = self.send_while_locked(lambda: self.decide(birch, opened["pair_id"]),
+                                        now_ms=START_MS + TTL_MS)
+        self.assert_error(result, 410, "EXPIRED")
+        row = self.pair_row(opened["pair_id"])
+        self.assertEqual((row["state"], row["claimant_confirmed_at_ms"]), ("EXPIRED", None))
+        self.assertIsNone(active_pair_id(self.db, atlas["device_id"], birch["device_id"]))
+
+    def test_claim_that_waits_past_the_deadline_is_rejected(self):
+        atlas, birch = self.enroll("Atlas"), self.enroll("Birch")
+        opened = self.open_pair(atlas)
+        result = self.send_while_locked(lambda: self.claim(birch, opened["pair_code"]),
+                                        now_ms=START_MS + TTL_MS)
+        self.assert_error(result, 404, "NOT_FOUND")
+        row = self.pair_row(opened["pair_id"])
+        self.assertEqual((row["state"], row["claimant_device_id"]), ("EXPIRED", None))
+
+    def test_new_pair_deadline_starts_when_the_lock_is_held(self):
+        atlas = self.enroll("Atlas")
+        result = self.send_while_locked(lambda: self.http(
+            "POST", "/v1/pairs", token=atlas["device_token"], key=str(uuid.uuid4())),
+            now_ms=START_MS + 5_000)
+        self.assertEqual(result[0], 201, result[1])
+        self.secrets.append(result[1]["pair_code"])
+        row = self.pair_row(result[1]["pair_id"])
+        self.assertEqual((row["created_at_ms"], row["expires_at_ms"]),
+                         (START_MS + 5_000, START_MS + 5_000 + TTL_MS))
 
 
 class RateLimitTests(ControllerTestCase):

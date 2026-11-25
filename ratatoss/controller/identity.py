@@ -2,6 +2,7 @@
 
 import secrets
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -39,10 +40,10 @@ def issue_enrollment_code(connection: sqlite3.Connection, *, now_ms: int,
 
 
 def enroll_device(connection: sqlite3.Connection, *, enrollment_code: str,
-                  display_name: str, now_ms: int) -> Reply:
+                  display_name: str, clock: Callable[[], int]) -> Reply:
     """Consume an unexpired code and create the device in one transaction."""
     code_sha256 = secret_sha256(enrollment_code)
-    with immediate_transaction(connection):
+    with immediate_transaction(connection, clock) as now_ms:
         usable = query_row(
             connection,
             "SELECT 1 FROM enrollments WHERE code_sha256 = ? AND consumed_at_ms IS NULL "
