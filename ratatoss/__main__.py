@@ -16,6 +16,14 @@ from .manifest import (
 from .settings import LOOPBACK, NodeSettings, controller_database, node_data_dir
 
 
+def prepare_node(settings: NodeSettings, port: int):
+    from .app import create_app
+    from .database import NODE_DATABASE_NAME, initialize_database
+
+    initialize_database(settings.data_dir / NODE_DATABASE_NAME, "node")
+    return create_app(port)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="ratatoss")
     commands = parser.add_subparsers(dest="command")
@@ -40,24 +48,21 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        if args.command in (None, "serve", "init"):
+        if args.command == "init":
             from .database import NODE_DATABASE_NAME, initialize_database
 
-            if args.command == "init":
-                path = (node_data_dir(args.data_dir) / NODE_DATABASE_NAME if args.role == "node"
-                        else controller_database(args.db))
-                initialize_database(path, args.role)
-                print(f"Initialized {args.role} database")
-                return 0
+            path = (node_data_dir(args.data_dir) / NODE_DATABASE_NAME if args.role == "node"
+                    else controller_database(args.db))
+            initialize_database(path, args.role)
+            print(f"Initialized {args.role} database")
+            return 0
 
+        if args.command in (None, "serve"):
             settings = NodeSettings.load(getattr(args, "port", None), getattr(args, "data_dir", None))
-            initialize_database(settings.data_dir / NODE_DATABASE_NAME, "node")
-
             import uvicorn
 
-            from .app import create_app
-
-            uvicorn.run(create_app(settings.port), host=LOOPBACK, port=settings.port, proxy_headers=False)
+            uvicorn.run(prepare_node(settings, settings.port), host=LOOPBACK, port=settings.port,
+                        proxy_headers=False)
             return 0
 
         if args.command == "manifest":
