@@ -40,14 +40,12 @@ else:
             build_concurrent_sender_row,
             calculate_makespan_ms,
             calculate_overlap_ms,
-            calculate_payload_overlap_ms,
             BenchmarkAdapter,
+            FAULT_TIMEOUT_S,
             fault_profile_for_size,
             fault_timeout_receive_plan,
             evidence_ref,
             normalize_evidence_transfer,
-            payload_goodput_bps,
-            setup_measure,
             transport_run_status,
             validate_selected_fixtures,
             verified_transfers_status,
@@ -93,56 +91,6 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         overlap = calculate_overlap_ms(1000.0, 2000.0, 2000.0, 3000.0)
         self.assertEqual(overlap, 0.0)
 
-    def test_missing_payload_marker_returns_empty_overlap(self):
-        overlap = calculate_payload_overlap_ms("", "2000", "1500", "2500")
-        self.assertIsNone(overlap)
-
-    def test_progress_measurements_are_not_standard_byte_markers(self):
-        from run_r02_benchmark import SIZE_PROFILES, payload_goodput_bps, setup_measure
-        from unittest.mock import MagicMock
-        from ratatoss.transport import ProcessRun
-
-        run = ProcessRun(
-            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
-            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
-            job=MagicMock(), first_byte_monotonic=101.0,
-            last_byte_monotonic=104.0, first_progress_percent=82,
-        )
-        self.assertEqual(setup_measure(run), "1000")
-        self.assertEqual(payload_goodput_bps(33554432, run), "89478485")
-        self.assertEqual(set(SIZE_PROFILES), {32, 64, 128})
-
-    def test_unverified_payload_markers_remain_blank(self):
-        from run_r02_benchmark import payload_measurement_fields
-        from unittest.mock import MagicMock
-        from ratatoss.transport import ProcessRun
-
-        run = ProcessRun(
-            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
-            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
-            job=MagicMock(), first_byte_monotonic=101.0,
-            last_byte_monotonic=104.0,
-        )
-        self.assertEqual(
-            payload_measurement_fields(run, 33554432),
-            ("", "", "", "", ""),
-        )
-
-    def test_retry_and_slow_path_use_the_same_unverified_marker_guard(self):
-        from run_r02_benchmark import payload_measurement_fields
-        from unittest.mock import MagicMock
-        from ratatoss.transport import ProcessRun
-
-        run = ProcessRun(
-            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
-            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
-            job=MagicMock(), first_byte_monotonic=101.0,
-            last_byte_monotonic=104.0,
-        )
-        _, _, setup, goodput, _ = payload_measurement_fields(run, 33554432)
-        self.assertEqual(setup, "")
-        self.assertEqual(goodput, "")
-
     def test_transport_status_does_not_depend_on_payload_measurements(self):
         from unittest.mock import MagicMock
         from ratatoss.transport import ProcessRun
@@ -185,63 +133,14 @@ class TestR02BenchmarkLogic(unittest.TestCase):
     def test_concurrent_rows_keep_sha_marker_as_string(self):
         receiver = build_concurrent_receiver_row(
             "run", "job", "attempt", 1024,
-            1000.0, "1100", "1200", "1300",
-            "100", "800000", "a" * 64, "50.0",
+            1000.0, "1300", "a" * 64,
         )
         sender = build_concurrent_sender_row(
             "run", "job", "attempt-bc", 1024,
-            1050.0, "1150", "1250", "1300",
-            "100", "800000", "b" * 64, "50.0",
+            1050.0, "1300", "b" * 64,
         )
-        self.assertEqual(receiver[13], "1300")
-        self.assertEqual(sender[13], "1300")
-        self.assertNotIn("e: ", receiver)
-
-    def test_setup_ms_empty_when_first_byte_missing(self):
-        """Missing payload markers must produce empty CSV measurements, not a proxy."""
-        from dataclasses import replace
-        from ratatoss.transport import ProcessRun
-        from unittest.mock import MagicMock
-
-        # Create a ProcessRun without first_byte_monotonic
-        run = ProcessRun(
-            pid=1234,
-            started_at="2026-01-01T00:00:00Z",
-            stopped_at="2026-01-01T00:00:05Z",
-            started_monotonic=1000.0,
-            stopped_monotonic=1005.0,
-            deadline_monotonic=1045.0,
-            exit_code=0,
-            job=MagicMock(),
-            first_byte_monotonic=None,  # Missing marker
-            last_byte_monotonic=None,
-            sha256_done_monotonic=None,
-        )
-
-        self.assertEqual(setup_measure(run), "")
-        self.assertEqual(payload_goodput_bps(1024, run), "")
-
-    def test_last_byte_missing_produces_empty_goodput(self):
-        """Missing last-byte payload marker must not substitute process duration."""
-        from unittest.mock import MagicMock
-        from ratatoss.transport import ProcessRun
-
-        run = ProcessRun(
-            pid=1234,
-            started_at="2026-01-01T00:00:00Z",
-            stopped_at="2026-01-01T00:00:05Z",
-            started_monotonic=1000.0,
-            stopped_monotonic=1005.0,
-            deadline_monotonic=1045.0,
-            exit_code=0,
-            job=MagicMock(),
-            first_byte_monotonic=1001.0,
-            last_byte_monotonic=None,  # Missing marker
-            sha256_done_monotonic=None,
-        )
-
-        self.assertEqual(payload_goodput_bps(1024, run), "")
-        self.assertIsNone(calculate_makespan_ms((run.started_monotonic,), (run,)))
+        for row in (receiver, sender):
+            self.assertEqual(row[11:16], ["", "", "1300", "", ""])
 
     def test_progress_observer_ignores_unrelated_and_incomplete_frames(self):
         from ratatoss.transport import _PayloadProgress
@@ -256,14 +155,6 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         progress.feed(b"batch-test  50% |", 5.0)
         progress.feed(b"batch-test 100% |", 6.0)
         self.assertEqual((progress.first, progress.first_percent, progress.last), (4.0, 25, 6.0))
-
-    def test_goodput_uses_staged_payload_markers(self):
-        from types import SimpleNamespace
-
-        run = SimpleNamespace(
-            first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
-        )
-        self.assertEqual(payload_goodput_bps(1024, run), "4096")
 
     def test_selected_sizes_skip_unselected_fixture_validation(self):
         import tempfile
@@ -291,6 +182,35 @@ class TestR02BenchmarkLogic(unittest.TestCase):
                 ),
             ):
                 validate_selected_fixtures(root, (32,), croc)
+
+    def test_selected_sizes_require_32_mib_fault_fixture_during_preflight(self):
+        import tempfile
+        from unittest.mock import patch
+        from ratatoss.transport import CrocError
+        from run_r02_benchmark import FIXTURE_NAMES, WINDOWS_X64_SHA256
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "croc.exe"
+            binary.touch()
+            hashes = {binary: WINDOWS_X64_SHA256}
+            for role in ("A", "B"):
+                name, digest = FIXTURE_NAMES[(role, 64)]
+                fixture = root / name
+                with fixture.open("wb") as stream:
+                    stream.truncate(64 * 1024 * 1024)
+                hashes[fixture] = digest
+
+            with patch("run_r02_benchmark.sha256_file", side_effect=hashes.__getitem__):
+                with self.assertRaisesRegex(CrocError, "LAB_FIXTURE_MISSING: a-32mib.bin"):
+                    validate_selected_fixtures(root, (64,), binary)
+
+                name, digest = FIXTURE_NAMES[("A", 32)]
+                fault_fixture = root / name
+                with fault_fixture.open("wb") as stream:
+                    stream.truncate(32 * 1024 * 1024)
+                hashes[fault_fixture] = digest
+                validate_selected_fixtures(root, (64,), binary)
 
     def test_verified_transfers_status_accepts_selected_size_only(self):
         import csv
@@ -396,8 +316,8 @@ class TestR02BenchmarkLogic(unittest.TestCase):
                         binary, staging, profile, observe_payload=True,
                     )
 
-                deadline = time.monotonic() + 5.0
-                plan = fault_timeout_receive_plan(profile, deadline, 5.0)
+                deadline = time.monotonic() + FAULT_TIMEOUT_S
+                plan = fault_timeout_receive_plan(profile, deadline, FAULT_TIMEOUT_S)
                 child = TimedOutChild()
 
                 with patch("ratatoss.transport.WindowsChild", return_value=child):
