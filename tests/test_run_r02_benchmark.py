@@ -128,6 +128,21 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             ("", "", "", "", ""),
         )
 
+    def test_retry_and_slow_path_use_the_same_unverified_marker_guard(self):
+        from run_r02_benchmark import payload_measurement_fields
+        from unittest.mock import MagicMock
+        from ratatoss.transport import ProcessRun
+
+        run = ProcessRun(
+            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
+            stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(), first_byte_monotonic=101.0,
+            last_byte_monotonic=104.0,
+        )
+        _, _, setup, goodput, _ = payload_measurement_fields(run, 33554432)
+        self.assertEqual(setup, "")
+        self.assertEqual(goodput, "")
+
     def test_transport_status_does_not_depend_on_payload_measurements(self):
         from unittest.mock import MagicMock
         from ratatoss.transport import ProcessRun

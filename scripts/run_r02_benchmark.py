@@ -975,8 +975,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     timeout_s=TIMEOUT_S, attempt_id=attempt_id,
                 )
                 makespan = calculate_makespan_ms((rx_run.started_monotonic, tx_run.started_monotonic), (rx_run,))
-                setup = setup_measure(rx_run)
-                goodput = payload_goodput_bps(file_bytes, rx_run)
+                _, _, setup, goodput, _ = payload_measurement_fields(rx_run, file_bytes)
                 notes = (
                     f"Same fixture and destination as {timeout_id}; verified with a new attempt."
                     if is_retry else f"Sender upload capped at {SLOW_UPLOAD_LIMIT}; SHA-256 verified."
