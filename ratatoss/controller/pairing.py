@@ -29,7 +29,7 @@ from .common import (
     secret_sha256,
     utc,
 )
-from .identity import Device
+from .identity import Device, still_valid
 
 _PAIR_VIEW = (
     "SELECT p.pair_id, p.opener_device_id, p.claimant_device_id, p.comparison_code, "
@@ -79,6 +79,8 @@ def open_pair(connection: sqlite3.Connection, *, device: Device, request_key: st
     scope = idempotency.Scope(device.device_id, "POST", "/v1/pairs", request_key)
     digest = payload_sha256(None)
     with immediate_transaction(connection, clock) as now_ms:
+        if not still_valid(connection, device):
+            return error(401)
         try:
             stored = idempotency.find(connection, scope, digest)
         except idempotency.KeyReuseConflict:
@@ -111,6 +113,8 @@ def claim_pair(connection: sqlite3.Connection, *, device: Device, request_key: s
     scope = idempotency.Scope(device.device_id, "POST", "/v1/pairs/claim", request_key)
     digest = payload_sha256(body)
     with immediate_transaction(connection, clock) as now_ms:
+        if not still_valid(connection, device):
+            return error(401)
         try:
             stored = idempotency.find(connection, scope, digest)
         except idempotency.KeyReuseConflict:
@@ -165,6 +169,8 @@ def decide_pair(connection: sqlite3.Connection, *, device: Device, pair_id: str,
     scope = idempotency.Scope(device.device_id, "POST", f"/v1/pairs/{pair_id}/decision", request_key)
     digest = payload_sha256(body)
     with immediate_transaction(connection, clock) as now_ms:
+        if not still_valid(connection, device):
+            return error(401)
         try:
             stored = idempotency.find(connection, scope, digest)
         except idempotency.KeyReuseConflict:
@@ -224,8 +230,9 @@ def _expire_if_due(connection: sqlite3.Connection, pair_id: str, now_ms: int) ->
 def _replayed_view(connection: sqlite3.Connection, pair_id: str, stored: dict) -> dict:
     """Rebuild the committed decision response for a pair member.
 
-    Authentication and the key's device scope already limit replays to the
-    member that made the decision. Only the comparison code is read back.
+    The caller's token was rechecked under the write lock, and the key's device
+    scope limits replays to the member that made the decision. Only the
+    comparison code is read back.
     """
     if stored["state"] != "CLAIMED":
         return stored

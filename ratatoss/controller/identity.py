@@ -3,7 +3,7 @@
 import secrets
 import sqlite3
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import uuid4
 
 from .common import (
@@ -19,10 +19,12 @@ from .common import (
 
 @dataclass(frozen=True)
 class Device:
-    """An enrolled device whose token is currently valid."""
+    """An enrolled device whose token was valid when it was authenticated."""
 
     device_id: str
     display_name: str
+    # Hash of the presented token, so a write can recheck that exact token.
+    token_sha256: str = field(repr=False, compare=False)
 
 
 def issue_enrollment_code(connection: sqlite3.Connection, *, now_ms: int,
@@ -76,10 +78,25 @@ def authenticate(connection: sqlite3.Connection, authorization: list[str]) -> De
     scheme, _, token = authorization[0].partition(" ")
     if scheme.lower() != "bearer" or not DEVICE_TOKEN.fullmatch(token):
         return None
+    token_sha256 = secret_sha256(token)
     row = query_row(
         connection,
         "SELECT device_id, display_name FROM devices "
         "WHERE token_sha256 = ? AND revoked_at_ms IS NULL",
-        (secret_sha256(token),),
+        (token_sha256,),
     )
-    return None if row is None else Device(row["device_id"], row["display_name"])
+    return None if row is None else Device(row["device_id"], row["display_name"], token_sha256)
+
+
+def still_valid(connection: sqlite3.Connection, device: Device) -> bool:
+    """Recheck the caller's token inside the current write transaction.
+
+    Call this right after `BEGIN IMMEDIATE`, before idempotency lookups or
+    writes. A token revoked while the request waited for the lock then
+    authorizes neither a new write nor a replay.
+    """
+    return query_row(
+        connection,
+        "SELECT 1 FROM devices WHERE device_id = ? AND token_sha256 = ? AND revoked_at_ms IS NULL",
+        (device.device_id, device.token_sha256),
+    ) is not None

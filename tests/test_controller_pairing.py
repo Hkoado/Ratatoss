@@ -530,11 +530,12 @@ class IdempotencyTests(ControllerTestCase):
 class LockWaitTests(ControllerTestCase):
     """A request that waits for the write lock is judged at the time it gets the lock."""
 
-    def send_while_locked(self, send, *, now_ms):
-        """Run `send` while this test holds the write lock, then move the clock.
+    def send_while_locked(self, send, *, now_ms=None, change=None):
+        """Run `send` while this test holds the write lock.
 
-        The clock moves only after the request has reached `BEGIN IMMEDIATE`
-        and is waiting, so a request that read the time earlier sees the old value.
+        Once the request has reached `BEGIN IMMEDIATE` and is waiting, move the
+        clock to `now_ms` or commit `change(self.db)` under the held lock. A
+        request that read the time or the caller's token earlier sees the old value.
         """
         waiting = threading.Event()
         self.server.on_connect = lambda connection: connection.set_trace_callback(
@@ -546,12 +547,82 @@ class LockWaitTests(ControllerTestCase):
             worker = threading.Thread(target=lambda: results.append(send()))
             worker.start()
             self.assertTrue(waiting.wait(5), "Request never waited for the write lock")
-            self.clock.now_ms = now_ms
-        finally:
+            if now_ms is not None:
+                self.clock.now_ms = now_ms
+            if change is not None:
+                change(self.db)
+        except BaseException:
             self.db.rollback()
+            raise
+        self.db.commit()
         worker.join(10)
         self.server.on_connect = None
         return results[0]
+
+    def revoke(self, device):
+        """Return a change that revokes `device`'s token."""
+        return lambda db: db.execute(
+            "UPDATE devices SET revoked_at_ms = ? WHERE device_id = ?",
+            (self.clock(), device["device_id"]))
+
+    def idempotency_rows(self, device):
+        return self.db.execute(
+            "SELECT count(*) FROM idempotency WHERE device_id = ?", (device["device_id"],)).fetchone()[0]
+
+    def test_create_with_a_token_revoked_during_the_wait_is_rejected(self):
+        atlas = self.enroll("Atlas")
+        result = self.send_while_locked(lambda: self.http(
+            "POST", "/v1/pairs", token=atlas["device_token"], key=str(uuid.uuid4())),
+            change=self.revoke(atlas))
+        self.assert_error(result, 401, "UNAUTHENTICATED")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM pairs").fetchone()[0], 0)
+        self.assertEqual(self.idempotency_rows(atlas), 0)
+
+    def test_create_replay_with_a_token_revoked_during_the_wait_hides_the_code(self):
+        atlas = self.enroll("Atlas")
+        key = str(uuid.uuid4())
+        opened = self.open_pair(atlas, key=key)
+        result = self.send_while_locked(lambda: self.http(
+            "POST", "/v1/pairs", token=atlas["device_token"], key=key),
+            change=self.revoke(atlas))
+        self.assert_error(result, 401, "UNAUTHENTICATED")
+        self.assertNotIn(opened["pair_code"], json.dumps(result[1]))
+        self.assertEqual(self.pair_row(opened["pair_id"])["state"], "OPEN")
+
+    def test_claim_with_a_token_revoked_during_the_wait_is_rejected(self):
+        atlas, birch = self.enroll("Atlas"), self.enroll("Birch")
+        opened = self.open_pair(atlas)
+        result = self.send_while_locked(lambda: self.claim(birch, opened["pair_code"]),
+                                        change=self.revoke(birch))
+        self.assert_error(result, 401, "UNAUTHENTICATED")
+        row = self.pair_row(opened["pair_id"])
+        self.assertEqual((row["state"], row["claimant_device_id"], row["comparison_code"]),
+                         ("OPEN", None, None))
+        self.assertEqual(self.idempotency_rows(birch), 0)
+
+    def test_decision_with_a_token_revoked_during_the_wait_is_rejected(self):
+        atlas, birch = self.enroll("Atlas"), self.enroll("Birch")
+        opened = self.open_pair(atlas)
+        self.claim(birch, opened["pair_code"])
+        self.assertEqual(self.decide(atlas, opened["pair_id"])[1]["state"], "CLAIMED")
+        result = self.send_while_locked(lambda: self.decide(birch, opened["pair_id"]),
+                                        change=self.revoke(birch))
+        self.assert_error(result, 401, "UNAUTHENTICATED")
+        row = self.pair_row(opened["pair_id"])
+        self.assertEqual((row["state"], row["claimant_confirmed_at_ms"]), ("CLAIMED", None))
+        self.assertIsNone(active_pair_id(self.db, atlas["device_id"], birch["device_id"]))
+
+    def test_decision_replay_with_a_token_revoked_during_the_wait_is_rejected(self):
+        atlas, birch = self.enroll("Atlas"), self.enroll("Birch")
+        opened = self.open_pair(atlas)
+        self.claim(birch, opened["pair_code"])
+        key = str(uuid.uuid4())
+        first = self.decide(atlas, opened["pair_id"], key=key)
+        self.assertEqual((first[0], first[1]["state"]), (200, "CLAIMED"))
+        result = self.send_while_locked(lambda: self.decide(atlas, opened["pair_id"], key=key),
+                                        change=self.revoke(atlas))
+        self.assert_error(result, 401, "UNAUTHENTICATED")
+        self.assertNotIn("comparison_code", json.dumps(result[1]))
 
     def test_enrollment_that_waits_past_the_deadline_is_rejected(self):
         code = issue_enrollment_code(self.db, now_ms=START_MS)
