@@ -13,7 +13,8 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timezone
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from statistics import median
 from uuid import uuid4
 
 repo_root = Path(__file__).resolve().parent.parent
@@ -28,6 +29,7 @@ from ratatoss.transport import (
 from scripts.croc_smoke import (
     HOST, PORTS, START_GAP_S, HANDSHAKE_BUDGET_MS, wait_for_relay, new_code, require,
 )
+from scripts.croc_r02_tap import RelayTap, TAP_READ_BYTES
 from scripts.validate_bench_csv import RUNS_HEADER, TRANSFERS_HEADER
 
 SIZES = (32, 64, 128)
@@ -41,6 +43,11 @@ MIN_GOODPUT_BPS = 100_000_000
 VERIFY_COMMIT_MS = 200
 MARGIN_MS = 200
 FAULT_FIXTURE = ("A", 32)
+RX_TAP_HOST = "127.0.0.2"
+TX_TAP_HOST = "127.0.0.3"
+MEASURED_NETWORK = "windows-loopback-b-relay-taps-no-compress"
+MEASUREMENT_METHOD = "croc-v11.6.5-encrypted-payload-at-b"
+COMPARISON_MIB = max(SIZES)
 
 SIZE_PROFILES = {
     32: {
@@ -50,7 +57,7 @@ SIZE_PROFILES = {
         "margin_ms": 200,
         "lease_ms": 75_000,
         "adapter_timeout_ms": 75_000,
-        "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers.",
+        "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate.",
     },
     64: {
         "min_goodput_bps": 100_000_000,
@@ -59,7 +66,7 @@ SIZE_PROFILES = {
         "margin_ms": 200,
         "lease_ms": 75_000,
         "adapter_timeout_ms": 75_000,
-        "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers.",
+        "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate.",
     },
     128: {
         "min_goodput_bps": 100_000_000,
@@ -68,7 +75,7 @@ SIZE_PROFILES = {
         "margin_ms": 200,
         "lease_ms": 75_000,
         "adapter_timeout_ms": 75_000,
-        "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers.",
+        "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate.",
     },
 }
 
@@ -149,6 +156,13 @@ class BenchmarkAdapter(CrocAdapter):
         if role == "tx":
             argv[1:1] = ["--throttleUpload", self.upload_limit]
             argv[-1:-1] = ["--no-local", "--transport", "relay", "--no-multi"]
+        return argv
+
+
+class MeasuredAdapter(BenchmarkAdapter):
+    def argv(self, role, batch):
+        argv = super().argv(role, batch)
+        argv[1:1] = ["--no-compress"]
         return argv
 
 
@@ -245,14 +259,108 @@ def verified_transfers_status(runs_file: Path, transfers_file: Path,
     return "pass", ""
 
 
-def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
+def measurement(tap: RelayTap, file_bytes: int, run: ProcessRun) -> dict | None:
+    interval = tap.interval(file_bytes)
+    started_ns = round(run.started_monotonic * 1_000_000_000)
+    stopped_ns = round(run.stopped_monotonic * 1_000_000_000)
+    if interval is None or not started_ns <= interval.first_ns < interval.last_ns <= stopped_ns:
+        return None
+    return {
+        **asdict(interval),
+        "started_ns": started_ns,
+        "setup_ms": (interval.first_ns - started_ns) / 1_000_000,
+        "goodput_bps": round(file_bytes * 8_000_000_000 / (interval.last_ns - interval.first_ns)),
+    }
+
+
+def byte_columns(observed: dict | None, verified_at: str) -> list[str]:
+    if observed is None:
+        return ["", "", verified_at, "", ""]
+    return [
+        f"{observed['first_ns'] / 1_000_000:.3f}",
+        f"{observed['last_ns'] / 1_000_000:.3f}",
+        verified_at,
+        f"{observed['setup_ms']:.3f}",
+        str(observed['goodput_bps']),
+    ]
+
+
+def distribution(values: list[int | float]) -> dict:
+    return {"min": min(values), "median": median(values), "max": max(values)}
+
+
+def summarize_matrix(runs: list[dict], details: dict, selected_sizes: tuple[int, ...]) -> tuple[dict, bool, bool]:
+    summary = {}
+    have_measurements = True
+    have_overlap = True
+    for size in selected_sizes:
+        by_mode = {}
+        for mode in ("sequential", "concurrent"):
+            passed = [
+                (row, details[row["run_id"]])
+                for row in runs
+                if row["batch_mib"] == str(size) and row["scenario"] == mode and row["status"] == "pass"
+            ]
+            directions = ("rx", "tx") if mode == "concurrent" else ("rx",)
+            usable = len(passed) >= REPEATS and all(
+                info.get("payload_at_b", {}).get(direction) is not None
+                for _, info in passed for direction in directions
+            )
+            have_measurements &= usable
+            if mode == "concurrent":
+                have_overlap &= usable and all(
+                    (info.get("overlap_ms") or 0) > 0 for _, info in passed
+                )
+            if not usable:
+                continue
+            group = {
+                "runs": len(passed),
+                "makespan_ms": distribution([int(row["makespan_ms"]) for row, _ in passed]),
+            }
+            for direction in directions:
+                intervals = [info["payload_at_b"][direction] for _, info in passed]
+                group[direction] = {
+                    "setup_ms": distribution([interval["setup_ms"] for interval in intervals]),
+                    "goodput_bps": distribution([interval["goodput_bps"] for interval in intervals]),
+                }
+            if mode == "concurrent":
+                group["overlap_ms"] = distribution([info["overlap_ms"] for _, info in passed])
+            by_mode[mode] = group
+        if by_mode:
+            summary[str(size)] = by_mode
+    return summary, have_measurements, have_overlap
+
+
+def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path, details: dict,
                         selected_sizes: tuple[int, ...] = SIZES) -> Path:
+    with runs_file.open("r", encoding="utf-8", newline="") as source:
+        runs = list(csv.DictReader(source))
+    verified_status, verified_reason = verified_transfers_status(runs_file, transfers_file, selected_sizes)
+    summary, have_measurements, have_overlap = summarize_matrix(runs, details, selected_sizes)
+    have_measurements &= verified_status == "pass"
+    have_overlap &= verified_status == "pass"
+    scores = {}
+    if have_measurements and have_overlap and set(selected_sizes) == set(SIZES):
+        scores = {
+            size: summary[str(size)]["concurrent"]["makespan_ms"]["median"] * (COMPARISON_MIB // size)
+            for size in SIZES
+        }
+    selected = min(scores, key=lambda size: (scores[size], size)) if scores else None
+    timeout_observed = any(
+        row["scenario"] == "timeout_reproduce" and row["status"] == "timeout"
+        for row in runs
+    )
     profile_file = output_dir / "batch-profiles.json"
     profile_file.write_text(
         json.dumps({
-            "measurement_method": "croc-progress-estimate-only",
-            "byte_marker_status": "not_verified",
-            "selected_batch_mib": None,
+            "measurement_method": MEASUREMENT_METHOD,
+            "byte_marker_status": "verified" if have_measurements else "not_verified",
+            "network_profile": MEASURED_NETWORK,
+            "selected_batch_mib": selected,
+            "comparison_payload_mib_per_route": COMPARISON_MIB,
+            "comparison_method": "Median concurrent makespan multiplied by the number of batches per route; smaller batch breaks ties.",
+            "estimated_equal_volume_makespan_ms": scores,
+            "observed": summary,
             "profiles": SIZE_PROFILES,
         }, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -273,10 +381,6 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
         "batch-profiles.json": file_sha256(profile_file),
     })
 
-    verified_status, verified_reason = verified_transfers_status(
-        runs_file, transfers_file, selected_sizes=selected_sizes,
-    )
-
     report = {
         "checks": {
             "verified-transfers": {
@@ -285,23 +389,26 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
                 **({"reason": verified_reason} if verified_reason else {}),
             },
             "rx-tx-overlap": {
-                "status": "blocked",
+                "status": "pass" if have_overlap else "blocked",
                 "evidence": evidence,
-                "reason": "Payload RX and TX intervals have not both been measured at B.",
+                "reason": "All required concurrent trials must show positive payload overlap at B.",
             },
             "setup-goodput-by-size": {
-                "status": "blocked",
+                "status": "pass" if have_measurements else "blocked",
                 "evidence": evidence,
-                "reason": "Croc progress estimates do not identify first and last payload bytes.",
+                "reason": "Each required verified transfer must have a complete payload interval at B.",
             },
             "reproduced-timeout": {
-                "status": "pass",
+                "status": "pass" if timeout_observed else "blocked",
                 "evidence": evidence,
             },
             "selected-batch-size": {
-                "status": "blocked",
+                "status": "pass" if selected is not None else "blocked",
                 "evidence": evidence,
-                "reason": "Batch selection requires verified setup, goodput and overlap measurements.",
+                "reason": (
+                    f"{selected} MiB minimizes the equal-volume makespan estimate for this loopback profile."
+                    if selected is not None else "Selection requires a complete three-size measured matrix."
+                ),
             },
         }
     }
@@ -327,7 +434,12 @@ def write_run_evidence(output_dir: Path, run_row: list[str], transfers, details)
         "adapter_timeout_s": FAULT_TIMEOUT_S if run["status"] == "timeout" else TIMEOUT_S,
         "start_gap_s": START_GAP_S,
         "upload_limit": None if run["status"] == "timeout" else MEASURED_UPLOAD_LIMIT,
-        "measurement_method": "croc-progress-estimate-only",
+        "measurement_method": MEASUREMENT_METHOD if "payload_at_b" in details else None,
+        "wire_observation": (
+            {"observer": "B", "clock": "monotonic_ns", "rx_host": RX_TAP_HOST, "tx_host": TX_TAP_HOST,
+             "data_port": PORTS[1], "compression": False, "read_limit_bytes": TAP_READ_BYTES}
+            if "payload_at_b" in details else None
+        ),
         "size_profiles": SIZE_PROFILES,
         "secrets_redacted": True,
         "transfers": [
@@ -390,31 +502,20 @@ def transport_run_status(makespan_ms: str | None, verified_sha: str,
     )
 
 
-def build_concurrent_receiver_row(
+def build_measured_transfer(
     run_id: str, job_id: str, assignment_id: str, file_bytes: int,
-    start_ms: float, sha256_done_ms: str, digest: str,
+    observer_run: ProcessRun, verified_run: ProcessRun, digest: str,
+    *, direction: str, observed: dict | None,
 ) -> list[str]:
+    batch_id, source, target = ("0", "A", "B") if direction == "rx" else ("1", "B", "C")
+    path = "relay" if observed is not None else "unknown"
+    markers = byte_columns(observed, marker_ms(verified_run, "sha256_done_monotonic"))
+    notes = (f"Payload wire markers at B {direction.upper()}; SHA-256 completion at {target} on the same host."
+             if observed is not None else f"Complete wire interval unavailable; SHA-256 verified at {target}.")
     return [
-        run_id, job_id, assignment_id, "0",
-        "A", "B", "B", "unknown",
-        str(file_bytes), str(file_bytes),
-        f"{start_ms:.3f}", "", "", sha256_done_ms,
-        "", "", digest, "pass", "false", "false",
-        "Concurrent transfer A->B; byte markers are unavailable; SHA-256 verified at B",
-    ]
-
-
-def build_concurrent_sender_row(
-    run_id: str, job_id: str, assignment_id: str, file_bytes: int,
-    start_ms: float, sha256_done_ms: str, digest: str,
-) -> list[str]:
-    return [
-        run_id, job_id, assignment_id, "1",
-        "B", "C", "C", "unknown",
-        str(file_bytes), str(file_bytes),
-        f"{start_ms:.3f}", "", "", sha256_done_ms,
-        "", "", digest, "pass", "false", "false",
-        "Concurrent transfer B->C; byte markers are unavailable; SHA-256 verified at C",
+        run_id, job_id, assignment_id, batch_id, source, target, "B", path,
+        str(file_bytes), str(file_bytes), f"{observer_run.started_monotonic * 1000:.3f}",
+        *markers, digest, "pass", "false", "false", notes,
     ]
 
 
@@ -530,34 +631,30 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     peer_roots = {role: lab_root / f"peer_seq_{size_mib}_{repeat}_{role}" for role in "AB"}
                     for p in peer_roots.values():
                         p.mkdir(parents=True, exist_ok=True)
-                    peers = {role: BenchmarkAdapter(croc_path, p, profile, observe_payload=True) for role, p in peer_roots.items()}
+                    rx_tap = RelayTap(RX_TAP_HOST, HOST, tuple(PORTS), transmit=False)
+                    peer_a = MeasuredAdapter(croc_path, peer_roots["A"], profile)
+                    peer_b = MeasuredAdapter(croc_path, peer_roots["B"], replace(profile, endpoint=f"{RX_TAP_HOST}:{PORTS[0]}"))
                     rooms = set()
 
                     dest_b = lab_root / f"dest_b_seq_{size_mib}_{repeat}.bin"
                     code = new_code(rooms)
                     job_id = uuid4().hex
                     assignment_id = uuid4().hex
-                    batch_id = 0
+                    async with rx_tap.listen():
+                        rx_run, tx_run, verified_sha = await execute_transfer(
+                            peer_a, peer_b, a_fixture, dest_b, a_sha, file_bytes, code,
+                        )
 
-                    rx_run, tx_run, verified_sha = await execute_transfer(
-                        peers["A"], peers["B"], a_fixture, dest_b, a_sha, file_bytes, code,
-                    )
-
-                    start_ms = rx_run.started_monotonic * 1000.0
-                    sha256_done_ms = marker_ms(rx_run, "sha256_done_monotonic")
+                    rx = measurement(rx_tap, file_bytes, rx_run)
                     run_makespan_ms = calculate_makespan_ms(
                         (rx_run.started_monotonic, tx_run.started_monotonic),
                         (rx_run,),
                     )
 
-                    t_row = [
-                        run_id, job_id, assignment_id, str(batch_id),
-                        "A", "B", "B", "unknown",
-                        str(file_bytes), str(file_bytes),
-                        f"{start_ms:.3f}", "", "", sha256_done_ms, "", "", verified_sha,
-                        "pass", "false", "false",
-                        "Loopback relay A->B; byte markers are unavailable; SHA-256 verified at B",
-                    ]
+                    t_row = build_measured_transfer(
+                        run_id, job_id, assignment_id, file_bytes, rx_run, rx_run, verified_sha,
+                        direction="rx", observed=rx,
+                    )
                     run_status = transport_run_status(
                         csv_measure(run_makespan_ms),
                         verified_sha,
@@ -570,15 +667,18 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     r_row = [
                         run_id, "gate0", "sequential", "croc_relay", str(repeat), "",
                         commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
-                        "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes),
+                        "loopback-127.0.0.1", MEASURED_NETWORK, a_sha, str(file_bytes),
                         str(size_mib), "1", "1", run_status,
                         csv_measure(run_makespan_ms), str(file_bytes), "", "", "",
-                        "", "", "", "", "", "",
+                        "", "", "", t_row[14], t_row[14], "",
                         evidence_ref(output_dir, run_id),
-                        "Sequential transport run; byte markers are unavailable; SHA-256 verified at B",
+                        "Sequential A->B; see evidence for wire timing at B and cleanup; WAN counters not collected.",
                     ]
                     runs_rows.append(r_row)
-                    evidence_details[run_id] = {"processes": {"A_tx": process_evidence(tx_run), "B_rx": process_evidence(rx_run)}}
+                    evidence_details[run_id] = {
+                        "processes": {"A_tx": process_evidence(tx_run), "B_rx": process_evidence(rx_run)},
+                        "payload_at_b": {"rx": rx},
+                    }
                     print(f"Sequential {size_mib} MiB repeat {repeat} {run_status} (makespan: {run_makespan_ms} ms)")
                 except (CrocError, ExceptionGroup) as error:
                     run_status = "fail"
@@ -605,10 +705,13 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                 relay = WindowsChild(argv, cwd=relay_root, env=child_environment(relay_root) | {"CROC_PASS": password})
                 try:
                     wait_for_relay(relay)
-                    peer_roots = {role: lab_root / f"peer_concur_{size_mib}_{repeat}_{role}" for role in "ABC"}
-                    for p in peer_roots.values():
-                        p.mkdir(parents=True, exist_ok=True)
-                    peers = {role: BenchmarkAdapter(croc_path, p, profile, observe_payload=True) for role, p in peer_roots.items()}
+                    rx_tap = RelayTap(RX_TAP_HOST, HOST, tuple(PORTS), transmit=False)
+                    tx_tap = RelayTap(TX_TAP_HOST, HOST, tuple(PORTS), transmit=True)
+                    peers = {}
+                    for role, host in (("A", HOST), ("B_rx", RX_TAP_HOST), ("B_tx", TX_TAP_HOST), ("C", HOST)):
+                        folder = lab_root / f"peer_concur_{size_mib}_{repeat}_{role}"
+                        folder.mkdir(parents=True)
+                        peers[role] = MeasuredAdapter(croc_path, folder, replace(profile, endpoint=f"{host}:{PORTS[0]}"))
                     rooms = set()
 
                     dest_b = lab_root / f"dest_b_concur_{size_mib}_{repeat}.bin"
@@ -620,24 +723,25 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     batch_bc = Batch(uuid4(), file_bytes, b_sha)
                     deadline = time.monotonic() + TIMEOUT_S
 
-                    async with asyncio.TaskGroup() as tasks:
-                        rx_b = tasks.create_task(peers["B"].receive(
-                            dest_b, code_ab, batch=batch_ab, timeout=TIMEOUT_S, lease_deadline=deadline,
-                            remaining_setup_ms=profile.setup_ms,
-                        ))
-                        rx_c = tasks.create_task(peers["C"].receive(
-                            dest_c, code_bc, batch=batch_bc, timeout=TIMEOUT_S, lease_deadline=deadline,
-                            remaining_setup_ms=profile.setup_ms,
-                        ))
-                        await asyncio.sleep(START_GAP_S)
-                        tx_a = tasks.create_task(peers["A"].send(
-                            a_fixture, code_ab, batch=batch_ab, timeout=TIMEOUT_S, lease_deadline=deadline,
-                            remaining_setup_ms=HANDSHAKE_BUDGET_MS,
-                        ))
-                        tx_b = tasks.create_task(peers["B"].send(
-                            b_fixture, code_bc, batch=batch_bc, timeout=TIMEOUT_S, lease_deadline=deadline,
-                            remaining_setup_ms=HANDSHAKE_BUDGET_MS,
-                        ))
+                    async with rx_tap.listen(), tx_tap.listen():
+                        async with asyncio.TaskGroup() as tasks:
+                            rx_b = tasks.create_task(peers["B_rx"].receive(
+                                dest_b, code_ab, batch=batch_ab, timeout=TIMEOUT_S, lease_deadline=deadline,
+                                remaining_setup_ms=profile.setup_ms,
+                            ))
+                            rx_c = tasks.create_task(peers["C"].receive(
+                                dest_c, code_bc, batch=batch_bc, timeout=TIMEOUT_S, lease_deadline=deadline,
+                                remaining_setup_ms=profile.setup_ms,
+                            ))
+                            await asyncio.sleep(START_GAP_S)
+                            tx_a = tasks.create_task(peers["A"].send(
+                                a_fixture, code_ab, batch=batch_ab, timeout=TIMEOUT_S, lease_deadline=deadline,
+                                remaining_setup_ms=HANDSHAKE_BUDGET_MS,
+                            ))
+                            tx_b = tasks.create_task(peers["B_tx"].send(
+                                b_fixture, code_bc, batch=batch_bc, timeout=TIMEOUT_S, lease_deadline=deadline,
+                                remaining_setup_ms=HANDSHAKE_BUDGET_MS,
+                            ))
 
                     r_ab_res = rx_b.result()
                     t_ab_res = tx_a.result()
@@ -646,55 +750,68 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
                     require(all(not run.job.active_after_stop for run in (r_ab_res, t_ab_res, r_bc_res, t_bc_res)),
                             "LAB_PROCESS_NOT_REAPED")
 
-                    b_rx_start_ms = r_ab_res.started_monotonic * 1000.0
-                    c_rx_start_ms = r_bc_res.started_monotonic * 1000.0
-
-                    b_rx_sha256_done_ms = marker_ms(r_ab_res, "sha256_done_monotonic")
-                    c_rx_sha256_done_ms = marker_ms(r_bc_res, "sha256_done_monotonic")
+                    rx = measurement(rx_tap, file_bytes, r_ab_res)
+                    tx = measurement(tx_tap, file_bytes, t_bc_res)
+                    overlap_ms = (
+                        calculate_overlap_ms(
+                            rx["first_ns"] / 1_000_000, rx["last_ns"] / 1_000_000,
+                            tx["first_ns"] / 1_000_000, tx["last_ns"] / 1_000_000,
+                        )
+                        if rx is not None and tx is not None else None
+                    )
+                    setups = sorted(d["setup_ms"] for d in (rx, tx) if d is not None)
+                    setup_p50 = f"{median(setups):.3f}" if len(setups) == 2 else ""
+                    setup_p95 = f"{setups[-1]:.3f}" if len(setups) == 2 else ""
                     run_makespan_ms = calculate_makespan_ms(
                         (r_ab_res.started_monotonic, t_ab_res.started_monotonic, r_bc_res.started_monotonic, t_bc_res.started_monotonic),
                         (r_ab_res, r_bc_res),
                     )
 
+                    digest_b = sha256_file(dest_b)
+                    digest_c = sha256_file(dest_c)
                     rx_pass = transport_run_status(
                         csv_measure(run_makespan_ms),
-                        sha256_file(dest_b),
+                        digest_b,
                         a_sha,
                         r_ab_res,
                         t_ab_res,
                     )
                     tx_pass = transport_run_status(
                         csv_measure(run_makespan_ms),
-                        sha256_file(dest_c),
+                        digest_c,
                         b_sha,
                         r_bc_res,
                         t_bc_res,
                     )
                     run_status = "pass" if rx_pass == tx_pass == "pass" else "fail"
 
-                    transfers_rows.append(build_concurrent_receiver_row(
-                        run_id, job_id, batch_ab.attempt_id.hex, file_bytes,
-                        b_rx_start_ms, b_rx_sha256_done_ms, sha256_file(dest_b),
+                    transfers_rows.append(build_measured_transfer(
+                        run_id, job_id, batch_ab.attempt_id.hex, file_bytes, r_ab_res, r_ab_res, digest_b,
+                        direction="rx", observed=rx,
                     ))
-                    transfers_rows.append(build_concurrent_sender_row(
-                        run_id, job_id, batch_bc.attempt_id.hex, file_bytes,
-                        c_rx_start_ms, c_rx_sha256_done_ms, sha256_file(dest_c),
+                    transfers_rows.append(build_measured_transfer(
+                        run_id, job_id, batch_bc.attempt_id.hex, file_bytes, t_bc_res, r_bc_res, digest_c,
+                        direction="tx", observed=tx,
                     ))
 
                     runs_rows.append([
                         run_id, "gate0", "concurrent", "croc_relay", str(repeat), "",
                         commit, platform.system(), CROC_VERSION, WINDOWS_X64_SHA256,
-                        "loopback-127.0.0.1", "windows-loopback", a_sha, str(file_bytes * 2),
+                        "loopback-127.0.0.1", MEASURED_NETWORK, a_sha, str(file_bytes * 2),
                         str(size_mib), "1", "1", run_status,
                         csv_measure(run_makespan_ms), str(file_bytes), "", "", "",
-                        "", "", "", "", "", "",
+                        "", "", "", setup_p50, setup_p95, "",
                         evidence_ref(output_dir, run_id),
-                        "Concurrent transport run; payload overlap at B is unverified; SHA-256 verified at B and C",
+                        "Concurrent A->B and B->C; see evidence for intervals and overlap at B; WAN counters not collected.",
                     ])
-                    evidence_details[run_id] = {"processes": {
-                        "A_tx": process_evidence(t_ab_res), "B_rx": process_evidence(r_ab_res),
-                        "B_tx": process_evidence(t_bc_res), "C_rx": process_evidence(r_bc_res),
-                    }}
+                    evidence_details[run_id] = {
+                        "processes": {
+                            "A_tx": process_evidence(t_ab_res), "B_rx": process_evidence(r_ab_res),
+                            "B_tx": process_evidence(t_bc_res), "C_rx": process_evidence(r_bc_res),
+                        },
+                        "payload_at_b": {"rx": rx, "tx": tx},
+                        "overlap_ms": overlap_ms,
+                    }
                     print(f"Concurrent {size_mib} MiB repeat {repeat} {run_status} (makespan: {run_makespan_ms} ms)")
                 except (CrocError, ExceptionGroup) as error:
                     run_status = "fail"
@@ -844,7 +961,7 @@ async def run_benchmark(croc_path: Path, fixtures_dir: Path, output_dir: Path,
         write_run_evidence(output_dir, run_row, transfers_by_run.get(run_id, []), evidence_details[run_id])
 
     print(f"Benchmark completed. Wrote {len(runs_rows)} runs and {len(transfers_rows)} transfers.")
-    write_r02_readiness(output_dir, runs_file, transfers_file, tuple(sizes))
+    write_r02_readiness(output_dir, runs_file, transfers_file, evidence_details, tuple(sizes))
     print(f"Wrote readiness report: {output_dir / 'readiness.json'}")
     return runs_file, transfers_file
 

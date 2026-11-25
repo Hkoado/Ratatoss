@@ -36,8 +36,8 @@ else:
         sys.path.insert(0, scripts_dir)
     try:
         from run_r02_benchmark import (
-            build_concurrent_receiver_row,
-            build_concurrent_sender_row,
+            build_measured_transfer,
+            summarize_matrix,
             calculate_makespan_ms,
             calculate_overlap_ms,
             BenchmarkAdapter,
@@ -130,17 +130,51 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         )
         self.assertEqual(calculate_makespan_ms((100.0, 101.0), (rx, tx)), 6000)
 
-    def test_concurrent_rows_keep_sha_marker_as_string(self):
-        receiver = build_concurrent_receiver_row(
-            "run", "job", "attempt", 1024,
-            1000.0, "1300", "a" * 64,
+    def test_tx_markers_use_b_sender_start_and_c_sha_completion(self):
+        from types import SimpleNamespace
+
+        tx = SimpleNamespace(started_monotonic=1.0)
+        c_rx = SimpleNamespace(started_monotonic=0.5, sha256_done_monotonic=1.3)
+        observed = {
+            "first_ns": 1_100_000_000,
+            "last_ns": 1_200_000_000,
+            "setup_ms": 100.0,
+            "goodput_bps": 81920,
+        }
+        row = build_measured_transfer(
+            "run", "job", "attempt", 1024, tx, c_rx, "a" * 64, direction="tx", observed=observed,
         )
-        sender = build_concurrent_sender_row(
-            "run", "job", "attempt-bc", 1024,
-            1050.0, "1300", "b" * 64,
-        )
-        for row in (receiver, sender):
-            self.assertEqual(row[11:16], ["", "", "1300", "", ""])
+        self.assertEqual(row[4:8], ["B", "C", "B", "relay"])
+        self.assertEqual(row[10:16], ["1000.000", "1100.000", "1200.000", "1300", "100.000", "81920"])
+
+    def test_matrix_requires_b_tx_and_positive_overlap(self):
+        records = [
+            {"run_id": f"{mode}-{i}", "batch_mib": "32", "scenario": mode,
+             "status": "pass", "makespan_ms": "123"}
+            for mode in ("sequential", "concurrent") for i in range(3)
+        ]
+        interval = {"setup_ms": 20, "goodput_bps": 500}
+        details = {
+            row["run_id"]: {"payload_at_b": {"rx": interval}, "overlap_ms": 40}
+            for row in records
+        }
+        _, measured, overlap = summarize_matrix(records, details, (32,))
+        self.assertFalse(measured)
+        self.assertFalse(overlap)
+
+        for row in records:
+            if row["scenario"] == "concurrent":
+                details[row["run_id"]]["payload_at_b"]["tx"] = interval
+        details["concurrent-0"]["overlap_ms"] = 0
+        _, measured, overlap = summarize_matrix(records, details, (32,))
+        self.assertTrue(measured)
+        self.assertFalse(overlap)
+
+        details["concurrent-0"]["overlap_ms"] = 30
+        summary, measured, overlap = summarize_matrix(records, details, (32,))
+        self.assertTrue(measured)
+        self.assertTrue(overlap)
+        self.assertEqual(summary["32"]["concurrent"]["overlap_ms"], {"min": 30, "median": 40, "max": 40})
 
     def test_progress_observer_ignores_unrelated_and_incomplete_frames(self):
         from ratatoss.transport import _PayloadProgress
