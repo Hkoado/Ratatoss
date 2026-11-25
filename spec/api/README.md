@@ -56,6 +56,20 @@ Node dùng `Manifest.from_json(raw)` để đọc manifest độc lập. Với m
 
 Dùng `Manifest.canonical_bytes()` để lưu metadata canonical và `Manifest.manifest_sha256()` để tính digest của metadata. `Manifest.sha256` là digest của toàn bộ payload. CLI `verify` đọc được các tệp manifest v1 dạng thụt lề của CLI `manifest` và dạng canonical.
 
+## Mô-đun ghi danh và ghép cặp của controller
+
+[`ratatoss/controller/`](../../ratatoss/controller/__init__.py) hiện thực `POST /v1/devices/enroll`, `GET /v1/devices/me`, `POST /v1/pairs`, `POST /v1/pairs/claim`, `GET /v1/pairs` và `POST /v1/pairs/{pair_id}/decision`. Route hủy cặp và mọi route job, offer, lease thuộc phần tích hợp control plane.
+
+| Giao diện | Dùng khi |
+| --- | --- |
+| `create_router(connect=..., pair_code_key=...)` | Gắn các route trên vào ứng dụng controller. `connect` trả kết nối SQLite controller mới cho mỗi request. `pair_code_key` dài tối thiểu 32 byte, nằm ngoài DB và giữ ổn định qua restart để dựng lại mã ghép khi phát lại request tạo cặp. |
+| `authenticate(connection, authorization_headers)` | Lấy `Device` của người gọi từ đúng một header `Authorization: Bearer <token>`. Trả `None` khi thiếu, sai định dạng, không tồn tại hoặc đã thu hồi. |
+| `active_pair_id(connection, a, b)` | Kiểm hai thiết bị có cặp `ACTIVE`. Gọi trong giao dịch tạo job cho từng đích. |
+| `active_peer_ids(connection, device_id)` | Liệt kê thiết bị người gọi có thể chọn làm đích. |
+| `issue_enrollment_code(connection, now_ms=...)` | Cấp mã ghi danh một lần, TTL 10 phút, để quản trị chia sẻ ngoài băng. |
+
+DB chỉ giữ SHA-256 của mã ghi danh, token và mã ghép. Mã đối chiếu sáu chữ số chỉ trả qua API đã xác thực cho hai thành viên. Bản ghi idempotency giữ kết quả đã lọc, không chứa mã ghép. Phát lại tạo cặp trả lại mã khi phiên còn `OPEN`, trả `409` khi đã claim và `410` khi đã hết hạn. Phát lại quyết định trả cặp theo trạng thái hiện hành. Hạn TTL loại trừ mốc hết hạn, nghĩa là yêu cầu tại đúng `expires_at` bị từ chối. Router giới hạn tốc độ ghi danh theo nguồn, và giới hạn claim theo cả nguồn lẫn thiết bị, với ngưỡng mặc định 10 và 20 request mỗi phút.
+
 ## API loopback của starter hiện tại
 
 [app.py](../../ratatoss/app.py) phục vụ các route chỉ đọc sau tại `http://127.0.0.1:8765` mặc định.
