@@ -36,18 +36,19 @@ else:
         sys.path.insert(0, scripts_dir)
     try:
         from run_r02_benchmark import (
-            build_concurrent_receiver_row,
-            build_concurrent_sender_row,
+            build_measured_transfer,
+            summarize_matrix,
             calculate_makespan_ms,
             calculate_overlap_ms,
-            calculate_payload_overlap_ms,
+            comparison_sensitivity,
             BenchmarkAdapter,
+            FAULT_TIMEOUT_S,
             fault_profile_for_size,
             fault_timeout_receive_plan,
             evidence_ref,
             normalize_evidence_transfer,
-            payload_goodput_bps,
-            setup_measure,
+            transport_run_status,
+            validate_selected_fixtures,
             verified_transfers_status,
         )
     except ImportError as exc:
@@ -91,24 +92,28 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         overlap = calculate_overlap_ms(1000.0, 2000.0, 2000.0, 3000.0)
         self.assertEqual(overlap, 0.0)
 
-    def test_missing_payload_marker_returns_empty_overlap(self):
-        overlap = calculate_payload_overlap_ms("", "2000", "1500", "2500")
-        self.assertIsNone(overlap)
-
-    def test_progress_measurements_are_not_standard_byte_markers(self):
-        from run_r02_benchmark import SIZE_PROFILES, payload_goodput_bps, setup_measure
+    def test_transport_status_does_not_depend_on_payload_measurements(self):
         from unittest.mock import MagicMock
         from ratatoss.transport import ProcessRun
 
-        run = ProcessRun(
-            pid=1234, started_at="", stopped_at="", started_monotonic=100.0,
+        rx = ProcessRun(
+            pid=1, started_at="", stopped_at="", started_monotonic=100.0,
             stopped_monotonic=105.0, deadline_monotonic=110.0, exit_code=0,
-            job=MagicMock(), first_byte_monotonic=101.0,
-            last_byte_monotonic=104.0, first_progress_percent=82,
+            job=MagicMock(),
         )
-        self.assertEqual(setup_measure(run), "")
-        self.assertEqual(payload_goodput_bps(33554432, run), "")
-        self.assertEqual(set(SIZE_PROFILES), {32, 64, 128})
+        tx = ProcessRun(
+            pid=2, started_at="", stopped_at="", started_monotonic=101.0,
+            stopped_monotonic=104.0, deadline_monotonic=110.0, exit_code=0,
+            job=MagicMock(),
+        )
+        self.assertEqual(
+            transport_run_status("4000", "a" * 64, "a" * 64, rx, tx),
+            "pass",
+        )
+        self.assertEqual(
+            transport_run_status("4000", "b" * 64, "a" * 64, rx, tx),
+            "fail",
+        )
 
     def test_payload_makespan_uses_sha256_completion(self):
         from unittest.mock import MagicMock
@@ -126,66 +131,69 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         )
         self.assertEqual(calculate_makespan_ms((100.0, 101.0), (rx, tx)), 6000)
 
-    def test_concurrent_rows_keep_sha_marker_as_string(self):
-        receiver = build_concurrent_receiver_row(
-            "run", "job", "attempt", 1024,
-            1000.0, "1100", "1200", "1300",
-            "100", "800000", "a" * 64, "50.0",
+    def test_tx_markers_use_b_sender_start_and_c_sha_completion(self):
+        from types import SimpleNamespace
+
+        tx = SimpleNamespace(started_monotonic=1.0)
+        c_rx = SimpleNamespace(started_monotonic=0.5, sha256_done_monotonic=1.3)
+        observed = {
+            "first_ns": 1_100_000_000,
+            "last_ns": 1_200_000_000,
+            "setup_ms": 100.0,
+            "goodput_bps": 81920,
+        }
+        row = build_measured_transfer(
+            "run", "job", "attempt", 1024, tx, c_rx, "a" * 64, direction="tx", observed=observed,
         )
-        sender = build_concurrent_sender_row(
-            "run", "job", "attempt-bc", 1024,
-            1050.0, "1150", "1250", "1300",
-            "100", "800000", "b" * 64, "50.0",
-        )
-        self.assertEqual(receiver[13], "1300")
-        self.assertEqual(sender[13], "1300")
-        self.assertNotIn("e: ", receiver)
+        self.assertEqual(row[4:8], ["B", "C", "B", "relay"])
+        self.assertEqual(row[10:16], ["1000.000", "1100.000", "1200.000", "1300", "100.000", "81920"])
 
-    def test_setup_ms_empty_when_first_byte_missing(self):
-        """Missing payload markers must produce empty CSV measurements, not a proxy."""
-        from dataclasses import replace
-        from ratatoss.transport import ProcessRun
-        from unittest.mock import MagicMock
+    def test_matrix_requires_b_tx_and_positive_overlap(self):
+        records = [
+            {"run_id": f"{mode}-{i}", "batch_mib": "32", "scenario": mode,
+             "status": "pass", "makespan_ms": "123"}
+            for mode in ("sequential", "concurrent") for i in range(3)
+        ]
+        interval = {"first_ns": 1_020_000_000, "setup_ms": 20, "goodput_bps": 500}
+        details = {
+            row["run_id"]: {
+                "payload_at_b": {"rx": interval},
+                "overlap_ms": 40,
+                "processes": {
+                    "A_tx": {"started_monotonic_s": 1.01},
+                    "B_tx": {"started_monotonic_s": 1.0},
+                },
+            }
+            for row in records
+        }
+        _, measured, overlap = summarize_matrix(records, details, (32,))
+        self.assertFalse(measured)
+        self.assertFalse(overlap)
 
-        # Create a ProcessRun without first_byte_monotonic
-        run = ProcessRun(
-            pid=1234,
-            started_at="2026-01-01T00:00:00Z",
-            stopped_at="2026-01-01T00:00:05Z",
-            started_monotonic=1000.0,
-            stopped_monotonic=1005.0,
-            deadline_monotonic=1045.0,
-            exit_code=0,
-            job=MagicMock(),
-            first_byte_monotonic=None,  # Missing marker
-            last_byte_monotonic=None,
-            sha256_done_monotonic=None,
-        )
+        for row in records:
+            if row["scenario"] == "concurrent":
+                details[row["run_id"]]["payload_at_b"]["tx"] = interval
+        details["concurrent-0"]["overlap_ms"] = 0
+        _, measured, overlap = summarize_matrix(records, details, (32,))
+        self.assertTrue(measured)
+        self.assertFalse(overlap)
 
-        self.assertEqual(setup_measure(run), "")
-        self.assertEqual(payload_goodput_bps(1024, run), "")
+        details["concurrent-0"]["overlap_ms"] = 30
+        summary, measured, overlap = summarize_matrix(records, details, (32,))
+        self.assertTrue(measured)
+        self.assertTrue(overlap)
+        group = summary["32"]["concurrent"]
+        self.assertEqual(group["overlap_ms"], {"min": 30, "median": 40, "max": 40})
+        self.assertEqual(group["rx"]["setup_ms"]["median"], 20)
+        self.assertEqual(group["rx"]["sender_start_to_first_payload_ms"]["median"], 10)
+        self.assertEqual(group["tx"]["sender_start_to_first_payload_ms"]["median"], 20)
 
-    def test_last_byte_missing_produces_empty_goodput(self):
-        """Missing last-byte payload marker must not substitute process duration."""
-        from unittest.mock import MagicMock
-        from ratatoss.transport import ProcessRun
-
-        run = ProcessRun(
-            pid=1234,
-            started_at="2026-01-01T00:00:00Z",
-            stopped_at="2026-01-01T00:00:05Z",
-            started_monotonic=1000.0,
-            stopped_monotonic=1005.0,
-            deadline_monotonic=1045.0,
-            exit_code=0,
-            job=MagicMock(),
-            first_byte_monotonic=1001.0,
-            last_byte_monotonic=None,  # Missing marker
-            sha256_done_monotonic=None,
-        )
-
-        self.assertEqual(payload_goodput_bps(1024, run), "")
-        self.assertIsNone(calculate_makespan_ms((run.started_monotonic,), (run,)))
+    def test_sensitivity_applies_fixed_cost_per_session(self):
+        result = comparison_sensitivity({32: 8416, 64: 8212, 128: 10049})
+        self.assertEqual(result["remove_initial_burst_credit"], {32: 12416, 64: 10212, 128: 11049})
+        self.assertEqual(result["remove_configured_start_gap"], {32: 5416, 64: 6712, 128: 9299})
+        self.assertEqual(result["remove_both"], {32: 9416, 64: 8712, 128: 10299})
+        self.assertEqual(comparison_sensitivity({}), {})
 
     def test_progress_observer_ignores_unrelated_and_incomplete_frames(self):
         from ratatoss.transport import _PayloadProgress
@@ -201,13 +209,99 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         progress.feed(b"batch-test 100% |", 6.0)
         self.assertEqual((progress.first, progress.first_percent, progress.last), (4.0, 25, 6.0))
 
-    def test_goodput_excludes_payload_already_received_at_first_sample(self):
-        from types import SimpleNamespace
+    def test_selected_sizes_skip_unselected_fixture_validation(self):
+        import tempfile
+        from unittest.mock import patch
 
-        run = SimpleNamespace(
-            first_byte_monotonic=4.0, first_progress_percent=25, last_byte_monotonic=6.0,
-        )
-        self.assertEqual(payload_goodput_bps(1024, run), "")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.mkdir(exist_ok=True)
+            for name, digest in (
+                ("a-32mib.bin", "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"),
+                ("b-to-c-32mib.bin", "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"),
+            ):
+                (root / name).write_bytes(b"x" * (32 * 1024 * 1024))
+
+            croc = root / "croc.exe"
+            croc.write_bytes(b"croc")
+            with patch(
+                "run_r02_benchmark.sha256_file",
+                side_effect=lambda path: (
+                    "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+                    if path.name == "a-32mib.bin"
+                    else "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+                    if path.name == "b-to-c-32mib.bin"
+                    else "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e"
+                ),
+            ):
+                validate_selected_fixtures(root, (32,), croc)
+
+    def test_selected_sizes_require_32_mib_fault_fixture_during_preflight(self):
+        import tempfile
+        from unittest.mock import patch
+        from ratatoss.transport import CrocError
+        from run_r02_benchmark import FIXTURE_NAMES, WINDOWS_X64_SHA256
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "croc.exe"
+            binary.touch()
+            hashes = {binary: WINDOWS_X64_SHA256}
+            for role in ("A", "B"):
+                name, digest = FIXTURE_NAMES[(role, 64)]
+                fixture = root / name
+                with fixture.open("wb") as stream:
+                    stream.truncate(64 * 1024 * 1024)
+                hashes[fixture] = digest
+
+            with patch("run_r02_benchmark.sha256_file", side_effect=hashes.__getitem__):
+                with self.assertRaisesRegex(CrocError, "LAB_FIXTURE_MISSING: a-32mib.bin"):
+                    validate_selected_fixtures(root, (64,), binary)
+
+                name, digest = FIXTURE_NAMES[("A", 32)]
+                fault_fixture = root / name
+                with fault_fixture.open("wb") as stream:
+                    stream.truncate(32 * 1024 * 1024)
+                hashes[fault_fixture] = digest
+                validate_selected_fixtures(root, (64,), binary)
+
+    def test_verified_transfers_status_accepts_selected_size_only(self):
+        import csv
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs_file = root / "runs.csv"
+            transfers_file = root / "transfers.csv"
+            run_rows = []
+            transfer_rows = []
+            for scenario in ("sequential", "concurrent"):
+                for repeat in range(1, 4):
+                    run_id = f"32-{scenario}-{repeat}"
+                    run_rows.append({
+                        "run_id": run_id, "batch_mib": "32",
+                        "scenario": scenario, "status": "pass",
+                    })
+                    for _ in range(1 if scenario == "sequential" else 2):
+                        transfer_rows.append({
+                            "run_id": run_id, "status": "pass",
+                            "verified_sha256": "a" * 64,
+                        })
+
+            with runs_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "batch_mib", "scenario", "status"))
+                writer.writeheader()
+                writer.writerows(run_rows)
+            with transfers_file.open("w", encoding="utf-8", newline="") as source:
+                writer = csv.DictWriter(source, fieldnames=("run_id", "status", "verified_sha256"))
+                writer.writeheader()
+                writer.writerows(transfer_rows)
+
+            status, reason = verified_transfers_status(
+                runs_file, transfers_file, selected_sizes=(32,),
+            )
+            self.assertEqual(status, "pass")
+            self.assertEqual(reason, "")
 
     def test_fault_profile_uses_32_mib_budget(self):
         profile = fault_profile_for_size("test-password", 32)
@@ -275,8 +369,8 @@ class TestR02BenchmarkLogic(unittest.TestCase):
                         binary, staging, profile, observe_payload=True,
                     )
 
-                deadline = time.monotonic() + 4.5
-                plan = fault_timeout_receive_plan(profile, deadline, 4.5)
+                deadline = time.monotonic() + FAULT_TIMEOUT_S
+                plan = fault_timeout_receive_plan(profile, deadline, FAULT_TIMEOUT_S)
                 child = TimedOutChild()
 
                 with patch("ratatoss.transport.WindowsChild", return_value=child):
@@ -305,7 +399,7 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             "bench/artifacts/r02/r02-seq-32mib-rep1-test/evidence.json",
         )
 
-    def test_evidence_standard_transfer_fields_match_csv_blanks(self):
+    def test_evidence_standard_transfer_fields_match_csv_values(self):
         transfer = {
             "run_id": "run",
             "target_peer": "B",
@@ -320,10 +414,10 @@ class TestR02BenchmarkLogic(unittest.TestCase):
             "full_progress_monotonic_s": 1.75,
         }}}
         normalized = normalize_evidence_transfer(transfer, details)
-        self.assertEqual(normalized["first_byte_monotonic_ms"], "")
-        self.assertEqual(normalized["last_byte_monotonic_ms"], "")
-        self.assertEqual(normalized["setup_ms"], "")
-        self.assertEqual(normalized["goodput_bps"], "")
+        self.assertEqual(normalized["first_byte_monotonic_ms"], "100")
+        self.assertEqual(normalized["last_byte_monotonic_ms"], "200")
+        self.assertEqual(normalized["setup_ms"], "50")
+        self.assertEqual(normalized["goodput_bps"], "123")
         self.assertEqual(normalized["progress_estimate"]["first_progress_percent"], 82)
 
     def test_verified_transfers_status_requires_all_sizes_scenarios(self):

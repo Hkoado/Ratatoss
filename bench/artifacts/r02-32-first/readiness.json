@@ -1,0 +1,92 @@
+{
+  "checks": {
+    "verified-transfers": {
+      "status": "pass",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "f74784e5c74ee2e767f8020d8739b0f943f6f1c46a1402d93cebd0f7fef3c80f",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "6c0e6db545f33c5e035ee782c8629ca46b6ed031b3ea15369c3ff7227eb19616",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "16d9fa82eba112ed216f573e222c7051e2878697d0d6fb296410778cba88ba49",
+        "r02-retry-32mib-bcd013/evidence.json": "2ce557579c719147276f81b61f28575b0302495087fa9119dd114478261d31f0",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "488e1f8a9adf593eef05be7c86b3afb622b095eb6d7d5011e8afe2c3800f2cec",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "3f48e3bee1a2d78f42c6b78097c202d9b2fca2418050fa2eccfead99d570fdd6",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "407160b8de4b1513c3dc8d5c5f530a0fd176559fc13267ba6ed483fe6b40d178",
+        "r02-slow_path-32mib-d07b05/evidence.json": "4c7490ec903c85b018a891892fd92b33c0ce922240e7216335c5119abd8246f5",
+        "r02-timeout-reproduce-00fdca/evidence.json": "c13a9f4f2d109cc5f8cae82642c8b7ddf8ce50a9c25bf7812f97984b143b3c31",
+        "runs.csv": "aaec2c7854d06e648e73bc0a5cb4096e0bfe57102c884b2ee0de754a3e24bf3d",
+        "transfers.csv": "7422479d55f8847da33c5af5c17be6106c4e8867de83d58478e84cef42f88828",
+        "batch-profiles.json": "22a38bebf7899d494fa6a9b3dd7277829302994c55d6f6bb87d6679268cddd77"
+      }
+    },
+    "rx-tx-overlap": {
+      "status": "blocked",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "f74784e5c74ee2e767f8020d8739b0f943f6f1c46a1402d93cebd0f7fef3c80f",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "6c0e6db545f33c5e035ee782c8629ca46b6ed031b3ea15369c3ff7227eb19616",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "16d9fa82eba112ed216f573e222c7051e2878697d0d6fb296410778cba88ba49",
+        "r02-retry-32mib-bcd013/evidence.json": "2ce557579c719147276f81b61f28575b0302495087fa9119dd114478261d31f0",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "488e1f8a9adf593eef05be7c86b3afb622b095eb6d7d5011e8afe2c3800f2cec",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "3f48e3bee1a2d78f42c6b78097c202d9b2fca2418050fa2eccfead99d570fdd6",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "407160b8de4b1513c3dc8d5c5f530a0fd176559fc13267ba6ed483fe6b40d178",
+        "r02-slow_path-32mib-d07b05/evidence.json": "4c7490ec903c85b018a891892fd92b33c0ce922240e7216335c5119abd8246f5",
+        "r02-timeout-reproduce-00fdca/evidence.json": "c13a9f4f2d109cc5f8cae82642c8b7ddf8ce50a9c25bf7812f97984b143b3c31",
+        "runs.csv": "aaec2c7854d06e648e73bc0a5cb4096e0bfe57102c884b2ee0de754a3e24bf3d",
+        "transfers.csv": "7422479d55f8847da33c5af5c17be6106c4e8867de83d58478e84cef42f88828",
+        "batch-profiles.json": "22a38bebf7899d494fa6a9b3dd7277829302994c55d6f6bb87d6679268cddd77"
+      },
+      "reason": "Pilot did not use byte-level payload markers."
+    },
+    "setup-goodput-by-size": {
+      "status": "blocked",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "f74784e5c74ee2e767f8020d8739b0f943f6f1c46a1402d93cebd0f7fef3c80f",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "6c0e6db545f33c5e035ee782c8629ca46b6ed031b3ea15369c3ff7227eb19616",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "16d9fa82eba112ed216f573e222c7051e2878697d0d6fb296410778cba88ba49",
+        "r02-retry-32mib-bcd013/evidence.json": "2ce557579c719147276f81b61f28575b0302495087fa9119dd114478261d31f0",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "488e1f8a9adf593eef05be7c86b3afb622b095eb6d7d5011e8afe2c3800f2cec",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "3f48e3bee1a2d78f42c6b78097c202d9b2fca2418050fa2eccfead99d570fdd6",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "407160b8de4b1513c3dc8d5c5f530a0fd176559fc13267ba6ed483fe6b40d178",
+        "r02-slow_path-32mib-d07b05/evidence.json": "4c7490ec903c85b018a891892fd92b33c0ce922240e7216335c5119abd8246f5",
+        "r02-timeout-reproduce-00fdca/evidence.json": "c13a9f4f2d109cc5f8cae82642c8b7ddf8ce50a9c25bf7812f97984b143b3c31",
+        "runs.csv": "aaec2c7854d06e648e73bc0a5cb4096e0bfe57102c884b2ee0de754a3e24bf3d",
+        "transfers.csv": "7422479d55f8847da33c5af5c17be6106c4e8867de83d58478e84cef42f88828",
+        "batch-profiles.json": "22a38bebf7899d494fa6a9b3dd7277829302994c55d6f6bb87d6679268cddd77"
+      },
+      "reason": "Byte-level setup and goodput remain unverified."
+    },
+    "reproduced-timeout": {
+      "status": "pass",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "f74784e5c74ee2e767f8020d8739b0f943f6f1c46a1402d93cebd0f7fef3c80f",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "6c0e6db545f33c5e035ee782c8629ca46b6ed031b3ea15369c3ff7227eb19616",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "16d9fa82eba112ed216f573e222c7051e2878697d0d6fb296410778cba88ba49",
+        "r02-retry-32mib-bcd013/evidence.json": "2ce557579c719147276f81b61f28575b0302495087fa9119dd114478261d31f0",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "488e1f8a9adf593eef05be7c86b3afb622b095eb6d7d5011e8afe2c3800f2cec",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "3f48e3bee1a2d78f42c6b78097c202d9b2fca2418050fa2eccfead99d570fdd6",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "407160b8de4b1513c3dc8d5c5f530a0fd176559fc13267ba6ed483fe6b40d178",
+        "r02-slow_path-32mib-d07b05/evidence.json": "4c7490ec903c85b018a891892fd92b33c0ce922240e7216335c5119abd8246f5",
+        "r02-timeout-reproduce-00fdca/evidence.json": "c13a9f4f2d109cc5f8cae82642c8b7ddf8ce50a9c25bf7812f97984b143b3c31",
+        "runs.csv": "aaec2c7854d06e648e73bc0a5cb4096e0bfe57102c884b2ee0de754a3e24bf3d",
+        "transfers.csv": "7422479d55f8847da33c5af5c17be6106c4e8867de83d58478e84cef42f88828",
+        "batch-profiles.json": "22a38bebf7899d494fa6a9b3dd7277829302994c55d6f6bb87d6679268cddd77"
+      }
+    },
+    "selected-batch-size": {
+      "status": "blocked",
+      "evidence": {
+        "r02-concur-32mib-rep1-e9c8ec/evidence.json": "f74784e5c74ee2e767f8020d8739b0f943f6f1c46a1402d93cebd0f7fef3c80f",
+        "r02-concur-32mib-rep2-ccc697/evidence.json": "6c0e6db545f33c5e035ee782c8629ca46b6ed031b3ea15369c3ff7227eb19616",
+        "r02-concur-32mib-rep3-188ef2/evidence.json": "16d9fa82eba112ed216f573e222c7051e2878697d0d6fb296410778cba88ba49",
+        "r02-retry-32mib-bcd013/evidence.json": "2ce557579c719147276f81b61f28575b0302495087fa9119dd114478261d31f0",
+        "r02-seq-32mib-rep1-64acf3/evidence.json": "488e1f8a9adf593eef05be7c86b3afb622b095eb6d7d5011e8afe2c3800f2cec",
+        "r02-seq-32mib-rep2-35e52d/evidence.json": "3f48e3bee1a2d78f42c6b78097c202d9b2fca2418050fa2eccfead99d570fdd6",
+        "r02-seq-32mib-rep3-e43b8b/evidence.json": "407160b8de4b1513c3dc8d5c5f530a0fd176559fc13267ba6ed483fe6b40d178",
+        "r02-slow_path-32mib-d07b05/evidence.json": "4c7490ec903c85b018a891892fd92b33c0ce922240e7216335c5119abd8246f5",
+        "r02-timeout-reproduce-00fdca/evidence.json": "c13a9f4f2d109cc5f8cae82642c8b7ddf8ce50a9c25bf7812f97984b143b3c31",
+        "runs.csv": "aaec2c7854d06e648e73bc0a5cb4096e0bfe57102c884b2ee0de754a3e24bf3d",
+        "transfers.csv": "7422479d55f8847da33c5af5c17be6106c4e8867de83d58478e84cef42f88828",
+        "batch-profiles.json": "22a38bebf7899d494fa6a9b3dd7277829302994c55d6f6bb87d6679268cddd77"
+      },
+      "reason": "No batch size selected until pilot matrix is verified."
+    }
+  }
+}
