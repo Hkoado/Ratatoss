@@ -1,0 +1,241 @@
+{
+  "run_id": "r02-concur-64mib-rep2-8cd997",
+  "gate": "gate0",
+  "scenario": "concurrent",
+  "baseline": "croc_relay",
+  "repeat": "2",
+  "seed": "",
+  "commit": "ac30ef27f12e71a0a3bf6be54701fcc68a67d1ae",
+  "os": "Windows",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "relay_config": "loopback-127.0.0.1",
+  "network_profile": "windows-loopback-b-relay-taps-no-compress",
+  "fixture_sha256": "545a0e718c1a1584c397c853018a16581a31cd66377209041f0984778a4a6a67",
+  "file_bytes": "134217728",
+  "batch_mib": "64",
+  "rx_slots": "1",
+  "tx_slots": "1",
+  "status": "pass",
+  "makespan_ms": "4106",
+  "source_payload_bytes": "67108864",
+  "source_wire_bytes": "",
+  "wan_wire_bytes": "",
+  "wan_measurement_scope": "",
+  "retry_payload_bytes": "",
+  "recovery_ms": "",
+  "optional_replication_bytes": "",
+  "setup_p50_ms": "763.712",
+  "setup_p95_ms": "1379.253",
+  "peer_utilization_ref": "",
+  "evidence_ref": "bench/artifacts/r02/r02-concur-64mib-rep2-8cd997/evidence.json",
+  "notes": "Concurrent A->B and B->C; see evidence for intervals and overlap at B; WAN counters not collected.",
+  "measured_at": "2026-11-25T12:34:38.987714+00:00",
+  "os_version": "10.0.22631",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "sender_route_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "adapter_timeout_s": 75,
+  "start_gap_s": 0.75,
+  "upload_limit": "24M",
+  "measurement_method": "croc-v11.6.5-encrypted-payload-at-b",
+  "wire_observation": {
+    "observer": "B",
+    "clock": "monotonic_ns",
+    "rx_host": "127.0.0.2",
+    "tx_host": "127.0.0.3",
+    "data_port": 19010,
+    "compression": false,
+    "read_limit_bytes": 16384
+  },
+  "size_profiles": {
+    "32": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 1400,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
+    },
+    "64": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 2200,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
+    },
+    "128": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 4700,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
+    }
+  },
+  "secrets_redacted": true,
+  "transfers": [
+    {
+      "run_id": "r02-concur-64mib-rep2-8cd997",
+      "job_id": "485e11761af34ded9ba5033adb7582ef",
+      "assignment_id": "d5e6e5ab42ac44f999cd365ef0f3ed45",
+      "batch_id": "0",
+      "source_peer": "A",
+      "target_peer": "B",
+      "observer_peer": "B",
+      "path_kind": "relay",
+      "payload_bytes": "67108864",
+      "payload_sent_bytes": "67108864",
+      "start_monotonic_ms": "2506360.930",
+      "first_byte_monotonic_ms": "2507740.183",
+      "last_byte_monotonic_ms": "2509376.231",
+      "end_monotonic_ms": "2510399",
+      "setup_ms": "1379.253",
+      "goodput_bps": "328151217",
+      "verified_sha256": "545a0e718c1a1584c397c853018a16581a31cd66377209041f0984778a4a6a67",
+      "status": "pass",
+      "is_retry": "false",
+      "is_replication": "false",
+      "notes": "Payload wire markers at B RX; SHA-256 completion at B on the same host.",
+      "progress_estimate": {
+        "first_progress_monotonic_ms": "",
+        "first_progress_percent": null,
+        "full_progress_monotonic_ms": ""
+      }
+    },
+    {
+      "run_id": "r02-concur-64mib-rep2-8cd997",
+      "job_id": "485e11761af34ded9ba5033adb7582ef",
+      "assignment_id": "c8510809d1294f89ba42e15e69a3fb57",
+      "batch_id": "1",
+      "source_peer": "B",
+      "target_peer": "C",
+      "observer_peer": "B",
+      "path_kind": "relay",
+      "payload_bytes": "67108864",
+      "payload_sent_bytes": "67108864",
+      "start_monotonic_ms": "2507699.023",
+      "first_byte_monotonic_ms": "2507847.194",
+      "last_byte_monotonic_ms": "2509486.090",
+      "end_monotonic_ms": "2510467",
+      "setup_ms": "148.171",
+      "goodput_bps": "327580770",
+      "verified_sha256": "69befdfa85c9f9d3283797ebe5869630fd52bd685afa52f651246357930d6c84",
+      "status": "pass",
+      "is_retry": "false",
+      "is_replication": "false",
+      "notes": "Payload wire markers at B TX; SHA-256 completion at C on the same host.",
+      "progress_estimate": {
+        "first_progress_monotonic_ms": "",
+        "first_progress_percent": null,
+        "full_progress_monotonic_ms": ""
+      }
+    }
+  ],
+  "processes": {
+    "A_tx": {
+      "started_monotonic_s": 2507.4017572,
+      "stopped_monotonic_s": 2509.5235134,
+      "deadline_monotonic_s": 2581.3545234,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_rx": {
+      "started_monotonic_s": 2506.3609304,
+      "stopped_monotonic_s": 2509.5558304,
+      "deadline_monotonic_s": 2581.3545234,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": 2510.3988987,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_tx": {
+      "started_monotonic_s": 2507.6990227,
+      "stopped_monotonic_s": 2509.6511524,
+      "deadline_monotonic_s": 2581.3545234,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "C_rx": {
+      "started_monotonic_s": 2506.3715609,
+      "stopped_monotonic_s": 2509.6649047,
+      "deadline_monotonic_s": 2581.3545234,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": 2510.4668664,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    }
+  },
+  "payload_at_b": {
+    "rx": {
+      "first_ns": 2507740183200,
+      "last_ns": 2509376230500,
+      "payload_bytes": 67108864,
+      "frames": 2048,
+      "wire_bytes": 67198986,
+      "started_ns": 2506360930400,
+      "setup_ms": 1379.2528,
+      "goodput_bps": 328151217
+    },
+    "tx": {
+      "first_ns": 2507847194100,
+      "last_ns": 2509486090400,
+      "payload_bytes": 67108864,
+      "frames": 2048,
+      "wire_bytes": 67199338,
+      "started_ns": 2507699022700,
+      "setup_ms": 148.1714,
+      "goodput_bps": 327580770
+    }
+  },
+  "overlap_ms": 1529.036400000099,
+  "relay_cleanup": {
+    "active_before_stop": 2,
+    "active_after_stop": 0,
+    "total_processes": 2,
+    "exit_code": 1
+  }
+}
