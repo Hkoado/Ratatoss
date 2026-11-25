@@ -1,0 +1,702 @@
+"""Durable Node storage for manifests, verified batches, and delivery."""
+
+from contextlib import closing, contextmanager
+from dataclasses import replace
+import json
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+from threading import Lock, RLock
+from time import time_ns
+from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
+
+from ._store_files import check_path, lock_store, publish, sync_directory
+from .batch_assembly import assemble_batches
+from .database import NODE_DATABASE_NAME, open_database
+from .manifest import (
+    DEFAULT_BATCH_SIZE, DEFAULT_PIECE_SIZE, READ_SIZE, Manifest,
+    build_manifest, verify_batch, verify_file,
+)
+from .settings import local_absolute_path
+
+
+class StoreError(RuntimeError):
+    """A storage failure with a code usable by the Node agent."""
+
+
+def _now() -> int:
+    return time_ns() // 1_000_000
+
+
+def _uuid(value: str) -> str:
+    return str(UUID(value))
+
+
+def _manifest(value: Manifest | str | bytes) -> Manifest:
+    return value if isinstance(value, Manifest) else Manifest.from_json(value)
+
+
+def _batch(manifest: Manifest, index: int):
+    if type(index) is not int or not 0 <= index < len(manifest.batches):
+        raise ValueError("Batch index out of range")
+    return manifest.batches[index]
+
+
+def _file_state(path: Path, size: int, verify) -> str:
+    try:
+        if check_path(path).st_size == size and verify():
+            return "AVAILABLE"
+    except FileNotFoundError:
+        return "MISSING"
+    except ValueError:
+        pass
+    return "CORRUPT"
+
+
+class NodeStore:
+    """One active store per Node data directory.
+
+    Open after stopping workers from the previous boot. Operations for a job
+    serialize file publication, inventory updates, and delivery recovery.
+    """
+
+    def __init__(self, data_dir: Path):
+        self.root = local_absolute_path(Path(data_dir), "Node data directory")
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        check_path(self.root, directory=True)
+        self.boot_id = str(uuid4())
+        self._locks = WeakValueDictionary()
+        self._locks_guard = Lock()
+        lock_path = self.root / "store.lock"
+        if os.path.lexists(lock_path):
+            check_path(lock_path)
+        self._owner = lock_store(lock_path)
+        try:
+            self.jobs = self.root / "jobs"
+            self.jobs.mkdir(mode=0o700, exist_ok=True)
+            check_path(self.jobs, directory=True)
+            sync_directory(self.root)
+            self._recover()
+        except BaseException:
+            self.close()
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    def close(self):
+        self._owner.close()
+
+    def _job_lock(self, job_id):
+        with self._locks_guard:
+            lock = self._locks.get(job_id)
+            if lock is None:
+                lock = self._locks[job_id] = RLock()
+            return lock
+
+    @contextmanager
+    def _db(self, *, write=False):
+        if self._owner.closed:
+            raise StoreError("STORE_CLOSED")
+        with closing(open_database(self.root / NODE_DATABASE_NAME, "node")) as db, db:
+            db.row_factory = sqlite3.Row
+            if write:
+                db.execute("BEGIN IMMEDIATE")
+            yield db
+
+    def _directory(self, job_id):
+        return self.jobs / job_id
+
+    def _prepare_directory(self, job_id):
+        directory = self._directory(job_id)
+        directory.mkdir(mode=0o700, exist_ok=True)
+        check_path(directory, directory=True)
+        sync_directory(self.jobs)
+        return directory
+
+    def _batch_path(self, job_id, batch_id):
+        return self._directory(job_id) / f"batch-{batch_id}.bin"
+
+    def _receive_path(self, job_id, assignment_id):
+        return self._directory(job_id) / f"rx-{assignment_id}.part"
+
+    @staticmethod
+    def _stored_manifest(job):
+        manifest = Manifest.from_json(job["manifest_canonical"])
+        if bytes.fromhex(manifest.manifest_sha256()) != job["manifest_sha256"]:
+            raise StoreError("MANIFEST_DIGEST_MISMATCH")
+        return manifest
+
+    @staticmethod
+    def _job(db, job_id):
+        job = db.execute(
+            "SELECT * FROM local_jobs WHERE job_id = ? AND closed_at_ms IS NULL", (job_id,)
+        ).fetchone()
+        if job is None:
+            raise StoreError("JOB_NOT_OPEN")
+        return job
+
+    @staticmethod
+    def _target(job):
+        if job["role"] != "TARGET" or job["consent"] != "ACCEPT":
+            raise StoreError("TARGET_NOT_ACCEPTED")
+
+    def register_target(self, job_id: str, source_device_id: str, offer_id: str,
+                        manifest: Manifest | str | bytes, destination: Path, *,
+                        consent_request_key: str, allow_forward: bool = False) -> Manifest:
+        """Persist an accepted offer and its delivery plan before sending consent."""
+        job_id, source_device_id, offer_id = map(_uuid, (job_id, source_device_id, offer_id))
+        manifest = _manifest(manifest)
+        canonical = manifest.canonical_bytes()
+        digest = bytes.fromhex(manifest.manifest_sha256())
+        destination = self._destination(destination)
+        with self._job_lock(job_id):
+            directory = self._prepare_directory(job_id)
+            with self._db() as db:
+                existing = db.execute("SELECT * FROM local_jobs WHERE job_id = ?", (job_id,)).fetchone()
+                delivery = self._delivery(db, job_id)
+            if existing is not None:
+                if (
+                    existing["closed_at_ms"] is not None or existing["role"] != "TARGET"
+                    or (existing["source_device_id"], existing["offer_id"], existing["consent"],
+                        existing["consent_request_key"], existing["allow_forward"])
+                    != (source_device_id, offer_id, "ACCEPT", consent_request_key, allow_forward)
+                    or self._stored_manifest(existing) != manifest
+                    or delivery is None or delivery["intended_path"] != str(destination)
+                ):
+                    raise StoreError("JOB_CONFLICT")
+                return manifest
+            with self._db(write=True) as db:
+                db.execute(
+                    """INSERT INTO local_jobs
+                       (job_id, role, source_device_id, offer_id, manifest_canonical, manifest_sha256,
+                        private_job_path, consent, consent_request_key, allow_forward, created_at_ms)
+                       VALUES (?, 'TARGET', ?, ?, ?, ?, ?, 'ACCEPT', ?, ?, ?)""",
+                    (job_id, source_device_id, offer_id, canonical, digest, str(directory),
+                     consent_request_key, allow_forward, _now()),
+                )
+                self._set_delivery(db, job_id, destination, "PLANNED")
+        return manifest
+
+    def import_source(self, job_id: str, source_device_id: str, source: Path, *,
+                      max_bytes: int, piece_size: int = DEFAULT_PIECE_SIZE,
+                      batch_size: int = DEFAULT_BATCH_SIZE) -> Manifest:
+        """Copy a selected file into an immutable source snapshot before registering it."""
+        job_id, source_device_id = map(_uuid, (job_id, source_device_id))
+        source = Path(source)
+        if type(max_bytes) is not int or max_bytes < 0:
+            raise ValueError("Invalid source size limit")
+        with self._job_lock(job_id):
+            directory = self._prepare_directory(job_id)
+            with self._db() as db:
+                existing = db.execute("SELECT * FROM local_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            if existing is not None and (
+                existing["role"] != "SOURCE" or existing["source_device_id"] != source_device_id
+                or existing["closed_at_ms"] is not None
+            ):
+                raise StoreError("JOB_CONFLICT")
+            before = check_path(source)
+            if before.st_size > max_bytes:
+                raise StoreError("SOURCE_TOO_LARGE")
+            if shutil.disk_usage(directory).free < before.st_size:
+                raise StoreError("NO_SPACE")
+            snapshot = directory / "source.bin"
+            temporary = directory / "source.part"
+            temporary.unlink(missing_ok=True)
+            try:
+                with source.open("rb") as incoming, temporary.open("xb") as outgoing:
+                    if not os.path.samestat(before, os.fstat(incoming.fileno())):
+                        raise StoreError("SOURCE_CHANGED")
+                    self._copy_bytes(incoming, outgoing, before.st_size)
+                    after = os.fstat(incoming.fileno())
+                    if incoming.read(1) or after.st_mtime_ns != before.st_mtime_ns:
+                        raise StoreError("SOURCE_CHANGED")
+                    outgoing.flush()
+                    os.fsync(outgoing.fileno())
+                manifest = replace(build_manifest(temporary, piece_size=piece_size, batch_size=batch_size),
+                                   name=source.name)
+                canonical = manifest.canonical_bytes()
+                digest = bytes.fromhex(manifest.manifest_sha256())
+                if existing is not None and self._stored_manifest(existing) != manifest:
+                    raise StoreError("JOB_CONFLICT")
+                state = self._source_state(snapshot, manifest)
+                if state != "AVAILABLE":
+                    snapshot.unlink(missing_ok=True)
+                    publish(temporary, snapshot)
+                sync_directory(directory)
+                with self._db(write=True) as db:
+                    if existing is None:
+                        db.execute(
+                            """INSERT INTO local_jobs
+                               (job_id, role, source_device_id, manifest_canonical, manifest_sha256,
+                                private_job_path, source_snapshot_path, created_at_ms)
+                               VALUES (?, 'SOURCE', ?, ?, ?, ?, ?, ?)""",
+                            (job_id, source_device_id, canonical, digest, str(directory), str(snapshot), _now()),
+                        )
+                    for segment in manifest.batches:
+                        self._set_batch(db, job_id, segment.index, snapshot, "AVAILABLE")
+                return manifest
+            finally:
+                temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _copy_bytes(incoming, outgoing, size):
+        while size:
+            block = incoming.read(min(size, READ_SIZE))
+            if not block:
+                raise StoreError("UNEXPECTED_EOF")
+            outgoing.write(block)
+            size -= len(block)
+
+    def begin_receive(self, job_id: str, batch_id: int, assignment_id: str) -> Path:
+        """Reserve the private destination passed to the transport adapter."""
+        job_id, assignment_id = map(_uuid, (job_id, assignment_id))
+        staging = self._receive_path(job_id, assignment_id)
+        with self._job_lock(job_id):
+            with self._db() as db:
+                job = self._job(db, job_id)
+                self._target(job)
+            _batch(self._stored_manifest(job), batch_id)
+            check_path(staging.parent, directory=True)
+            with self._db(write=True) as db:
+                attempt = db.execute("SELECT * FROM local_attempts WHERE assignment_id = ?", (assignment_id,)).fetchone()
+                if attempt is not None:
+                    if (attempt["job_id"], attempt["batch_id"], attempt["boot_id"], attempt["role"],
+                        attempt["state"]) != (job_id, batch_id, self.boot_id, "RX", "ASSIGNED"):
+                        raise StoreError("ASSIGNMENT_CONFLICT")
+                    return staging
+                db.execute(
+                    """INSERT INTO local_batches (job_id, batch_id, state, updated_at_ms)
+                       VALUES (?, ?, 'MISSING', ?) ON CONFLICT(job_id, batch_id) DO NOTHING""",
+                    (job_id, batch_id, _now()),
+                )
+                db.execute(
+                    """INSERT INTO local_attempts
+                       (assignment_id, job_id, batch_id, boot_id, role, staging_path, state, created_at_ms)
+                       VALUES (?, ?, ?, ?, 'RX', ?, 'ASSIGNED', ?)""",
+                    (assignment_id, job_id, batch_id, self.boot_id, str(staging), _now()),
+                )
+        return staging
+
+    def commit_receive(self, assignment_id: str) -> Path:
+        """Verify after the RX worker stops, publish, then commit availability and ACK."""
+        assignment_id = _uuid(assignment_id)
+        with self._db() as db:
+            attempt = db.execute("SELECT * FROM local_attempts WHERE assignment_id = ?", (assignment_id,)).fetchone()
+        if attempt is None or attempt["role"] != "RX" or attempt["boot_id"] != self.boot_id:
+            raise StoreError("ASSIGNMENT_NOT_ACTIVE")
+        job_id, batch_id = attempt["job_id"], attempt["batch_id"]
+        with self._job_lock(job_id):
+            with self._db() as db:
+                job = self._job(db, job_id)
+                self._target(job)
+                state = db.execute("SELECT state FROM local_attempts WHERE assignment_id = ?",
+                                   (assignment_id,)).fetchone()[0]
+            manifest = self._stored_manifest(job)
+            staging = self._receive_path(job_id, assignment_id)
+            path = self._batch_path(job_id, batch_id)
+            stored = self._batch_state(path, manifest, batch_id)
+            if state == "FINISHED":
+                if stored == "AVAILABLE":
+                    return path
+                with self._db(write=True) as db:
+                    self._invalidate(db, job_id, batch_id, stored)
+                raise StoreError("BATCH_NOT_AVAILABLE")
+            if state not in ("ASSIGNED", "TRANSFERRING", "RECEIVED", "VERIFIED"):
+                raise StoreError("ASSIGNMENT_NOT_ACTIVE")
+            # A published file with the same assignment may survive an interrupted DB commit.
+            received = self._batch_state(staging, manifest, batch_id)
+            if received != "AVAILABLE" and not (
+                received == "MISSING" and state == "VERIFIED" and stored == "AVAILABLE"
+            ):
+                if received == "MISSING":
+                    raise StoreError("RX_NOT_STAGED")
+                with self._db(write=True) as db:
+                    self._finish_attempt(db, assignment_id, "FAILED")
+                    if stored != "AVAILABLE":
+                        self._invalidate(db, job_id, batch_id, "CORRUPT")
+                staging.unlink(missing_ok=True)
+                raise StoreError("CORRUPT")
+            if received == "AVAILABLE":
+                with staging.open("r+b") as stream:
+                    os.fsync(stream.fileno())
+                with self._db(write=True) as db:
+                    if stored != "AVAILABLE":
+                        self._invalidate(db, job_id, batch_id, stored)
+                    db.execute("UPDATE local_attempts SET state = 'VERIFIED' WHERE assignment_id = ?",
+                               (assignment_id,))
+                if stored != "AVAILABLE":
+                    path.unlink(missing_ok=True)
+                    publish(staging, path)
+            sync_directory(path.parent)
+            with self._db(write=True) as db:
+                self._set_batch(db, job_id, batch_id, path, "AVAILABLE")
+                self._finish_attempt(db, assignment_id, "FINISHED")
+                self._enqueue(db, job_id, "ACK", {"batch_sha256": manifest.batches[batch_id].sha256},
+                              batch_id=batch_id, assignment_id=assignment_id)
+            staging.unlink(missing_ok=True)
+            return path
+
+    @staticmethod
+    def _finish_attempt(db, assignment_id, state):
+        db.execute(
+            """UPDATE local_attempts SET state = ?, closed_at_ms = max(created_at_ms, ?)
+               WHERE assignment_id = ?""",
+            (state, _now(), assignment_id),
+        )
+
+    @staticmethod
+    def _batch_state(path, manifest, batch_id):
+        return _file_state(path, manifest.batches[batch_id].size,
+                           lambda: verify_batch(path, manifest, batch_id))
+
+    @staticmethod
+    def _source_state(path, manifest):
+        return _file_state(path, manifest.size, lambda: verify_file(path, manifest))
+
+    @staticmethod
+    def _set_batch(db, job_id, batch_id, path, state):
+        db.execute(
+            """INSERT INTO local_batches (job_id, batch_id, storage_path, state, updated_at_ms)
+               VALUES (?, ?, ?, ?, ?) ON CONFLICT(job_id, batch_id) DO UPDATE SET
+               storage_path = excluded.storage_path, state = excluded.state,
+               updated_at_ms = excluded.updated_at_ms""",
+            (job_id, batch_id, str(path) if state == "AVAILABLE" else None, state, _now()),
+        )
+
+    def _invalidate(self, db, job_id, batch_id, state):
+        old = db.execute("SELECT state FROM local_batches WHERE job_id = ? AND batch_id = ?",
+                         (job_id, batch_id)).fetchone()
+        self._set_batch(db, job_id, batch_id, None, state)
+        db.execute(
+            """DELETE FROM outbox WHERE job_id = ? AND batch_id = ? AND event_kind = 'ACK'
+               AND (first_sent_at_ms IS NULL OR assignment_id IN
+                    (SELECT assignment_id FROM local_attempts WHERE boot_id <> ?))""",
+            (job_id, batch_id, self.boot_id),
+        )
+        if old is not None and old["state"] == "AVAILABLE":
+            self._snapshot(db, job_id)
+
+    @staticmethod
+    def _inventory(db, job_id):
+        return tuple(
+            row[0] for row in db.execute(
+                "SELECT batch_id FROM local_batches WHERE job_id = ? AND state = 'AVAILABLE' ORDER BY batch_id",
+                (job_id,),
+            )
+        )
+
+    def inventory(self, job_id: str) -> tuple[int, ...]:
+        """Return committed, reconciled batch IDs for a local job."""
+        job_id = _uuid(job_id)
+        with self._db() as db:
+            job = self._job(db, job_id)
+            if job["role"] == "TARGET":
+                self._target(job)
+            return self._inventory(db, job_id)
+
+    @contextmanager
+    def tx_batch(self, job_id: str, batch_id: int):
+        """Hold a verified transfer input until the caller's TX worker stops."""
+        job_id = _uuid(job_id)
+        path = self._directory(job_id) / f"tx-{uuid4().hex}.part"
+        try:
+            with self._job_lock(job_id):
+                self._prepare_tx(job_id, batch_id, path)
+            yield path
+        finally:
+            path.unlink(missing_ok=True)
+
+    def _prepare_tx(self, job_id, batch_id, path):
+        with self._db() as db:
+            job = self._job(db, job_id)
+            available = batch_id in self._inventory(db, job_id)
+        manifest = self._stored_manifest(job)
+        segment = _batch(manifest, batch_id)
+        if not available:
+            raise StoreError("BATCH_NOT_AVAILABLE")
+        if job["role"] == "TARGET":
+            self._target(job)
+            if not job["allow_forward"]:
+                raise StoreError("FORWARDING_NOT_ALLOWED")
+            batch = self._batch_path(job_id, batch_id)
+            state = self._batch_state(batch, manifest, batch_id)
+            if state != "AVAILABLE":
+                with self._db(write=True) as db:
+                    self._invalidate(db, job_id, batch_id, state)
+                raise StoreError("BATCH_NOT_AVAILABLE")
+            # Pin the verified file while the worker uses it, even if the batch's
+            # canonical path is later invalidated and replaced.
+            os.link(batch, path)
+            return
+        snapshot = self._directory(job_id) / "source.bin"
+        try:
+            check_path(snapshot)
+            with snapshot.open("rb") as incoming, path.open("xb") as outgoing:
+                incoming.seek(segment.offset)
+                self._copy_bytes(incoming, outgoing, segment.size)
+        except (FileNotFoundError, ValueError, StoreError) as exc:
+            state = "MISSING" if isinstance(exc, FileNotFoundError) else "CORRUPT"
+            with self._db(write=True) as db:
+                for index in self._inventory(db, job_id):
+                    self._set_batch(db, job_id, index, None, state)
+                self._snapshot(db, job_id)
+            raise StoreError("BATCH_NOT_AVAILABLE") from exc
+        if self._batch_state(path, manifest, batch_id) != "AVAILABLE":
+            with self._db(write=True) as db:
+                self._invalidate(db, job_id, batch_id, "CORRUPT")
+            raise StoreError("BATCH_NOT_AVAILABLE")
+
+    @staticmethod
+    def _destination(path):
+        path = local_absolute_path(Path(path), "Delivery path")
+        if not path.name or ".." in path.parts:
+            raise ValueError("Expected a file destination without parent traversal")
+        check_path(path.parent, directory=True)
+        return path
+
+    @staticmethod
+    def _delivery(db, job_id):
+        return db.execute("SELECT * FROM delivery WHERE job_id = ?", (job_id,)).fetchone()
+
+    def _delivery_stage(self, job_id, destination=None):
+        marker = self._directory(job_id) / "delivery-stage.json"
+        if destination is None:
+            try:
+                parent, token = json.loads(marker.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                return None
+            return local_absolute_path(Path(parent), "Delivery staging parent") / f".ratatoss-{_uuid(token)}"
+        token = str(uuid4())
+        temporary = marker.with_suffix(".part")
+        with temporary.open("x", encoding="utf-8") as stream:
+            json.dump((str(destination.parent), token), stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        publish(temporary, marker)
+        return destination.parent / f".ratatoss-{token}"
+
+    @staticmethod
+    def _set_delivery(db, job_id, path, state):
+        db.execute(
+            """INSERT INTO delivery (job_id, intended_path, state, published_at_ms) VALUES (?, ?, ?, ?)
+               ON CONFLICT(job_id) DO UPDATE SET intended_path = excluded.intended_path,
+               state = excluded.state, published_at_ms = excluded.published_at_ms""",
+            (job_id, str(path), state, _now() if state == "PUBLISHED" else None),
+        )
+
+    @staticmethod
+    def _receipt(manifest):
+        return {"manifest_sha256": manifest.manifest_sha256(), "file_sha256": manifest.sha256,
+                "size": manifest.size}
+
+    def _commit_delivery(self, db, job_id, destination, receipt):
+        self._set_delivery(db, job_id, destination, "PUBLISHED")
+        self._enqueue(db, job_id, "RECEIPT", receipt)
+
+    def publish_delivery(self, job_id: str, *, destination: Path | None = None) -> Path:
+        """Assemble and publish a verified file on the user's volume."""
+        job_id = _uuid(job_id)
+        with self._job_lock(job_id):
+            with self._db() as db:
+                job = self._job(db, job_id)
+                self._target(job)
+                delivery = self._delivery(db, job_id)
+                inventory = self._inventory(db, job_id)
+            manifest = self._stored_manifest(job)
+            planned = Path(delivery["intended_path"])
+            if delivery["state"] == "PUBLISHING":
+                delivery = self._recover_delivery(job_id, manifest, delivery)
+            if delivery["state"] == "PUBLISHED":
+                if destination is not None and Path(destination) != planned:
+                    raise StoreError("DELIVERY_ALREADY_PUBLISHED")
+                return planned
+            if inventory != tuple(range(len(manifest.batches))):
+                raise StoreError("BATCHES_INCOMPLETE")
+            destination = self._destination(planned if destination is None else destination)
+            if os.path.lexists(destination):
+                with self._db(write=True) as db:
+                    self._set_delivery(db, job_id, destination, "PATH_CONFLICT")
+                raise StoreError("PATH_CONFLICT")
+            self._clear_stage(job_id)
+            stage = self._delivery_stage(job_id, destination)
+            with self._db(write=True) as db:
+                self._set_delivery(db, job_id, destination, "PUBLISHING")
+            proof = stage / "verified.tmp"
+            batches = {batch_id: self._batch_path(job_id, batch_id) for batch_id in inventory}
+            try:
+                stage.mkdir(mode=0o700)
+                sync_directory(stage.parent)
+                for batch_id, path in batches.items():
+                    state = self._batch_state(path, manifest, batch_id)
+                    if state != "AVAILABLE":
+                        with self._db(write=True) as db:
+                            self._invalidate(db, job_id, batch_id, state)
+                        raise StoreError("BATCH_NOT_AVAILABLE")
+                temporary = assemble_batches(manifest, batches, stage)
+                publish(temporary, proof)
+                # The marker distinguishes an assembled file waiting to be moved
+                # from a crash that happened before a verified file existed.
+                marker = stage / "ready.part"
+                with marker.open("xb") as stream:
+                    os.fsync(stream.fileno())
+                publish(marker, stage / "ready")
+                publish(proof, destination)
+            except FileExistsError as exc:
+                self._recover_delivery(job_id, manifest, {
+                    "intended_path": str(destination), "state": "PUBLISHING",
+                })
+                raise StoreError("PATH_CONFLICT") from exc
+            except Exception:
+                self._recover_delivery(job_id, manifest, {
+                    "intended_path": str(destination), "state": "PUBLISHING",
+                })
+                raise
+            receipt = self._receipt(manifest)
+            with self._db(write=True) as db:
+                self._commit_delivery(db, job_id, destination, receipt)
+            self._clear_stage(job_id)
+            return destination
+
+    def _clear_stage(self, job_id):
+        marker = self._directory(job_id) / "delivery-stage.json"
+        marker.with_suffix(".part").unlink(missing_ok=True)
+        stage = self._delivery_stage(job_id)
+        if stage is None:
+            return
+        try:
+            check_path(stage, directory=True)
+        except FileNotFoundError:
+            marker.unlink(missing_ok=True)
+            return
+        for pattern in ("verified.tmp", "ratatoss-assemble-*.tmp", "ready", "ready.part"):
+            for path in stage.glob(pattern):
+                path.unlink(missing_ok=True)
+        if not any(stage.iterdir()):
+            stage.rmdir()
+        sync_directory(stage.parent)
+        marker.unlink(missing_ok=True)
+        sync_directory(marker.parent)
+
+    def _recover_delivery(self, job_id, manifest, delivery):
+        path = Path(delivery["intended_path"])
+        if delivery["state"] == "PUBLISHING":
+            stage = self._delivery_stage(job_id)
+            try:
+                owns_output = False
+                if stage is not None and stage.parent == path.parent:
+                    check_path(stage / "ready")
+                    proof = stage / "verified.tmp"
+                    check_path(path)
+                    if os.path.lexists(proof):
+                        check_path(proof)
+                        owns_output = proof.samefile(path)
+                    else:
+                        owns_output = True
+            except (ValueError, FileNotFoundError):
+                owns_output = False
+            state = "PATH_CONFLICT" if os.path.lexists(path) else "PLANNED"
+            verified = owns_output and self._source_state(path, manifest) == "AVAILABLE"
+            if verified:
+                sync_directory(path.parent)
+                receipt = self._receipt(manifest)
+            with self._db(write=True) as db:
+                if verified:
+                    self._commit_delivery(db, job_id, path, receipt)
+                else:
+                    self._set_delivery(db, job_id, path, state)
+        elif delivery["state"] == "PUBLISHED":
+            with self._db() as db:
+                pending = db.execute("SELECT 1 FROM outbox WHERE job_id = ? AND event_kind = 'RECEIPT'",
+                                     (job_id,)).fetchone()
+            if pending is not None and self._source_state(path, manifest) != "AVAILABLE":
+                state = "PATH_CONFLICT" if os.path.lexists(path) else "PLANNED"
+                with self._db(write=True) as db:
+                    db.execute("DELETE FROM outbox WHERE job_id = ? AND event_kind = 'RECEIPT'", (job_id,))
+                    self._set_delivery(db, job_id, path, state)
+        self._clear_stage(job_id)
+        with self._db() as db:
+            return self._delivery(db, job_id)
+
+    @staticmethod
+    def _enqueue(db, job_id, kind, payload, *, batch_id=None, assignment_id=None, boot_id=None):
+        now = _now()
+        db.execute(
+            """INSERT INTO outbox (request_key, job_id, event_kind, batch_id, assignment_id,
+                                   boot_id, payload_json, created_at_ms, next_attempt_at_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (str(uuid4()), job_id, kind, batch_id, assignment_id, boot_id,
+             json.dumps(payload, separators=(",", ":")), now, now),
+        )
+
+    def _snapshot(self, db, job_id):
+        db.execute(
+            """DELETE FROM outbox WHERE job_id = ? AND event_kind = 'RECONCILE'
+               AND (boot_id <> ? OR first_sent_at_ms IS NULL)""",
+            (job_id, self.boot_id),
+        )
+        self._enqueue(db, job_id, "RECONCILE", {
+            "boot_id": self.boot_id, "verified_batch_ids": self._inventory(db, job_id),
+        }, boot_id=self.boot_id)
+
+    def pending_events(self, job_id: str) -> tuple[dict, ...]:
+        """Read pending outbox records. Replay a boot snapshot before ACKs and receipts."""
+        with self._db() as db:
+            return tuple(dict(row) for row in db.execute(
+                """SELECT outbox.* FROM outbox LEFT JOIN local_attempts USING (assignment_id)
+                   WHERE outbox.job_id = ?
+                   ORDER BY CASE
+                       WHEN first_sent_at_ms IS NOT NULL AND local_attempts.boot_id = ? THEN 0
+                       WHEN event_kind = 'RECONCILE' THEN 1 WHEN event_kind = 'ACK' THEN 2 ELSE 3 END,
+                       event_id""",
+                (_uuid(job_id), self.boot_id),
+            ))
+
+    def _recover(self):
+        with self._db() as db:
+            jobs = db.execute("SELECT * FROM local_jobs WHERE closed_at_ms IS NULL").fetchall()
+        for job in jobs:
+            job_id = _uuid(job["job_id"])
+            if job_id != job["job_id"]:
+                raise StoreError("INVALID_STORED_JOB_ID")
+            manifest = self._stored_manifest(job)
+            directory = self._prepare_directory(job_id)
+            for pattern in ("rx-*.part", "tx-*.part", "source.part"):
+                for path in directory.glob(pattern):
+                    path.unlink(missing_ok=True)
+            source = job["role"] == "SOURCE"
+            snapshot = directory / "source.bin"
+            source_state = self._source_state(snapshot, manifest) if source else None
+            batches = []
+            for batch in manifest.batches:
+                path = snapshot if source else self._batch_path(job_id, batch.index)
+                state = source_state if source else self._batch_state(path, manifest, batch.index)
+                batches.append((batch.index, path, state))
+            with self._db(write=True) as db:
+                db.execute(
+                    """UPDATE local_attempts SET state = 'CANCELED', closed_at_ms = max(created_at_ms, ?)
+                       WHERE job_id = ? AND closed_at_ms IS NULL""",
+                    (_now(), job_id),
+                )
+                for batch_id, path, state in batches:
+                    self._set_batch(db, job_id, batch_id, path, state)
+                db.execute(
+                    """UPDATE local_batches SET state = 'MISSING', storage_path = NULL, updated_at_ms = ?
+                       WHERE job_id = ? AND batch_id >= ?""",
+                    (_now(), job_id, len(manifest.batches)),
+                )
+                db.execute(
+                    """DELETE FROM outbox WHERE job_id = ? AND event_kind = 'ACK' AND batch_id NOT IN
+                       (SELECT batch_id FROM local_batches WHERE job_id = ? AND state = 'AVAILABLE')""",
+                    (job_id, job_id),
+                )
+                delivery = self._delivery(db, job_id)
+                if source or job["consent"] == "ACCEPT":
+                    self._snapshot(db, job_id)
+            if delivery is not None:
+                self._recover_delivery(job_id, manifest, delivery)
