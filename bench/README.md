@@ -10,10 +10,12 @@ Bộ [runs.csv](artifacts/r02/runs.csv), [transfers.csv](artifacts/r02/transfers
 
 `rx-tx-overlap`, `setup-goodput-by-size` và `selected-batch-size` hiện ở trạng thái `blocked`. Các cột `first_byte_monotonic_ms`, `last_byte_monotonic_ms`, `setup_ms`, `goodput_bps` và overlap được để trống; không dùng tiến độ phần trăm hay kích thước staging như mốc payload đã xác minh.
 
+Croc v11.6.5 có thể đặt trước kích thước tệp nhận. Các mốc tiến độ chỉ được lưu làm ước tính trong hiện vật. Để nghiệm thu overlap, cần đo mốc payload trên cả RX lẫn TX tại B bằng cùng đồng hồ monotonic. Ca lỗi luôn dùng fixture A 32 MiB, kể cả khi chạy một cỡ ma trận khác. [Mã Croc v11.6.5](https://github.com/schollz/croc/blob/v11.6.5/src/croc/croc.go#L3334-L3345)
+
 Hiện chưa chọn batch mặc định. Chưa có kết luận makespan/goodput/overlap áp dụng cho batch 32, 64 hoặc 128 MiB. Xem [runbook Cổng 0](../docs/experiments.md#cổng-0--transport), [quy tắc lưu bằng chứng](../docs/experiments.md#thu-thập-và-lưu-bằng-chứng) và [hồ sơ ngân sách theo cỡ batch](artifacts/r02/batch-profiles.json).
 
-Ca không có bên gửi trả `TRANSPORT_TIMEOUT` sau khoảng 4500 ms. Báo cáo ghi cây tiến trình về 0, staging sạch và không publish dữ liệu. Lượt retry dùng cùng fixture 32 MiB với ID lần thử mới và xác minh đúng SHA-256. Lượt upload giới hạn 4M cũng xác minh đúng SHA-256.
+Ca không có bên gửi trả `TRANSPORT_TIMEOUT` sau khoảng 5 giây. Báo cáo ghi cây tiến trình về 0, staging sạch và không publish dữ liệu. Lượt retry dùng cùng fixture 32 MiB với ID lần thử mới và xác minh đúng SHA-256. Lượt upload giới hạn 4M cũng xác minh đúng SHA-256.
 
-- [Bằng chứng timeout](artifacts/r02/r02-timeout-reproduce-e541c1/evidence.json)
-- [Bằng chứng retry](artifacts/r02/r02-retry-32mib-f107aa/evidence.json)
-- [Bằng chứng đường chậm](artifacts/r02/r02-slow_path-32mib-01e06e/evidence.json)
+- [Bằng chứng timeout](artifacts/r02/r02-timeout-reproduce-e896f1/evidence.json)
+- [Bằng chứng retry](artifacts/r02/r02-retry-32mib-0fe70a/evidence.json)
+- [Bằng chứng đường chậm](artifacts/r02/r02-slow_path-32mib-8f1d5e/evidence.json)
