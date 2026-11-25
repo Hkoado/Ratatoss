@@ -1,6 +1,7 @@
 """Filesystem operations for durable publication in the Node store."""
 
 import os
+import shutil
 import stat
 from pathlib import Path
 
@@ -25,6 +26,21 @@ def sync_directory(path: Path) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+
+def discard_staging(path: Path) -> None:
+    """Remove a private staging entry without following links or junctions."""
+    try:
+        check_path(path.parent, directory=True)
+        info = path.lstat()
+        if not stat.S_ISDIR(info.st_mode):
+            path.unlink()
+        elif getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            path.rmdir()
+        else:
+            shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
 
 
 def publish(source: Path, destination: Path) -> None:

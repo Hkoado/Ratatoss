@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+from threading import Event
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -34,11 +35,16 @@ with store.NodeStore(Path(root)) as node:
         if (batch and window == 'before-batch-publish') or (output and window == 'before-delivery-publish'):
             os._exit(71)
         real_publish(source, destination)
+        if destination.name == 'source.bin' and window == 'after-source-publish':
+            os._exit(71)
         if (batch and window == 'after-batch-publish') or (output and window == 'after-delivery-publish'):
             os._exit(71)
     store.publish = interrupt
     if 'delivery' in window:
         node.publish_delivery(identifier)
+    elif window == 'after-source-publish':
+        node.import_source(identifier, assignment, Path(root).parent / 'sample.bin', max_bytes=10,
+                           piece_size=3, batch_size=6)
     else:
         staging = node.begin_receive(identifier, 0, assignment)
         staging.write_bytes(b'abcdef')
@@ -156,6 +162,51 @@ class NodeStoreTests(unittest.TestCase):
             self.assertFalse(path.exists())
             self.assertEqual(snapshot.read_bytes(), b"abcdefghij")
 
+    def test_startup_discards_snapshot_published_before_source_registration(self):
+        committed_id = str(uuid4())
+        options = dict(max_bytes=10, piece_size=3, batch_size=6)
+        with NodeStore(self.data) as store:
+            store.import_source(committed_id, self.source_device, self.source, **options)
+        committed = self.data / "jobs" / committed_id / "source.bin"
+        original = committed.stat()
+        self.crash("after-source-publish", assignment=self.source_device)
+        orphan = self.data / "jobs" / self.job_id / "source.bin"
+        self.assertTrue(orphan.is_file())
+        self.assertEqual(self.rows("SELECT job_id FROM local_jobs"), [(committed_id,)])
+
+        with NodeStore(self.data) as store:
+            self.assertFalse(orphan.exists())
+            self.assertEqual(committed.stat().st_ino, original.st_ino)
+            self.assertEqual(committed.read_bytes(), b"abcdefghij")
+            self.assertEqual(store.inventory(committed_id), (0, 1))
+            self.assertEqual(store.import_source(self.job_id, self.source_device, self.source, **options),
+                             self.manifest)
+
+    def test_wrong_type_rx_staging_is_discarded_on_commit_and_startup(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            valid = self.receive(store, 1, b"ghij")
+            rejected_assignment = str(uuid4())
+            rejected = store.begin_receive(self.job_id, 0, rejected_assignment)
+            rejected.mkdir()
+            (rejected / "partial.bin").write_bytes(b"abc")
+            with self.assertRaisesRegex(StoreError, "^CORRUPT$"):
+                store.commit_receive(rejected_assignment)
+            self.assertFalse(rejected.exists())
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            abandoned_assignment = str(uuid4())
+            abandoned = store.begin_receive(self.job_id, 0, abandoned_assignment)
+            abandoned.mkdir()
+            (abandoned / "partial.bin").write_bytes(b"abc")
+        with NodeStore(self.data) as store:
+            self.assertFalse(abandoned.exists())
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            self.assertEqual(valid.read_bytes(), b"ghij")
+            self.assertEqual(self.rows("SELECT state FROM local_attempts WHERE assignment_id = ?",
+                                       (abandoned_assignment,)), [("CANCELED",)])
+            self.receive(store, 0, b"abcdef")
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+
     def test_batch_publish_precedes_atomic_availability_and_ack(self):
         with NodeStore(self.data) as store:
             self.register(store)
@@ -228,6 +279,32 @@ class NodeStoreTests(unittest.TestCase):
             self.receive(store, 1, b"ghij")
             self.assertEqual(store.inventory(self.job_id), (1,))
 
+    def test_reconnect_replaces_inventory_after_replaying_inflight_snapshot(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            missing = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            self.assertEqual(store.reconcile(self.job_id), (0, 1))
+            snapshot, removed_ack, valid_ack = store.pending_events(self.job_id)
+            self.assertEqual(snapshot["event_kind"], "RECONCILE")
+            self.write_db("UPDATE outbox SET first_sent_at_ms = created_at_ms WHERE event_id = ?",
+                          (snapshot["event_id"],))
+            missing.unlink()
+
+            self.assertEqual(store.reconcile(self.job_id), (1,))
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            replay, replacement, remaining_ack = store.pending_events(self.job_id)
+            self.assertEqual(replay["request_key"], snapshot["request_key"])
+            self.assertEqual(replay["payload_json"], snapshot["payload_json"])
+            self.assertEqual(replacement["event_kind"], "RECONCILE")
+            self.assertEqual(json.loads(replacement["payload_json"]), {
+                "boot_id": snapshot["boot_id"], "verified_batch_ids": [1],
+            })
+            self.assertEqual(replacement["boot_id"], store.boot_id)
+            self.assertEqual(remaining_ack["request_key"], valid_ack["request_key"])
+            self.assertNotIn(removed_ack["request_key"],
+                             {event["request_key"] for event in (replay, replacement, remaining_ack)})
+
     def test_live_corruption_revokes_tx_and_queues_corrected_inventory(self):
         with NodeStore(self.data) as store:
             self.register(store)
@@ -249,9 +326,7 @@ class NodeStoreTests(unittest.TestCase):
             self.write_db("UPDATE outbox SET first_sent_at_ms = created_at_ms WHERE event_id = ?",
                           (ack["event_id"],))
             path.unlink()
-            with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
-                with store.tx_batch(self.job_id, 0):
-                    self.fail("Missing batch was offered to TX")
+            self.assertEqual(store.reconcile(self.job_id), ())
             events = store.pending_events(self.job_id)
             self.assertEqual([event["event_kind"] for event in events], ["ACK", "RECONCILE"])
             self.assertEqual(events[0]["request_key"], ack["request_key"])
@@ -268,6 +343,30 @@ class NodeStoreTests(unittest.TestCase):
                 self.assertEqual(received.read_bytes(), b"ghij")
                 self.assertEqual(tx_path.read_bytes(), b"abcdef")
             self.assertFalse(tx_path.exists())
+
+    def test_corruption_signals_active_tx_for_only_the_affected_batch(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            batch = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            cancel = Event()
+            unaffected = Event()
+            with (store.tx_batch(self.job_id, 0, cancel_event=cancel) as tx_path,
+                  store.tx_batch(self.job_id, 1, cancel_event=unaffected),
+                  ThreadPoolExecutor(max_workers=1) as pool):
+                worker = pool.submit(cancel.wait, 5)
+                batch.write_bytes(b"xxxxxx")
+                with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                    with store.tx_batch(self.job_id, 0):
+                        self.fail("Corrupt batch was offered to TX")
+                self.assertTrue(worker.result(timeout=5))
+                self.assertTrue(tx_path.exists())
+                self.assertFalse(unaffected.is_set())
+            self.assertFalse(tx_path.exists())
+            self.receive(store, 0, b"abcdef")
+            with store.tx_batch(self.job_id, 0, cancel_event=unaffected) as replacement:
+                self.assertFalse(unaffected.is_set())
+                self.assertEqual(replacement.read_bytes(), b"abcdef")
 
     def test_delivery_keeps_batches_and_never_overwrites_an_occupied_path(self):
         self.output.write_bytes(b"abcdefghij")

@@ -7,12 +7,12 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
-from threading import Lock, RLock
+from threading import Event, Lock, RLock
 from time import time_ns
 from uuid import UUID, uuid4
 from weakref import WeakValueDictionary
 
-from ._store_files import check_path, lock_store, publish, sync_directory
+from ._store_files import check_path, discard_staging, lock_store, publish, sync_directory
 from .batch_assembly import assemble_batches
 from .database import NODE_DATABASE_NAME, open_database
 from .manifest import (
@@ -69,6 +69,7 @@ class NodeStore:
         self.boot_id = str(uuid4())
         self._locks = WeakValueDictionary()
         self._locks_guard = Lock()
+        self._active_tx: dict[tuple[str, int], dict[Path, Event]] = {}
         lock_path = self.root / "store.lock"
         if os.path.lexists(lock_path):
             check_path(lock_path)
@@ -320,7 +321,7 @@ class NodeStore:
                     self._finish_attempt(db, assignment_id, "FAILED")
                     if stored != "AVAILABLE":
                         self._invalidate(db, job_id, batch_id, "CORRUPT")
-                staging.unlink(missing_ok=True)
+                discard_staging(staging)
                 raise StoreError("CORRUPT")
             if received == "AVAILABLE":
                 with staging.open("r+b") as stream:
@@ -372,6 +373,13 @@ class NodeStore:
     def _invalidate(self, db, job_id, batch_id, state):
         old = db.execute("SELECT state FROM local_batches WHERE job_id = ? AND batch_id = ?",
                          (job_id, batch_id)).fetchone()
+        self._record_unavailable(db, job_id, batch_id, state)
+        if old is not None and old["state"] == "AVAILABLE":
+            self._snapshot(db, job_id)
+
+    def _record_unavailable(self, db, job_id, batch_id, state):
+        for event in self._active_tx.get((job_id, batch_id), {}).values():
+            event.set()
         self._set_batch(db, job_id, batch_id, None, state)
         db.execute(
             """DELETE FROM outbox WHERE job_id = ? AND batch_id = ? AND event_kind = 'ACK'
@@ -379,8 +387,6 @@ class NodeStore:
                     (SELECT assignment_id FROM local_attempts WHERE boot_id <> ?))""",
             (job_id, batch_id, self.boot_id),
         )
-        if old is not None and old["state"] == "AVAILABLE":
-            self._snapshot(db, job_id)
 
     @staticmethod
     def _inventory(db, job_id):
@@ -400,16 +406,42 @@ class NodeStore:
                 self._target(job)
             return self._inventory(db, job_id)
 
+    def reconcile(self, job_id: str) -> tuple[int, ...]:
+        """Rescan a job on reconnect and queue a fresh snapshot for this boot."""
+        job_id = _uuid(job_id)
+        with self._job_lock(job_id):
+            with self._db() as db:
+                job = self._job(db, job_id)
+                if job["role"] == "TARGET":
+                    self._target(job)
+            batches = self._scan_batches(job_id, self._stored_manifest(job), job["role"] == "SOURCE")
+            with self._db(write=True) as db:
+                self._record_scan(db, job_id, batches)
+                self._snapshot(db, job_id)
+                return self._inventory(db, job_id)
+
     @contextmanager
-    def tx_batch(self, job_id: str, batch_id: int):
-        """Hold a verified transfer input until the caller's TX worker stops."""
+    def tx_batch(self, job_id: str, batch_id: int, *, cancel_event: Event | None = None):
+        """Hold a verified input until TX stops. A worker can watch cancel_event
+        for invalidation and must stop before its caller exits the context.
+        """
         job_id = _uuid(job_id)
         path = self._directory(job_id) / f"tx-{uuid4().hex}.part"
+        registered = False
         try:
             with self._job_lock(job_id):
                 self._prepare_tx(job_id, batch_id, path)
+                if cancel_event is not None:
+                    self._active_tx.setdefault((job_id, batch_id), {})[path] = cancel_event
+                    registered = True
             yield path
         finally:
+            if registered:
+                with self._job_lock(job_id):
+                    active = self._active_tx[(job_id, batch_id)]
+                    del active[path]
+                    if not active:
+                        del self._active_tx[(job_id, batch_id)]
             path.unlink(missing_ok=True)
 
     def _prepare_tx(self, job_id, batch_id, path):
@@ -444,7 +476,7 @@ class NodeStore:
             state = "MISSING" if isinstance(exc, FileNotFoundError) else "CORRUPT"
             with self._db(write=True) as db:
                 for index in self._inventory(db, job_id):
-                    self._set_batch(db, job_id, index, None, state)
+                    self._record_unavailable(db, job_id, index, state)
                 self._snapshot(db, job_id)
             raise StoreError("BATCH_NOT_AVAILABLE") from exc
         if self._batch_state(path, manifest, batch_id) != "AVAILABLE":
@@ -645,22 +677,63 @@ class NodeStore:
         }, boot_id=self.boot_id)
 
     def pending_events(self, job_id: str) -> tuple[dict, ...]:
-        """Read pending outbox records. Replay a boot snapshot before ACKs and receipts."""
+        """Replay an in-flight request from this boot before a replacement snapshot."""
         with self._db() as db:
             return tuple(dict(row) for row in db.execute(
                 """SELECT outbox.* FROM outbox LEFT JOIN local_attempts USING (assignment_id)
                    WHERE outbox.job_id = ?
                    ORDER BY CASE
-                       WHEN first_sent_at_ms IS NOT NULL AND local_attempts.boot_id = ? THEN 0
+                       WHEN first_sent_at_ms IS NOT NULL
+                            AND coalesce(outbox.boot_id, local_attempts.boot_id) = ? THEN 0
                        WHEN event_kind = 'RECONCILE' THEN 1 WHEN event_kind = 'ACK' THEN 2 ELSE 3 END,
                        event_id""",
                 (_uuid(job_id), self.boot_id),
             ))
 
+    def _scan_batches(self, job_id, manifest, source):
+        snapshot = self._directory(job_id) / "source.bin"
+        source_state = self._source_state(snapshot, manifest) if source else None
+        batches = []
+        for batch in manifest.batches:
+            path = snapshot if source else self._batch_path(job_id, batch.index)
+            state = source_state if source else self._batch_state(path, manifest, batch.index)
+            batches.append((batch.index, path, state))
+        return batches
+
+    def _record_scan(self, db, job_id, batches):
+        for batch_id, path, state in batches:
+            if state == "AVAILABLE":
+                self._set_batch(db, job_id, batch_id, path, state)
+            else:
+                self._record_unavailable(db, job_id, batch_id, state)
+        extra_batches = db.execute(
+            "SELECT batch_id FROM local_batches WHERE job_id = ? AND batch_id >= ?",
+            (job_id, len(batches)),
+        ).fetchall()
+        for (batch_id,) in extra_batches:
+            self._record_unavailable(db, job_id, batch_id, "MISSING")
+
+    def _discard_unregistered_sources(self, registered):
+        for directory in self.jobs.iterdir():
+            if directory.name in registered:
+                continue
+            try:
+                if directory.name != _uuid(directory.name):
+                    continue
+                check_path(directory, directory=True)
+            except (ValueError, FileNotFoundError):
+                continue
+            for name in ("source.part", "source.bin"):
+                discard_staging(directory / name)
+            sync_directory(directory)
+
     def _recover(self):
         with self._db() as db:
-            jobs = db.execute("SELECT * FROM local_jobs WHERE closed_at_ms IS NULL").fetchall()
+            jobs = db.execute("SELECT * FROM local_jobs").fetchall()
+        self._discard_unregistered_sources({job["job_id"] for job in jobs})
         for job in jobs:
+            if job["closed_at_ms"] is not None:
+                continue
             job_id = _uuid(job["job_id"])
             if job_id != job["job_id"]:
                 raise StoreError("INVALID_STORED_JOB_ID")
@@ -668,33 +741,16 @@ class NodeStore:
             directory = self._prepare_directory(job_id)
             for pattern in ("rx-*.part", "tx-*.part", "source.part"):
                 for path in directory.glob(pattern):
-                    path.unlink(missing_ok=True)
+                    discard_staging(path)
             source = job["role"] == "SOURCE"
-            snapshot = directory / "source.bin"
-            source_state = self._source_state(snapshot, manifest) if source else None
-            batches = []
-            for batch in manifest.batches:
-                path = snapshot if source else self._batch_path(job_id, batch.index)
-                state = source_state if source else self._batch_state(path, manifest, batch.index)
-                batches.append((batch.index, path, state))
+            batches = self._scan_batches(job_id, manifest, source)
             with self._db(write=True) as db:
                 db.execute(
                     """UPDATE local_attempts SET state = 'CANCELED', closed_at_ms = max(created_at_ms, ?)
                        WHERE job_id = ? AND closed_at_ms IS NULL""",
                     (_now(), job_id),
                 )
-                for batch_id, path, state in batches:
-                    self._set_batch(db, job_id, batch_id, path, state)
-                db.execute(
-                    """UPDATE local_batches SET state = 'MISSING', storage_path = NULL, updated_at_ms = ?
-                       WHERE job_id = ? AND batch_id >= ?""",
-                    (_now(), job_id, len(manifest.batches)),
-                )
-                db.execute(
-                    """DELETE FROM outbox WHERE job_id = ? AND event_kind = 'ACK' AND batch_id NOT IN
-                       (SELECT batch_id FROM local_batches WHERE job_id = ? AND state = 'AVAILABLE')""",
-                    (job_id, job_id),
-                )
+                self._record_scan(db, job_id, batches)
                 delivery = self._delivery(db, job_id)
                 if source or job["consent"] == "ACCEPT":
                     self._snapshot(db, job_id)
