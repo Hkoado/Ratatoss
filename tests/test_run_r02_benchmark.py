@@ -40,6 +40,7 @@ else:
             summarize_matrix,
             calculate_makespan_ms,
             calculate_overlap_ms,
+            comparison_sensitivity,
             BenchmarkAdapter,
             FAULT_TIMEOUT_S,
             fault_profile_for_size,
@@ -153,9 +154,16 @@ class TestR02BenchmarkLogic(unittest.TestCase):
              "status": "pass", "makespan_ms": "123"}
             for mode in ("sequential", "concurrent") for i in range(3)
         ]
-        interval = {"setup_ms": 20, "goodput_bps": 500}
+        interval = {"first_ns": 1_020_000_000, "setup_ms": 20, "goodput_bps": 500}
         details = {
-            row["run_id"]: {"payload_at_b": {"rx": interval}, "overlap_ms": 40}
+            row["run_id"]: {
+                "payload_at_b": {"rx": interval},
+                "overlap_ms": 40,
+                "processes": {
+                    "A_tx": {"started_monotonic_s": 1.01},
+                    "B_tx": {"started_monotonic_s": 1.0},
+                },
+            }
             for row in records
         }
         _, measured, overlap = summarize_matrix(records, details, (32,))
@@ -174,7 +182,18 @@ class TestR02BenchmarkLogic(unittest.TestCase):
         summary, measured, overlap = summarize_matrix(records, details, (32,))
         self.assertTrue(measured)
         self.assertTrue(overlap)
-        self.assertEqual(summary["32"]["concurrent"]["overlap_ms"], {"min": 30, "median": 40, "max": 40})
+        group = summary["32"]["concurrent"]
+        self.assertEqual(group["overlap_ms"], {"min": 30, "median": 40, "max": 40})
+        self.assertEqual(group["rx"]["setup_ms"]["median"], 20)
+        self.assertEqual(group["rx"]["sender_start_to_first_payload_ms"]["median"], 10)
+        self.assertEqual(group["tx"]["sender_start_to_first_payload_ms"]["median"], 20)
+
+    def test_sensitivity_applies_fixed_cost_per_session(self):
+        result = comparison_sensitivity({32: 8416, 64: 8212, 128: 10049})
+        self.assertEqual(result["remove_initial_burst_credit"], {32: 12416, 64: 10212, 128: 11049})
+        self.assertEqual(result["remove_configured_start_gap"], {32: 5416, 64: 6712, 128: 9299})
+        self.assertEqual(result["remove_both"], {32: 9416, 64: 8712, 128: 10299})
+        self.assertEqual(comparison_sensitivity({}), {})
 
     def test_progress_observer_ignores_unrelated_and_incomplete_frames(self):
         from ratatoss.transport import _PayloadProgress

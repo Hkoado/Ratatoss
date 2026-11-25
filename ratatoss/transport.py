@@ -119,7 +119,8 @@ class ProcessRun:
     exit_code: int
     job: JobCleanup
     staging_cleanup_pending: bool = False
-    # Payload-level timing markers (monotonic seconds)
+    # Legacy field names for Croc progress-bar observations (monotonic seconds).
+    # Use only as estimates. They do not identify the first or last payload byte.
     first_byte_monotonic: float | None = None
     last_byte_monotonic: float | None = None
     sha256_done_monotonic: float | None = None

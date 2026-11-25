@@ -37,7 +37,8 @@ REPEATS = 3
 MAX_ATTEMPTS_PER_CASE = 6
 TIMEOUT_S = 75
 FAULT_TIMEOUT_S = 5.0
-MEASURED_UPLOAD_LIMIT = "24M"
+MEASURED_UPLOAD_LIMIT_MIB_S = 24
+MEASURED_UPLOAD_LIMIT = f"{MEASURED_UPLOAD_LIMIT_MIB_S}M"
 SLOW_UPLOAD_LIMIT = "4M"
 MIN_GOODPUT_BPS = 100_000_000
 VERIFY_COMMIT_MS = 200
@@ -318,9 +319,16 @@ def summarize_matrix(runs: list[dict], details: dict, selected_sizes: tuple[int,
                 "makespan_ms": distribution([int(row["makespan_ms"]) for row, _ in passed]),
             }
             for direction in directions:
+                sender = "A_tx" if direction == "rx" else "B_tx"
                 intervals = [info["payload_at_b"][direction] for _, info in passed]
+                sender_setup = [
+                    (interval["first_ns"] - round(info["processes"][sender]["started_monotonic_s"] * 1_000_000_000))
+                    / 1_000_000
+                    for (_, info), interval in zip(passed, intervals, strict=True)
+                ]
                 group[direction] = {
                     "setup_ms": distribution([interval["setup_ms"] for interval in intervals]),
+                    "sender_start_to_first_payload_ms": distribution(sender_setup),
                     "goodput_bps": distribution([interval["goodput_bps"] for interval in intervals]),
                 }
             if mode == "concurrent":
@@ -329,6 +337,25 @@ def summarize_matrix(runs: list[dict], details: dict, selected_sizes: tuple[int,
         if by_mode:
             summary[str(size)] = by_mode
     return summary, have_measurements, have_overlap
+
+
+def comparison_sensitivity(scores: dict[int, int | float]) -> dict:
+    # This arithmetic varies one fixed per-session cost at a time. It does
+    # not predict the timings of a different relay, scheduler, or link.
+    burst_credit_ms = 1000  # The pinned Croc limiter starts with one second of tokens.
+    start_gap_ms = round(START_GAP_S * 1000)
+    deltas = {
+        "remove_initial_burst_credit": burst_credit_ms,
+        "remove_configured_start_gap": -start_gap_ms,
+        "remove_both": burst_credit_ms - start_gap_ms,
+    }
+    return {
+        assumption: {
+            size: score + delta_ms * (COMPARISON_MIB // size)
+            for size, score in scores.items()
+        }
+        for assumption, delta_ms in deltas.items()
+    } if scores else {}
 
 
 def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path, details: dict,
@@ -356,10 +383,23 @@ def write_r02_readiness(output_dir: Path, runs_file: Path, transfers_file: Path,
             "measurement_method": MEASUREMENT_METHOD,
             "byte_marker_status": "verified" if have_measurements else "not_verified",
             "network_profile": MEASURED_NETWORK,
+            "measurement_commits": sorted({row["commit"] for row in runs if row["network_profile"] == MEASURED_NETWORK}),
+            "timing_context": {
+                "croc_upload_limit_flag": MEASURED_UPLOAD_LIMIT,
+                "croc_configured_upload_rate_mib_s": MEASURED_UPLOAD_LIMIT_MIB_S,
+                "croc_initial_upload_burst_mib": MEASURED_UPLOAD_LIMIT_MIB_S,
+                "croc_initial_upload_burst_resets_per_sender_process": True,
+                "configured_receiver_head_start_ms": round(START_GAP_S * 1000),
+                "setup_ms": "Observer process start to first payload at B (RX starts before the sender).",
+                "sender_start_to_first_payload_ms": "Sender process start to first payload at B, on the shared loopback clock.",
+                "goodput_scope": "Verified payload over the observed byte interval under the configured rate and initial burst.",
+            },
             "selected_batch_mib": selected,
             "comparison_payload_mib_per_route": COMPARISON_MIB,
             "comparison_method": "Median concurrent makespan multiplied by the number of batches per route; smaller batch breaks ties.",
             "estimated_equal_volume_makespan_ms": scores,
+            "equal_volume_makespan_sensitivity_ms": comparison_sensitivity(scores),
+            "sensitivity_method": "Illustrative fixed per-session deltas, not new measurements.",
             "observed": summary,
             "profiles": SIZE_PROFILES,
         }, ensure_ascii=False, indent=2) + "\n",

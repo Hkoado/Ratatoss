@@ -26,7 +26,7 @@
         "r02-timeout-reproduce-b72359/evidence.json": "36bf7654e33322020189e6c5fbef8dd05dc07dbfbf9056ded73dc351f365ab12",
         "runs.csv": "35dd8e3c2b39333e707b82e13e8a8bfa42a7c7e995594193d2d518e75112bcf0",
         "transfers.csv": "48f346e5ab7bb872b3de06ae725dbbb0050e8f584e413614bdf308b7204371d6",
-        "batch-profiles.json": "7899179ced222b4e4887c9e103e64c0bfc48aaefdc98f00e78ca36ea378f29e7"
+        "batch-profiles.json": "3ed773bfc592220aefd29110740cbdb2354eea13b6aea3b516abd1be291870a5"
       }
     },
     "rx-tx-overlap": {
@@ -55,7 +55,7 @@
         "r02-timeout-reproduce-b72359/evidence.json": "36bf7654e33322020189e6c5fbef8dd05dc07dbfbf9056ded73dc351f365ab12",
         "runs.csv": "35dd8e3c2b39333e707b82e13e8a8bfa42a7c7e995594193d2d518e75112bcf0",
         "transfers.csv": "48f346e5ab7bb872b3de06ae725dbbb0050e8f584e413614bdf308b7204371d6",
-        "batch-profiles.json": "7899179ced222b4e4887c9e103e64c0bfc48aaefdc98f00e78ca36ea378f29e7"
+        "batch-profiles.json": "3ed773bfc592220aefd29110740cbdb2354eea13b6aea3b516abd1be291870a5"
       },
       "reason": "All required concurrent trials must show positive payload overlap at B."
     },
@@ -85,7 +85,7 @@
         "r02-timeout-reproduce-b72359/evidence.json": "36bf7654e33322020189e6c5fbef8dd05dc07dbfbf9056ded73dc351f365ab12",
         "runs.csv": "35dd8e3c2b39333e707b82e13e8a8bfa42a7c7e995594193d2d518e75112bcf0",
         "transfers.csv": "48f346e5ab7bb872b3de06ae725dbbb0050e8f584e413614bdf308b7204371d6",
-        "batch-profiles.json": "7899179ced222b4e4887c9e103e64c0bfc48aaefdc98f00e78ca36ea378f29e7"
+        "batch-profiles.json": "3ed773bfc592220aefd29110740cbdb2354eea13b6aea3b516abd1be291870a5"
       },
       "reason": "Each required verified transfer must have a complete payload interval at B."
     },
@@ -115,7 +115,7 @@
         "r02-timeout-reproduce-b72359/evidence.json": "36bf7654e33322020189e6c5fbef8dd05dc07dbfbf9056ded73dc351f365ab12",
         "runs.csv": "35dd8e3c2b39333e707b82e13e8a8bfa42a7c7e995594193d2d518e75112bcf0",
         "transfers.csv": "48f346e5ab7bb872b3de06ae725dbbb0050e8f584e413614bdf308b7204371d6",
-        "batch-profiles.json": "7899179ced222b4e4887c9e103e64c0bfc48aaefdc98f00e78ca36ea378f29e7"
+        "batch-profiles.json": "3ed773bfc592220aefd29110740cbdb2354eea13b6aea3b516abd1be291870a5"
       }
     },
     "selected-batch-size": {
@@ -144,7 +144,7 @@
         "r02-timeout-reproduce-b72359/evidence.json": "36bf7654e33322020189e6c5fbef8dd05dc07dbfbf9056ded73dc351f365ab12",
         "runs.csv": "35dd8e3c2b39333e707b82e13e8a8bfa42a7c7e995594193d2d518e75112bcf0",
         "transfers.csv": "48f346e5ab7bb872b3de06ae725dbbb0050e8f584e413614bdf308b7204371d6",
-        "batch-profiles.json": "7899179ced222b4e4887c9e103e64c0bfc48aaefdc98f00e78ca36ea378f29e7"
+        "batch-profiles.json": "3ed773bfc592220aefd29110740cbdb2354eea13b6aea3b516abd1be291870a5"
       },
       "reason": "64 MiB minimizes the equal-volume makespan estimate for this loopback profile."
     }
