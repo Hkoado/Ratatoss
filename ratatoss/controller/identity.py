@@ -44,6 +44,8 @@ def issue_enrollment_code(connection: sqlite3.Connection, *, now_ms: int,
 def enroll_device(connection: sqlite3.Connection, *, enrollment_code: str,
                   display_name: str, clock: Callable[[], int]) -> Reply:
     """Consume an unexpired code and create the device in one transaction."""
+    if not display_name or "\x00" in display_name:
+        return error(400)
     code_sha256 = secret_sha256(enrollment_code)
     with immediate_transaction(connection, clock) as now_ms:
         usable = query_row(

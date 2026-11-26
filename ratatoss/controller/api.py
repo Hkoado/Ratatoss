@@ -66,7 +66,7 @@ def create_router(*, connect: Connect, pair_code_key: bytes,
         if body is None or body.keys() != {"enrollment_code", "display_name"} \
                 or not isinstance(body["enrollment_code"], str) \
                 or not ENROLLMENT_CODE.fullmatch(body["enrollment_code"]) \
-                or not isinstance(body["display_name"], str) or not body["display_name"]:
+                or not isinstance(body["display_name"], str):
             return respond(error(400))
         return await run(lambda connection: identity.enroll_device(
             connection, enrollment_code=body["enrollment_code"],

@@ -87,10 +87,13 @@ def open_pair(connection: sqlite3.Connection, *, device: Device, request_key: st
             return error(409, IDEMPOTENCY_CONFLICT)
         if stored is not None:
             # Reveal the code again only while it is still the usable OPEN session.
-            state = _expire_if_due(connection, stored.pair_id, now_ms)
-            if state == "OPEN":
-                return Reply(stored.status, stored.result | {"pair_code": pair_code(code_key, stored.pair_id)})
-            return error(410) if state == "EXPIRED" else error(409)
+            pair = _expire_if_due(connection, stored.pair_id, now_ms)
+            if pair["state"] == "OPEN":
+                return Reply(stored.status, stored.result | {
+                    "pair_code": pair_code(code_key, stored.pair_id),
+                    "expires_at": utc(pair["expires_at_ms"]),
+                })
+            return error(410) if pair["state"] == "EXPIRED" else error(409)
 
         pair_id = str(uuid4())
         expires_at_ms = now_ms + PAIR_TTL_MS
@@ -128,7 +131,7 @@ def claim_pair(connection: sqlite3.Connection, *, device: Device, request_key: s
             (secret_sha256(body["pair_code"]),),
         )
         # Unknown, consumed and expired codes share one generic failure.
-        if row is None or _expire_if_due(connection, row["pair_id"], now_ms) != "OPEN":
+        if row is None or _expire_if_due(connection, row["pair_id"], now_ms)["state"] != "OPEN":
             return error(404)
         opener = row["opener_device_id"]
         if opener == device.device_id:
@@ -176,7 +179,7 @@ def decide_pair(connection: sqlite3.Connection, *, device: Device, pair_id: str,
         except idempotency.KeyReuseConflict:
             return error(409, IDEMPOTENCY_CONFLICT)
         if stored is not None:
-            return Reply(stored.status, _replayed_view(connection, pair_id, stored.result))
+            return _replay_decision(connection, pair_id, stored, now_ms)
 
         row = query_row(
             connection,
@@ -187,7 +190,7 @@ def decide_pair(connection: sqlite3.Connection, *, device: Device, pair_id: str,
         )
         if row is None:
             return error(404)
-        state = _expire_if_due(connection, pair_id, now_ms)
+        state = _expire_if_due(connection, pair_id, now_ms)["state"]
         if state == "EXPIRED":
             return error(410)
         if state != "CLAIMED":
@@ -210,36 +213,34 @@ def decide_pair(connection: sqlite3.Connection, *, device: Device, pair_id: str,
                 (now_ms, activate, pair_id),
             )
         view = _view(connection, pair_id, device.device_id, now_ms)
-        # Store the response without the comparison code; replays restore it from `pairs`.
+        # Restore the comparison code only while the session still permits it.
         stored_view = {name: value for name, value in view.items() if name != "comparison_code"}
         idempotency.record(connection, scope, digest, status=200, result=stored_view,
                            pair_id=pair_id, now_ms=now_ms)
     return Reply(200, view)
 
 
-def _expire_if_due(connection: sqlite3.Connection, pair_id: str, now_ms: int) -> str:
-    """Persist expiry for a pending session whose deadline has passed and return the state."""
+def _expire_if_due(connection: sqlite3.Connection, pair_id: str, now_ms: int) -> sqlite3.Row:
+    """Persist expiry for a pending session and return its current fields."""
     connection.execute(
         "UPDATE pairs SET state = 'EXPIRED' WHERE pair_id = ? AND state IN ('OPEN', 'CLAIMED') "
         "AND expires_at_ms <= ?",
         (pair_id, now_ms),
     )
-    return query_row(connection, "SELECT state FROM pairs WHERE pair_id = ?", (pair_id,))["state"]
+    return query_row(connection, "SELECT state, expires_at_ms FROM pairs WHERE pair_id = ?", (pair_id,))
 
 
-def _replayed_view(connection: sqlite3.Connection, pair_id: str, stored: dict) -> dict:
-    """Rebuild the committed decision response for a pair member.
-
-    The caller's token was rechecked under the write lock, and the key's device
-    scope limits replays to the member that made the decision. Only the
-    comparison code is read back.
-    """
-    if stored["state"] != "CLAIMED":
-        return stored
-    row = query_row(connection, "SELECT comparison_code FROM pairs WHERE pair_id = ?", (pair_id,))
-    view = dict(stored)
-    view.pop("state")
-    return view | {"comparison_code": row["comparison_code"], "state": "CLAIMED"}
+def _replay_decision(connection: sqlite3.Connection, pair_id: str, stored: idempotency.Stored,
+                     now_ms: int) -> Reply:
+    """Rebuild a committed decision using the session's current code visibility."""
+    pair = _expire_if_due(connection, pair_id, now_ms)
+    view = stored.result | {"expires_at": utc(pair["expires_at_ms"])}
+    if view["state"] == "CLAIMED":
+        if pair["state"] != "CLAIMED":
+            return error(410) if pair["state"] == "EXPIRED" else error(409)
+        row = query_row(connection, "SELECT comparison_code FROM pairs WHERE pair_id = ?", (pair_id,))
+        view["comparison_code"] = row["comparison_code"]
+    return Reply(stored.status, view)
 
 
 def _view(connection: sqlite3.Connection, pair_id: str, viewer: str, now_ms: int) -> dict:

@@ -51,7 +51,9 @@ def secret_sha256(value: str) -> bytes:
 
 
 def utc(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    seconds, milliseconds = divmod(ms, 1000)
+    stamp = datetime.fromtimestamp(seconds, timezone.utc).replace(microsecond=milliseconds * 1000)
+    return stamp.isoformat(timespec="milliseconds" if milliseconds else "seconds").replace("+00:00", "Z")
 
 
 def connection_state(heartbeat_at_ms: int | None, now_ms: int) -> str:

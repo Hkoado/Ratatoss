@@ -12,6 +12,7 @@ import time
 import unittest
 import uuid
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import uvicorn
@@ -254,6 +255,21 @@ class EnrollmentTests(ControllerTestCase):
         self.assert_error(wrong_type, 400, "INVALID_REQUEST")
         self.assertEqual(self.db.execute("SELECT count(*) FROM devices").fetchone()[0], 0)
 
+    def test_nul_in_display_name_returns_bad_request_and_keeps_code_usable(self):
+        code = issue_enrollment_code(self.db, now_ms=START_MS)
+        for name in ("\x00Atlas", "Atlas\x00Birch"):
+            result = self.http("POST", "/v1/devices/enroll", body={
+                "enrollment_code": code, "display_name": name,
+            })
+            self.assert_error(result, 400, "INVALID_REQUEST")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM devices").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT consumed_at_ms, device_id FROM enrollments").fetchone(),
+                         (None, None))
+        valid = self.http("POST", "/v1/devices/enroll", body={
+            "enrollment_code": code, "display_name": "Atlas",
+        })
+        self.assertEqual(valid[0], 201)
+
 
 class AuthenticationTests(ControllerTestCase):
     def test_missing_malformed_unknown_and_revoked_tokens_are_rejected(self):
@@ -484,14 +500,49 @@ class IdempotencyTests(ControllerTestCase):
         self.assert_error(self.decide(self.atlas, opened["pair_id"], "REJECT", key=key), 409, "STATE_CONFLICT")
         # The same key on another device is a separate scope.
         self.assertEqual(self.decide(self.birch, opened["pair_id"], key=key)[1]["state"], "ACTIVE")
-        # A replay returns the committed result, not the pair's later state.
-        self.assertEqual(self.decide(self.atlas, opened["pair_id"], key=key)[:2], first[:2])
+        # The initiating decision committed, but its comparison code is no longer available.
+        self.assert_error(self.decide(self.atlas, opened["pair_id"], key=key), 409, "STATE_CONFLICT")
         self.assertEqual(self.decide(self.birch, opened["pair_id"], key=key)[1]["state"], "ACTIVE")
 
         stored = [json.loads(row[0]) for row in self.db.execute(
             "SELECT result_json FROM idempotency WHERE route = ?", (f"/v1/pairs/{opened['pair_id']}/decision",))]
         self.assertEqual([result["state"] for result in stored], ["CLAIMED", "ACTIVE"])
         self.assertFalse(any("comparison_code" in result for result in stored))
+
+    def test_pair_deadline_reported_on_wire_matches_sqlite_at_fractional_time(self):
+        self.clock.now_ms = START_MS + 789
+        opened = self.open_pair(self.atlas)
+        wire = datetime.fromisoformat(opened["expires_at"])
+        deadline_ms = (wire - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1)
+        self.assertEqual(deadline_ms, self.pair_row(opened["pair_id"])["expires_at_ms"])
+        self.clock.now_ms = deadline_ms
+        self.assert_error(self.claim(self.birch, opened["pair_code"]), 404, "NOT_FOUND")
+        self.assertEqual(self.pair_row(opened["pair_id"])["state"], "EXPIRED")
+
+    def test_claimed_replay_at_deadline_commits_expiry_and_hides_code(self):
+        opened = self.open_pair(self.atlas)
+        pair_id = opened["pair_id"]
+        self.claim(self.birch, opened["pair_code"])
+        key = str(uuid.uuid4())
+        self.assertEqual(self.decide(self.atlas, pair_id, key=key)[1]["state"], "CLAIMED")
+        self.clock.now_ms = START_MS + TTL_MS
+        self.assertEqual(self.pairs(self.atlas)[0]["state"], "EXPIRED")
+        retry = self.decide(self.atlas, pair_id, key=key)
+        self.assert_error(retry, 410, "EXPIRED")
+        self.assertNotIn("comparison_code", retry[1])
+        self.assertEqual(self.pair_row(pair_id)["state"], "EXPIRED")
+        self.assert_error(self.decide(self.atlas, pair_id, key=key), 410, "EXPIRED")
+
+    def test_claimed_replay_after_peer_rejects_hides_code(self):
+        opened = self.open_pair(self.atlas)
+        pair_id = opened["pair_id"]
+        self.claim(self.birch, opened["pair_code"])
+        key = str(uuid.uuid4())
+        self.assertEqual(self.decide(self.atlas, pair_id, key=key)[1]["state"], "CLAIMED")
+        self.assertEqual(self.decide(self.birch, pair_id, "REJECT")[1]["state"], "DECLINED")
+        retry = self.decide(self.atlas, pair_id, key=key)
+        self.assert_error(retry, 409, "STATE_CONFLICT")
+        self.assertNotIn("comparison_code", retry[1])
 
     def test_rejection_replay_returns_the_declined_result(self):
         opened = self.open_pair(self.atlas)
