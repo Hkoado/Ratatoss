@@ -56,6 +56,21 @@ Node dùng `Manifest.from_json(raw)` để đọc manifest độc lập. Với m
 
 Dùng `Manifest.canonical_bytes()` để lưu metadata canonical và `Manifest.manifest_sha256()` để tính digest của metadata. `Manifest.sha256` là digest của toàn bộ payload. CLI `verify` đọc được các tệp manifest v1 dạng thụt lề của CLI `manifest` và dạng canonical.
 
+## Mô-đun ghi danh và ghép cặp của controller
+
+[`ratatoss/controller/`](../../ratatoss/controller/__init__.py) hiện thực `POST /v1/devices/enroll`, `GET /v1/devices/me`, `POST /v1/pairs`, `POST /v1/pairs/claim`, `GET /v1/pairs` và `POST /v1/pairs/{pair_id}/decision`. Route hủy cặp và mọi route job, offer, lease thuộc phần tích hợp control plane.
+
+| Giao diện | Dùng khi |
+| --- | --- |
+| `create_router(connect=..., pair_code_key=...)` | Gắn các route trên vào ứng dụng controller. `connect` trả kết nối SQLite controller mới cho mỗi request. `pair_code_key` dài tối thiểu 32 byte, nằm ngoài DB và giữ ổn định qua restart để dựng lại mã ghép khi phát lại request tạo cặp. |
+| `authenticate(connection, authorization_headers)` | Lấy `Device` của người gọi từ đúng một header `Authorization: Bearer <token>`. Trả `None` khi thiếu, sai định dạng, không tồn tại hoặc đã thu hồi. |
+| `still_valid(connection, device)` | Kiểm lại đúng token của `Device` trong giao dịch ghi hiện tại. Gọi ngay sau `BEGIN IMMEDIATE`, trước tra cứu idempotency hay ghi. Trả `False` khi token đã bị thu hồi trong lúc request chờ khóa. |
+| `active_pair_id(connection, a, b)` | Kiểm hai thiết bị có cặp `ACTIVE`. Gọi trong giao dịch tạo job cho từng đích. |
+| `active_peer_ids(connection, device_id)` | Liệt kê thiết bị người gọi có thể chọn làm đích. |
+| `issue_enrollment_code(connection, now_ms=...)` | Cấp mã ghi danh một lần, TTL 10 phút, để quản trị chia sẻ ngoài băng. |
+
+DB chỉ giữ SHA-256 của mã ghi danh, token và mã ghép. Mã đối chiếu sáu chữ số chỉ trả qua API đã xác thực cho hai thành viên. Bản ghi idempotency giữ kết quả đã lọc, không chứa mã ghép hay mã đối chiếu. Phát lại tạo cặp trả lại mã khi phiên còn `OPEN`, trả `409` khi đã claim và `410` khi đã hết hạn. Phát lại quyết định trả kết quả đã commit theo quyền hiện tại. Kết quả `CLAIMED` chỉ trả lại mã đối chiếu nếu phiên vẫn `CLAIMED` và còn hạn. Phiên đã hết hạn trả `410`, còn phiên đã chuyển sang trạng thái khác trả `409`. Đọc `GET /v1/pairs` để lấy trạng thái hiện tại. Thao tác ghi đọc đồng hồ sau khi có khóa `BEGIN IMMEDIATE`, nên request phải chờ khóa qua `expires_at` vẫn bị từ chối. Tạo cặp, claim và quyết định cũng kiểm lại token ngay sau khi có khóa, trước tra cứu idempotency. Token bị thu hồi trong lúc request chờ khóa nhận `401`, không ghi thay đổi và không phát lại phản hồi đã lưu. Hạn TTL giữ độ chính xác mili giây trên wire. Yêu cầu tại đúng `expires_at` bị từ chối. Ghi danh với tên chứa NUL trả `400` và giữ mã cho lần thử lại. Router giới hạn tốc độ ghi danh theo nguồn, và giới hạn claim theo cả nguồn lẫn thiết bị, với ngưỡng mặc định 10 và 20 request mỗi phút.
+
 ## API loopback của starter hiện tại
 
 [app.py](../../ratatoss/app.py) phục vụ các route chỉ đọc sau tại `http://127.0.0.1:8765` mặc định.

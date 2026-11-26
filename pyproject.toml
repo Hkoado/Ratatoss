@@ -13,7 +13,7 @@ dependencies = ["fastapi>=0.111,<1", "uvicorn>=0.29,<1"]
 ratatoss = "ratatoss.__main__:main"
 
 [tool.setuptools]
-packages = ["ratatoss"]
+packages = ["ratatoss", "ratatoss.controller"]
 
 [tool.setuptools.package-data]
 ratatoss = ["static/*"]
