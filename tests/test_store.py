@@ -103,6 +103,17 @@ class NodeStoreTests(unittest.TestCase):
         return [(event["event_kind"], json.loads(event["payload_json"]))
                 for event in store.pending_events(self.job_id)]
 
+    @staticmethod
+    def block_read(blocked_path):
+        original_open = Path.open
+
+        def deny(path, *args, **kwargs):
+            if path == blocked_path:
+                raise PermissionError("test simulates a sharing violation")
+            return original_open(path, *args, **kwargs)
+
+        return patch.object(Path, "open", deny)
+
     def crash(self, window, *, assignment=""):
         run = subprocess.run(
             [sys.executable, "-B", "-c", CRASH, str(self.data), self.job_id, window, assignment],
@@ -353,14 +364,7 @@ class NodeStoreTests(unittest.TestCase):
             store.begin_receive(second_job, 0, attempt).write_bytes(b"abcdef")
             store.commit_receive(attempt)
 
-        original_open = Path.open
-
-        def deny_batch(path, *args, **kwargs):
-            if path == blocked:
-                raise PermissionError("test simulates a sharing violation")
-            return original_open(path, *args, **kwargs)
-
-        with patch.object(Path, "open", deny_batch):
+        with self.block_read(blocked):
             store = self.enterContext(NodeStore(self.data))
             self.assertEqual(store.inventory(self.job_id), (1,))
             self.assertEqual(store.inventory(second_job), (0,))
@@ -371,6 +375,78 @@ class NodeStoreTests(unittest.TestCase):
         self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [0, 1])
         with store.tx_batch(self.job_id, 0) as tx:
             self.assertEqual(tx.read_bytes(), b"abcdef")
+
+    def test_startup_isolates_locked_source_snapshot_until_reconcile(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+        snapshot = self.data / "jobs" / source_job / "source.bin"
+
+        with self.block_read(snapshot):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.inventory(source_job), ())
+            self.assertEqual(store.reconcile(source_job), ())
+            self.assertEqual(store.inventory(self.job_id), (0,))
+            with store.tx_batch(self.job_id, 0) as tx:
+                self.assertEqual(tx.read_bytes(), b"abcdef")
+            with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                with store.tx_batch(source_job, 0):
+                    self.fail("TX opened before revalidating the snapshot")
+
+        self.assertEqual(store.reconcile(source_job), (0, 1))
+        snapshot_event, = store.pending_events(source_job)
+        self.assertEqual(json.loads(snapshot_event["payload_json"])["verified_batch_ids"], [0, 1])
+        with store.tx_batch(source_job, 1) as tx:
+            self.assertEqual(tx.read_bytes(), b"ghij")
+
+    def test_startup_defers_locked_delivery_receipt_until_reconcile(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            store.publish_delivery(self.job_id)
+            receipt = store.pending_events(self.job_id)[-1]
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+
+        with self.block_read(self.output):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.inventory(source_job), (0, 1))
+            with store.tx_batch(source_job, 0) as tx:
+                self.assertEqual(tx.read_bytes(), b"abcdef")
+            self.assertEqual(store.reconcile(self.job_id), (0, 1))
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+            self.assertEqual(self.rows("SELECT request_key FROM outbox WHERE event_kind = 'RECEIPT'"),
+                             [(receipt["request_key"],)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+
+        self.assertEqual(store.reconcile(self.job_id), (0, 1))
+        recovered = store.pending_events(self.job_id)[-1]
+        self.assertEqual(recovered["event_kind"], "RECEIPT")
+        self.assertEqual((recovered["request_key"], recovered["payload_json"]),
+                         (receipt["request_key"], receipt["payload_json"]))
+
+    def test_startup_keeps_delivery_proof_while_output_is_locked(self):
+        empty = self.root / "empty.bin"
+        empty.write_bytes(b"")
+        with NodeStore(self.data) as store:
+            self.register(store, build_manifest(empty))
+        self.crash("after-delivery-publish")
+
+        with self.block_read(self.output):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHING",)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+            with self.assertRaisesRegex(StoreError, "^DELIVERY_NOT_AVAILABLE$"):
+                store.publish_delivery(self.job_id)
+
+        self.assertEqual(store.reconcile(self.job_id), ())
+        self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+        self.assertEqual(self.outbox(store)[-1][0], "RECEIPT")
 
     def test_reconnect_replaces_inventory_after_replaying_inflight_snapshot(self):
         with NodeStore(self.data) as store:

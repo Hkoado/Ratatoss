@@ -64,6 +64,8 @@ Token và mã thô không nằm trong DB hoặc audit. `result_json` chỉ giữ
 
 ## Node
 
+Khi snapshot nguồn tạm thời không đọc được, kho loại các batch của snapshot khỏi inventory đến lần đối chiếu đọc và xác minh lại thành công. Nếu file đích tạm thời không đọc được khi mở kho, receipt đang chờ được giữ nguyên trong SQLite và tạm ẩn khỏi hàng gửi. `reconcile()` hoặc `publish_delivery()` kiểm lại file đích trước khi khôi phục việc gửi receipt.
+
 | Bảng | Khóa và dữ liệu |
 |---|---|
 | `local_jobs` | PK `job_id`, nguồn và vai trò `SOURCE`/`TARGET`. Đích lưu `offer_id`, consent, khóa yêu cầu consent hiện hành và quyền forward. Manifest canonical, digest, root riêng của job, đường dẫn snapshot bất biến của nguồn, thời điểm tạo/đóng. |

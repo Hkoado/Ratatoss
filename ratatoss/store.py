@@ -50,6 +50,8 @@ def _file_state(path: Path, size: int, verify) -> str:
             return "AVAILABLE"
     except FileNotFoundError:
         return "MISSING"
+    except OSError:
+        return "UNREADABLE"
     except ValueError:
         pass
     return "CORRUPT"
@@ -70,6 +72,7 @@ class NodeStore:
         self._locks = WeakValueDictionary()
         self._locks_guard = Lock()
         self._active_tx: dict[tuple[str, int], dict[Path, Event]] = {}
+        self._deferred_deliveries: set[str] = set()
         lock_path = self.root / "store.lock"
         if os.path.lexists(lock_path):
             check_path(lock_path)
@@ -227,6 +230,8 @@ class NodeStore:
                 if existing is not None and self._stored_manifest(existing) != manifest:
                     raise StoreError("JOB_CONFLICT")
                 state = self._source_state(snapshot, manifest)
+                if state == "UNREADABLE":
+                    raise StoreError("SOURCE_NOT_AVAILABLE")
                 if state != "AVAILABLE":
                     snapshot.unlink(missing_ok=True)
                     publish(temporary, snapshot)
@@ -360,11 +365,8 @@ class NodeStore:
 
     @staticmethod
     def _batch_state(path, manifest, batch_id):
-        try:
-            return _file_state(path, manifest.batches[batch_id].size,
-                               lambda: verify_batch(path, manifest, batch_id))
-        except OSError:
-            return "UNREADABLE"
+        return _file_state(path, manifest.batches[batch_id].size,
+                           lambda: verify_batch(path, manifest, batch_id))
 
     @staticmethod
     def _source_state(path, manifest):
@@ -420,7 +422,7 @@ class NodeStore:
             return self._inventory(db, job_id)
 
     def reconcile(self, job_id: str) -> tuple[int, ...]:
-        """Rescan a job on reconnect and queue a fresh snapshot for this boot."""
+        """Rescan a job on reconnect and retry deferred delivery verification."""
         job_id = _uuid(job_id)
         with self._job_lock(job_id):
             with self._db() as db:
@@ -428,11 +430,19 @@ class NodeStore:
                 if job["role"] == "TARGET":
                     self._target(job)
             source = job["role"] == "SOURCE"
-            batches = self._scan_batches(job_id, self._stored_manifest(job), source)
+            manifest = self._stored_manifest(job)
+            batches = self._scan_batches(job_id, manifest, source)
             with self._db(write=True) as db:
                 self._record_scan(db, job_id, batches, adopt=source)
                 self._snapshot(db, job_id)
-                return self._inventory(db, job_id)
+                inventory = self._inventory(db, job_id)
+        if job_id in self._deferred_deliveries:
+            with self._job_lock(job_id, delivery=True):
+                if job_id in self._deferred_deliveries:
+                    with self._db() as db:
+                        delivery = self._delivery(db, job_id)
+                    self._recover_delivery(job_id, manifest, delivery)
+        return inventory
 
     @contextmanager
     def tx_batch(self, job_id: str, batch_id: int, *, cancel_event: Event | None = None):
@@ -558,8 +568,10 @@ class NodeStore:
                 inventory = self._inventory(db, job_id)
             manifest = self._stored_manifest(job)
             planned = Path(delivery["intended_path"])
-            if delivery["state"] == "PUBLISHING":
+            if delivery["state"] == "PUBLISHING" or job_id in self._deferred_deliveries:
                 delivery = self._recover_delivery(job_id, manifest, delivery)
+                if job_id in self._deferred_deliveries:
+                    raise StoreError("DELIVERY_NOT_AVAILABLE")
             if delivery["state"] == "PUBLISHED":
                 if destination is not None and Path(destination) != planned:
                     raise StoreError("DELIVERY_ALREADY_PUBLISHED")
@@ -653,13 +665,19 @@ class NodeStore:
                         owns_output = True
             except (ValueError, FileNotFoundError):
                 owns_output = False
+            except OSError:
+                self._deferred_deliveries.add(job_id)
+                return delivery
             state = "PATH_CONFLICT" if os.path.lexists(path) else "PLANNED"
-            verified = owns_output and self._source_state(path, manifest) == "AVAILABLE"
-            if verified:
+            output_state = self._source_state(path, manifest) if owns_output else None
+            if output_state == "UNREADABLE":
+                self._deferred_deliveries.add(job_id)
+                return delivery
+            if output_state == "AVAILABLE":
                 sync_directory(path.parent)
                 receipt = self._receipt(manifest)
             with self._db(write=True) as db:
-                if verified:
+                if output_state == "AVAILABLE":
                     self._commit_delivery(db, job_id, path, receipt)
                 else:
                     self._set_delivery(db, job_id, path, state)
@@ -667,12 +685,17 @@ class NodeStore:
             with self._db() as db:
                 pending = db.execute("SELECT 1 FROM outbox WHERE job_id = ? AND event_kind = 'RECEIPT'",
                                      (job_id,)).fetchone()
-            if pending is not None and self._source_state(path, manifest) != "AVAILABLE":
+            output_state = self._source_state(path, manifest) if pending is not None else None
+            if output_state == "UNREADABLE":
+                self._deferred_deliveries.add(job_id)
+                return delivery
+            if output_state in ("MISSING", "CORRUPT"):
                 state = "PATH_CONFLICT" if os.path.lexists(path) else "PLANNED"
                 with self._db(write=True) as db:
                     db.execute("DELETE FROM outbox WHERE job_id = ? AND event_kind = 'RECEIPT'", (job_id,))
                     self._set_delivery(db, job_id, path, state)
         self._clear_stage(job_id)
+        self._deferred_deliveries.discard(job_id)
         with self._db() as db:
             return self._delivery(db, job_id)
 
@@ -705,11 +728,12 @@ class NodeStore:
     def _ordered_events(self, db, job_id):
         return db.execute(
             """SELECT * FROM outbox WHERE job_id = ?
+               AND (event_kind <> 'RECEIPT' OR ?)
                ORDER BY CASE
                    WHEN sent_boot_id = ? THEN 0 WHEN event_kind = 'RECONCILE' THEN 1
                    WHEN event_kind = 'ACK' THEN 2 ELSE 3 END,
                    event_id""",
-            (job_id, self.boot_id),
+            (job_id, job_id not in self._deferred_deliveries, self.boot_id),
         )
 
     def mark_event_sent(self, job_id: str, request_key: str) -> None:
