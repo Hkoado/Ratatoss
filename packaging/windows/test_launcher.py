@@ -41,7 +41,7 @@ from launcher import (
     DATA_PERMISSION_ERROR, EXIT_DATA_PERMISSION, bind_loopback, check_web, main, open_web, terminal_menu,
 )
 from node_ipc import NodeDataPermissionError, NodeIPC
-from ratatoss.database import APPLICATION_IDS, NODE_DATABASE_NAME, SCHEMA_VERSION, initialize_database
+from ratatoss.database import APPLICATION_IDS, NODE_DATABASE_NAME, initialize_database
 from ratatoss.settings import LOOPBACK
 
 INSTALL = os.environ.get("RATATOSS_TEST_WINDOWS_APP")
@@ -320,6 +320,11 @@ class InstalledStarterTests(unittest.TestCase):
 
         launch(web_program)
         self.assertIn(f"http://{LOOPBACK}:{port}/", launch(terminal_program, "2\n3\n"))
-        with contextlib.closing(sqlite3.connect(database)) as db:
-            self.assertEqual(db.execute("PRAGMA application_id").fetchone()[0], APPLICATION_IDS["node"])
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+        with tempfile.TemporaryDirectory() as reference_dir:
+            reference = Path(reference_dir) / NODE_DATABASE_NAME
+            initialize_database(reference, "node")
+            with (contextlib.closing(sqlite3.connect(reference)) as expected,
+                  contextlib.closing(sqlite3.connect(database)) as db):
+                self.assertEqual(db.execute("PRAGMA application_id").fetchone()[0], APPLICATION_IDS["node"])
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(),
+                                 expected.execute("PRAGMA user_version").fetchone())
