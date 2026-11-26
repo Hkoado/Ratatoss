@@ -8,13 +8,12 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request
-from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from ..manifest import decode_manifest_object
-from . import connections, leases
+from . import connections, idempotency, leases
+from .api import respond
+from .common import IDEMPOTENCY_CONFLICT, Reply, decode_body, error, payload_sha256
 from .registry import SQLITE_MAX_INTEGER, Registry, RegistryError, is_uuid4, validate_job
-from .request_log import RequestKey
 from .runtime import ControllerRuntime
 
 Identify = Callable[[sqlite3.Connection, list[str]], str | None]
@@ -22,24 +21,6 @@ ActivePairId = Callable[[sqlite3.Connection, str, str], str | None]
 Operation = Callable[[Registry, str, dict | None, bool], dict]
 DIGEST = re.compile(r"[0-9a-f]{64}")
 LOGGER = logging.getLogger(__name__)
-
-_ERRORS = {
-    400: ("INVALID_REQUEST", "Invalid request."),
-    401: ("UNAUTHENTICATED", "Valid device credential required."),
-    404: ("NOT_FOUND", "Resource unavailable."),
-    409: ("STATE_CONFLICT", "Request conflicts with the current state."),
-    410: ("EXPIRED", "Offer or lease has expired."),
-}
-
-
-def _response(status: int, body: dict) -> JSONResponse:
-    return JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"})
-
-
-def _error(error: RegistryError) -> tuple[int, dict]:
-    code, default = _ERRORS[error.status]
-    return error.status, {"error": {"code": code, "message": error.message or default}}
-
 
 async def _payload(request: Request, *, expected: bool, limit: int) -> dict | None:
     content_types = request.headers.getlist("content-type")
@@ -55,25 +36,9 @@ async def _payload(request: Request, *, expected: bool, limit: int) -> dict | No
     if not expected:
         return None
     try:
-        body = decode_manifest_object(bytes(raw))
-        # A body can contain a lone surrogate via a JSON escape. Reject it before
-        # fields or request digests can reach SQLite.
-        _valid_unicode(body)
+        return decode_body(bytes(raw))
     except (ValueError, RecursionError) as exc:
         raise RegistryError(400) from exc
-    return body
-
-
-def _valid_unicode(value) -> None:
-    if isinstance(value, str):
-        value.encode("utf-8")
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            key.encode("utf-8")
-            _valid_unicode(item)
-    elif isinstance(value, list):
-        for item in value:
-            _valid_unicode(item)
 
 
 def _keys(body: dict, *fields: str) -> None:
@@ -158,7 +123,7 @@ def create_control_router(runtime: ControllerRuntime, *, identify: Identify,
             except RegistryError as exc:
                 parse_error = exc
 
-        def work() -> tuple[int, dict]:
+        def work() -> Reply:
             # Identify under the same lock used to authorize and record mutations.
             with runtime.transaction(write=method != "GET" or refresh) as registry:
                 try:
@@ -172,31 +137,39 @@ def create_control_router(runtime: ControllerRuntime, *, identify: Identify,
                     if durable and (len(keys) != 1 or not is_uuid4(keys[0])):
                         raise RegistryError(400)
 
-                    key = None
+                    scope = None
+                    previous = None
                     if durable:
+                        scope = idempotency.Scope(device_id, method, route, keys[0])
                         try:
-                            key = RequestKey.for_payload(device_id, method, route, keys[0], payload)
-                        except ValueError as exc:
+                            digest = payload_sha256(payload)
+                        except (ValueError, RecursionError) as exc:
                             raise RegistryError(400) from exc
-                    previous = key.find(registry) if key is not None else None
+                        previous = idempotency.find(registry.db, scope, digest)
                     if previous is not None and not recheck_on_replay:
-                        return previous
+                        return Reply(previous.status, previous.result)
                     result = operation(registry, device_id, payload, previous is not None)
-                    if key is not None and previous is None:
+                    if scope is not None and previous is None:
                         if resource == "offer":
-                            scope = registry.row("SELECT job_id FROM offers WHERE offer_id = ?", (resource_id,))
+                            linked_row = registry.row("SELECT job_id FROM offers WHERE offer_id = ?", (resource_id,))
                         elif resource == "assignment":
-                            scope = registry.row("SELECT job_id FROM assignments WHERE assignment_id = ?",
+                            linked_row = registry.row("SELECT job_id FROM assignments WHERE assignment_id = ?",
                                                  (resource_id,))
                         else:
-                            scope = result
-                        job_id = scope["job_id"] if "job_id" in scope.keys() else None
-                        key.record(registry, status, result, job_id=job_id, pair_id=result.get("pair_id"))
-                    return status, result
+                            linked_row = result
+                        job_id = linked_row["job_id"] if "job_id" in linked_row.keys() else None
+                        safe_result = {field: value for field, value in result.items() if field != "croc_code"}
+                        idempotency.record(
+                            registry.db, scope, digest, status=status, result=safe_result, job_id=job_id,
+                            pair_id=result.get("pair_id"), now_ms=registry.now_ms,
+                        )
+                    return Reply(status, result)
+                except idempotency.KeyReuseConflict:
+                    return error(409, IDEMPOTENCY_CONFLICT)
                 except RegistryError as exc:
-                    return _error(exc)
+                    return error(exc.status, exc.message)
 
-        return _response(*(await run_in_threadpool(work)))
+        return respond(await run_in_threadpool(work))
 
     @router.delete("/pairs/{pair_id}")
     async def revoke_pair(pair_id: str, request: Request):

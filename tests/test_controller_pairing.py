@@ -47,7 +47,7 @@ class Clock:
 class ControllerServer:
     """Serve the pairing router on an ephemeral loopback port."""
 
-    def __init__(self, db_path: Path, clock: Clock, **router_options):
+    def __init__(self, db_path: Path, clock: Clock, *, app=None, **router_options):
         self.on_connect = None  # Optional hook run on each request's connection.
 
         def connect():
@@ -56,15 +56,20 @@ class ControllerServer:
                 self.on_connect(connection)
             return connection
 
-        app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-        app.include_router(create_router(
-            connect=connect,
-            pair_code_key=CODE_KEY, clock=clock, **router_options,
-        ))
+        standalone = app is None
+        if standalone:
+            app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+            app.include_router(create_router(
+                connect=connect,
+                pair_code_key=CODE_KEY, clock=clock, **router_options,
+            ))
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
         self.port = listener.getsockname()[1]
-        self.server = uvicorn.Server(uvicorn.Config(app, log_level="warning", lifespan="off"))
+        self.server = uvicorn.Server(uvicorn.Config(
+            app, log_level="warning", access_log=False, ws="none",
+            lifespan="off" if standalone else "on",
+        ))
         self.thread = threading.Thread(target=self.server.run, kwargs={"sockets": [listener]}, daemon=True)
         self.thread.start()
         deadline = time.monotonic() + 10
@@ -104,9 +109,12 @@ class ControllerTestCase(unittest.TestCase):
         self.db = open_database(self.db_path, "controller")
         self.addCleanup(self.db.close)
         self.clock = Clock()
-        self.server = ControllerServer(self.db_path, self.clock, **self.router_options)
+        self.server = self.start_server()
         self.addCleanup(self.server.close)
         self.secrets: list[str] = []
+
+    def start_server(self):
+        return ControllerServer(self.db_path, self.clock, **self.router_options)
 
     def http(self, *args, **kwargs):
         return self.server.request(*args, **kwargs)

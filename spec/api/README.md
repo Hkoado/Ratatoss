@@ -88,3 +88,32 @@ Starter chỉ nhận client loopback và giá trị Host khớp chính xác đ�
 `create_control_app` gắn các route job, offer, thu hồi cặp, heartbeat, reconcile, assignment và receipt. Hàm nhận một `ControllerRuntime` cùng hai hàm tra cứu danh tính và cặp đang hoạt động. Tra danh tính cho các thao tác ghi diễn ra sau khi giữ khóa SQLite, trước khi tra khóa idempotency. App chạy bộ lập lịch định kỳ mỗi giây và hủy lease cũ lúc khởi động.
 
 `python -m unittest discover -s tests -p test_control_state.py -v` chạy kiểm thử controller với SQLite tạm và yêu cầu HTTP thật qua Uvicorn trên loopback. Ca HTTP dùng danh tính tổng hợp trong SQLite. Các ca kiểm tra cả response lẫn DB cho khóa JSON lặp, quyền xem offer, phát lại yêu cầu, thu hồi token khi chờ khóa, mã Croc theo vai trò, ACK và receipt. [Mô-đun HTTP](../../ratatoss/controller/control_api.py) · [Cấu hình topology](../operations/tech-stack.md#topology-và-ngân-sách-lease-của-controller)
+
+### Chạy controller qua HTTPS
+
+`ratatoss controller serve` nhận DB cục bộ, cấu hình topology TOML, tệp khóa ghép và cặp chứng thư/khóa TLS.
+
+```text
+ratatoss controller serve --db /absolute/controller.sqlite3 --config ./controller.toml --pair-key-file ./pair-key.hex --ssl-certfile ./cert.pem --ssl-keyfile ./tls-key.pem
+ratatoss controller issue-enrollment --db /absolute/controller.sqlite3
+```
+
+Có thể thay `--db` bằng `RATATOSS_CONTROLLER_DB`. Server mặc định dùng `127.0.0.1:9443`. Với LAN, đặt `--host` và `--port` phù hợp rồi dùng chứng thư có tên mà Node sẽ truy cập. Chạy một tiến trình controller cho mỗi DB vì mã Croc của lease đang chạy nằm trong bộ nhớ tiến trình.
+
+Tệp `--pair-key-file` chứa 32 byte ngẫu nhiên dưới dạng 64 ký tự hex thường. Giới hạn quyền đọc tệp và giữ cùng khóa qua các lần khởi động. Lệnh cấp mã ghi danh in một mã dùng một lần, có hạn 10 phút, để quản trị gửi ngoài băng. DB chỉ lưu SHA-256 của mã.
+
+### Bằng chứng HTTP và SQLite cho R1.2
+
+Ca `test_enroll_pair_and_deliver_job_through_production_routes` dùng hai thiết bị thử và một batch 1 byte. Kết quả dưới đây đã lược định danh và mã phiên.
+
+| Mốc HTTP | Kết quả và trạng thái |
+| --- | --- |
+| Cấp mã qua CLI rồi ghi danh | `201`, mã dùng một lần được đánh dấu đã tiêu thụ |
+| Tạo job trước khi hai bên ghép | `404` |
+| Hai bên xác nhận cặp | `200 ACTIVE` |
+| Tạo job, đích chưa quyết định | `201 PENDING`, bộ lập lịch chưa cấp lần giao |
+| Đích chấp nhận, hai bên heartbeat và reconcile | `200`, SQLite cấp một lease cho batch còn thiếu |
+| Đích gọi `ready`, nguồn poll | `200 RUNNING`, hai đầu nhận cùng mã phiên |
+| Đích báo ACK và receipt | `200 ACKED` rồi `200`, job `COMPLETE` với 1 byte đã xác minh |
+
+Ca kiểm tra bộ điều phối dùng HTTP loopback và mô phỏng báo cáo của Node. Ca chạy CLI qua HTTPS trên macOS dùng chứng thư tin cậy trong client thử, nhận `201` khi ghi danh và `200` khi truy vấn offer bằng token đã cấp.

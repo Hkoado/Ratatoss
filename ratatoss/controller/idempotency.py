@@ -42,11 +42,12 @@ def find(connection: sqlite3.Connection, scope: Scope, payload_sha256: bytes) ->
 
 
 def record(connection: sqlite3.Connection, scope: Scope, payload_sha256: bytes, *,
-           status: int, result: dict, pair_id: str | None, now_ms: int) -> None:
+           status: int, result: dict, now_ms: int, pair_id: str | None = None,
+           job_id: str | None = None) -> None:
     """Store a filtered result in the caller's write transaction. Never store secrets."""
     connection.execute(
         "INSERT INTO idempotency (device_id, method, route, request_key, payload_sha256, "
-        "pair_id, status_code, result_json, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "job_id, pair_id, status_code, result_json, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (scope.device_id, scope.method, scope.route, scope.request_key, payload_sha256,
-         pair_id, status, json.dumps(result, separators=(",", ":")), now_ms),
+         job_id, pair_id, status, json.dumps(result, separators=(",", ":")), now_ms),
     )

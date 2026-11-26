@@ -25,7 +25,7 @@ _ERRORS = {
     401: ("UNAUTHENTICATED", "Valid device credential required."),
     404: ("NOT_FOUND", "Resource or code unavailable."),
     409: ("STATE_CONFLICT", "Request conflicts with the current state."),
-    410: ("EXPIRED", "Pairing session has expired."),
+    410: ("EXPIRED", "Resource has expired."),
     429: ("RATE_LIMITED", "Too many requests."),
 }
 IDEMPOTENCY_CONFLICT = "Idempotency key was already used with a different payload."
@@ -73,7 +73,7 @@ def payload_sha256(body: dict | None) -> bytes:
     """Digest a validated payload for idempotency. A missing body hashes as empty."""
     if body is None:
         return hashlib.sha256(b"").digest()
-    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(canonical.encode("utf-8")).digest()
 
 
