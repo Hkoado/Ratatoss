@@ -29,6 +29,7 @@ import pywintypes
 import win32api
 import win32con
 import win32event
+import win32file
 import win32job
 import win32process
 import win32security
@@ -36,9 +37,11 @@ import winerror
 from win32com.client import Dispatch
 from win32com.shell import shell, shellcon
 
-from launcher import bind_loopback, check_web, open_web, terminal_menu
-from node_ipc import NodeIPC
-from ratatoss.database import APPLICATION_IDS, NODE_DATABASE_NAME, SCHEMA_VERSION
+from launcher import (
+    DATA_PERMISSION_ERROR, EXIT_DATA_PERMISSION, bind_loopback, check_web, main, open_web, terminal_menu,
+)
+from node_ipc import NodeDataPermissionError, NodeIPC
+from ratatoss.database import APPLICATION_IDS, NODE_DATABASE_NAME, SCHEMA_VERSION, initialize_database
 from ratatoss.settings import LOOPBACK
 
 INSTALL = os.environ.get("RATATOSS_TEST_WINDOWS_APP")
@@ -101,6 +104,56 @@ def run_installed_worker(web_program, terminal_program, configured, data, log):
 
 
 class LauncherTests(unittest.TestCase):
+    def test_data_directory_can_reopen_its_database(self):
+        ipc = NodeIPC()
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "state"
+            ipc.create_data_dir(data, NODE_DATABASE_NAME)
+            database = data / NODE_DATABASE_NAME
+            initialize_database(database, "node")
+            before = database.read_bytes()
+            ipc.create_data_dir(data, NODE_DATABASE_NAME)
+            self.assertEqual(database.read_bytes(), before)
+
+    def test_node_refuses_directory_or_database_with_access_for_other_accounts(self):
+        ipc = NodeIPC()
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "state"
+            database = data / NODE_DATABASE_NAME
+            attributes = ipc.security(inherit_acl=True)
+            attributes.SECURITY_DESCRIPTOR = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+                f"O:{ipc.sid_string}D:P(A;OICI;GA;;;{ipc.sid_string})(A;;GR;;;WD)",
+                win32security.SDDL_REVISION_1,
+            )
+            win32file.CreateDirectory(str(data), attributes)
+            with self.assertRaises(NodeDataPermissionError):
+                ipc.create_data_dir(data, NODE_DATABASE_NAME)
+            self.assertFalse(database.exists())
+            data.rmdir()
+            ipc.create_data_dir(data, NODE_DATABASE_NAME)
+            initialize_database(database, "node")
+            before = database.read_bytes()
+            win32security.SetNamedSecurityInfo(
+                str(database), win32security.SE_FILE_OBJECT, win32security.DACL_SECURITY_INFORMATION,
+                None, None, attributes.SECURITY_DESCRIPTOR.GetSecurityDescriptorDacl(), None,
+            )
+            with self.assertRaises(NodeDataPermissionError):
+                ipc.create_data_dir(data, NODE_DATABASE_NAME)
+            self.assertEqual(database.read_bytes(), before)
+
+    def test_web_launcher_reports_data_permission_failure(self):
+        with (
+            patch("launcher.sys.argv", ["Ratatoss.exe"]),
+            patch("launcher.sys.executable", "Ratatoss.exe"),
+            patch("launcher.NodeIPC") as ipc,
+            patch("launcher.subprocess.Popen") as launch,
+            patch("launcher.message_box", return_value=2) as display,
+        ):
+            ipc.return_value.read_port.return_value = None
+            launch.return_value.poll.return_value = EXIT_DATA_PERMISSION
+            self.assertEqual(main(), 2)
+            display.assert_called_once_with(DATA_PERMISSION_ERROR, 0x15)
+
     def test_mutex_allows_one_node_per_account(self):
         ipc = NodeIPC()
         ipc.mutex_name += f".test.{uuid4().hex}"
@@ -178,11 +231,14 @@ class InstalledStarterTests(unittest.TestCase):
             "terminal": start_menu / "Ratatoss Terminal.lnk",
         }
         windows_shell = Dispatch("WScript.Shell")
+        local_app_data = Path(shell.SHGetFolderPath(0, shellcon.CSIDL_LOCAL_APPDATA, None, 0)).resolve()
         for role, shortcut in shortcuts.items():
-            self.assertTrue(shortcut.is_file())
+            self.assertTrue(shortcut.is_file(), str(shortcut))
             self.assertTrue(programs[role].is_file())
-            target = windows_shell.CreateShortcut(str(shortcut)).TargetPath
-            self.assertEqual(Path(target).resolve(), programs[role])
+            properties = windows_shell.CreateShortcut(str(shortcut))
+            self.assertEqual(Path(properties.TargetPath).resolve(), programs[role])
+            self.assertEqual(Path(properties.WorkingDirectory).resolve(), local_app_data)
+            self.assertEqual(properties.Arguments, "")
         ipc = NodeIPC()
         with ipc.claim_node() as available:
             self.assertTrue(available, "Stop the existing starter before running the installed smoke.")

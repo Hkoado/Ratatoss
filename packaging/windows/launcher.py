@@ -15,8 +15,9 @@ from pathlib import Path
 import pywintypes
 import uvicorn
 
-from node_ipc import NodeIPC
+from node_ipc import NodeDataPermissionError, NodeIPC
 from ratatoss.__main__ import prepare_node
+from ratatoss.database import NODE_DATABASE_NAME
 from ratatoss.settings import LOOPBACK, NodeSettings
 
 START_TIMEOUT = 20
@@ -24,6 +25,11 @@ START_ERROR = (
     "Không khởi động được Ratatoss. Hãy kiểm tra quyền ghi thư mục dữ liệu "
     "và dung lượng đĩa, rồi thử lại."
 )
+DATA_PERMISSION_ERROR = (
+    "Thư mục dữ liệu Ratatoss hoặc tệp SQLite hiện có chưa được bảo vệ theo tài khoản. "
+    "Hãy kiểm tra quyền truy cập hoặc chọn thư mục dữ liệu riêng, rồi thử lại."
+)
+EXIT_DATA_PERMISSION = 3
 EXECUTABLE = "Ratatoss.exe"
 
 
@@ -77,7 +83,7 @@ def run_node(ipc):
             return 0
 
         settings = NodeSettings.load()
-        ipc.create_data_dir(settings.data_dir)
+        ipc.create_data_dir(settings.data_dir, NODE_DATABASE_NAME)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener, ipc.create_pipe() as pipe:
             port = bind_loopback(listener, settings.port)
             app = prepare_node(settings, port)
@@ -101,7 +107,7 @@ def get_node_port(ipc):
         return port
 
     executable = Path(sys.executable).with_name(EXECUTABLE)
-    subprocess.Popen(
+    process = subprocess.Popen(
         [str(executable), "--node"],
         cwd=executable.parent,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -113,12 +119,18 @@ def get_node_port(ipc):
         port = ipc.read_port(min(0.25, deadline - time.monotonic()))
         if port is not None:
             return port
+        if process.poll() == EXIT_DATA_PERMISSION:
+            raise NodeDataPermissionError()
         time.sleep(0.05)
     raise TimeoutError
 
 
 def message_box(message, flags):
     return ctypes.windll.user32.MessageBoxW(None, message, "Ratatoss", flags)
+
+
+def startup_error(exc):
+    return DATA_PERMISSION_ERROR if isinstance(exc, NodeDataPermissionError) else START_ERROR
 
 
 def open_web(port, *, terminal):
@@ -157,8 +169,8 @@ def terminal_menu(ipc):
             continue
         try:
             port = get_node_port(ipc)
-        except (OSError, pywintypes.error):
-            print(START_ERROR, flush=True)
+        except (OSError, pywintypes.error) as exc:
+            print(startup_error(exc), flush=True)
             continue
         if choice == "1":
             open_web(port, terminal=True)
@@ -172,6 +184,8 @@ def main():
     if sys.argv[1:] == ["--node"]:
         try:
             return run_node(ipc)
+        except NodeDataPermissionError:
+            return EXIT_DATA_PERMISSION
         except (OSError, ValueError, sqlite3.Error, pywintypes.error):
             return 2
 
@@ -180,15 +194,15 @@ def main():
             sys.stdout.reconfigure(encoding="utf-8")
         try:
             get_node_port(ipc)
-        except (OSError, pywintypes.error):
-            print(START_ERROR, flush=True)
+        except (OSError, pywintypes.error) as exc:
+            print(startup_error(exc), flush=True)
         return terminal_menu(ipc)
 
     while True:
         try:
             return 0 if open_web(get_node_port(ipc), terminal=False) else 1
-        except (OSError, pywintypes.error):
-            if message_box(START_ERROR, 0x15) != 4:
+        except (OSError, pywintypes.error) as exc:
+            if message_box(startup_error(exc), 0x15) != 4:
                 return 2
 
 

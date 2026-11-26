@@ -12,6 +12,8 @@ Nguồn triển khai gồm [Brief §6.1](../../docs/source/Ratatoss_Project_Brie
 
 Gỡ bộ cài qua **Settings → Apps → Installed apps**. Dữ liệu mặc định trong `%LOCALAPPDATA%\Ratatoss` được giữ lại.
 
+Khi gặp cảnh báo quyền truy cập dữ liệu, kiểm tra ACL của thư mục trạng thái và các tệp SQLite hiện có. Chỉ tài khoản đang chạy Ratatoss, SYSTEM và Administrators được cấp quyền. Ratatoss giữ nguyên dữ liệu và quyền hiện có khi từ chối khởi động. Nếu đang dùng `RATATOSS_NODE_DATA_DIR` trỏ tới thư mục dùng chung, hãy chọn thư mục riêng trước khi thử lại.
+
 ## Build
 
 Cần Python **3.14.2 x64**, [Inno Setup **6.7.4**](https://github.com/jrsoftware/issrc/releases/tag/is-6_7_4) và [archive Croc **v11.6.5** cho Windows x64](https://github.com/schollz/croc/releases/tag/v11.6.5). Xác nhận Inno Setup từ bản phân phối chính thức trước khi cài. Chạy từ gốc repo bằng PowerShell.
@@ -36,7 +38,7 @@ Invoke-WebRequest -UseBasicParsing -OutFile $crocZip -Uri 'https://github.com/sc
 python spec/governance/verify_originals.py
 ```
 
-Sau khi cài, đặt `$env:RATATOSS_TEST_WINDOWS_APP = Join-Path $env:LOCALAPPDATA 'Programs\Ratatoss'` và chạy lại bộ test launcher. Smoke mở shortcut **Ratatoss** từ Start Menu cùng lúc với executable Terminal, dùng thư mục làm việc bên ngoài bộ cài và dữ liệu tạm. Tài khoản thử cần bắt đầu khi Node chưa chạy. Smoke mở các tab loopback bằng trình duyệt mặc định.
+Sau khi cài, đặt `$env:RATATOSS_TEST_WINDOWS_APP = Join-Path $env:LOCALAPPDATA 'Programs\Ratatoss'` và chạy lại bộ test launcher. Smoke kiểm tra đích, thư mục làm việc và tham số của hai shortcut Start Menu, rồi chạy hai executable đồng thời từ thư mục thử riêng với dữ liệu tạm. Tài khoản thử cần bắt đầu khi Node chưa chạy. Smoke mở các tab loopback bằng trình duyệt mặc định. Dùng ca nghiệm thu trên máy sạch bên dưới để mở trực tiếp hai shortcut.
 
 ## Nghiệm thu trên máy sạch
 
