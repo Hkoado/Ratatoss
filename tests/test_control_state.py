@@ -11,12 +11,14 @@ from threading import Barrier
 from uuid import uuid4
 
 from ratatoss.controller import connections, leases, schedule
+from ratatoss.controller.config import ControllerConfig
 from ratatoss.controller.registry import (
     OFFER_TTL_MS,
     Registry,
     RegistryError,
     parse_job,
 )
+from ratatoss.controller.runtime import ControllerRuntime
 from ratatoss.database import open_database
 from ratatoss.manifest import Manifest, Segment
 
@@ -182,15 +184,15 @@ class ControlStateTests(unittest.TestCase):
         with self.transaction() as registry:
             self.prepare(registry)
             assignment, = schedule.issue_assignments(registry, self.schedule)
-            self.assert_status(409, leases.ready, registry, self.target, assignment, self.codes, None)
+            self.assert_status(409, leases.ready, registry, self.target, assignment, self.codes, {})
             self.assertIsNone(self.codes.get(assignment, self.now))
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "OFFERED")
-            self.assert_status(404, leases.ready, registry, self.source, assignment, self.codes, self.profile)
-            ready = leases.ready(registry, self.target, assignment, self.codes, self.profile)
+            self.assert_status(404, leases.ready, registry, self.source, assignment, self.codes, {"relay": self.profile})
+            ready = leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
             code = ready["croc_code"]
         self.now += 1000
         with self.transaction() as registry:
-            again = leases.ready(registry, self.target, assignment, self.codes, self.profile, replay=True)
+            again = leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile}, replay=True)
             self.assertEqual((again["croc_code"], again["lease_expires_at"]),
                              (code, ready["lease_expires_at"]))
             self.assertEqual(again["lease_remaining_ms"], ready["lease_remaining_ms"] - 1000)
@@ -203,7 +205,7 @@ class ControlStateTests(unittest.TestCase):
         with self.transaction() as registry:
             job = self.prepare(registry)
             assignment, = schedule.issue_assignments(registry, self.schedule)
-            leases.ready(registry, self.target, assignment, self.codes, self.profile)
+            leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
             self.assert_status(409, leases.ack, registry, self.target, assignment, "0" * 64)
             result = leases.ack(registry, self.target, assignment, self.manifest.batches[0].sha256)
             self.assertEqual(result["outcome"], "ACKED")
@@ -217,7 +219,7 @@ class ControlStateTests(unittest.TestCase):
             self.prepare(registry)
             first, = schedule.issue_assignments(registry, self.schedule)
             short = leases.LeaseProfile(100_000_000, 0, 0, 0, 1000, 1000)
-            leases.ready(registry, self.target, first, self.codes, short)
+            leases.ready(registry, self.target, first, self.codes, {"relay": short})
         self.now += 1000
         with self.transaction() as registry:
             second, = schedule.issue_assignments(registry, self.schedule)
@@ -232,7 +234,7 @@ class ControlStateTests(unittest.TestCase):
         with self.transaction() as registry:
             job = self.prepare(registry)
             first, = schedule.issue_assignments(registry, self.schedule)
-            leases.ready(registry, self.target, first, self.codes, self.profile)
+            leases.ready(registry, self.target, first, self.codes, {"relay": self.profile})
         self.now += 20_000
         with self.transaction() as registry:
             self.assertEqual(schedule.issue_assignments(registry, self.schedule), [])
@@ -263,7 +265,7 @@ class ControlStateTests(unittest.TestCase):
             first, = schedule.issue_assignments(registry, fixed)
             self.assertEqual(registry.row("SELECT target_device_id FROM assignments")["target_device_id"],
                              self.target)
-            leases.ready(registry, self.target, first, self.codes, self.profile)
+            leases.ready(registry, self.target, first, self.codes, {"relay": self.profile})
             leases.ack(registry, self.target, first, self.manifest.batches[0].sha256)
             second, = schedule.issue_assignments(registry, fixed)
             self.assertEqual(registry.row("SELECT source_device_id FROM assignments WHERE assignment_id = ?",
@@ -286,7 +288,7 @@ class ControlStateTests(unittest.TestCase):
         with self.transaction() as registry:
             self.prepare(registry)
             assignment, = schedule.issue_assignments(registry, self.schedule)
-            leases.ready(registry, self.target, assignment, self.codes, self.profile)
+            leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
         with self.transaction() as registry:
             leases.reset_connections(registry)
             self.assertEqual(leases.list_assignments(registry, self.source, self.codes)["assignments"], [])
@@ -297,7 +299,7 @@ class ControlStateTests(unittest.TestCase):
         with self.transaction() as registry:
             job = self.prepare(registry)
             assignment, = schedule.issue_assignments(registry, self.schedule)
-            leases.ready(registry, self.target, assignment, self.codes, self.profile)
+            leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
             registry.withdraw_offer(self.target, job["offers"][0]["offer_id"])
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "CANCELED")
             self.assert_status(409, leases.ack, registry, self.target, assignment, self.manifest.sha256)
@@ -309,3 +311,82 @@ class ControlStateTests(unittest.TestCase):
         second = codes.issue(new_id(), self.now + 1000)
         self.assertNotEqual(first[:4], second[:4])
         self.assertTrue(all(code[4] == "-" and len(code[5:]) == 32 for code in (first, second)))
+
+    def test_runtime_resets_and_commits_scheduler_work(self):
+        runtime = ControllerRuntime(
+            self.path, ControllerConfig(self.schedule, {"relay": self.profile}),
+            clock=lambda: self.now,
+        )
+        runtime.startup()
+        with runtime.transaction() as registry:
+            self.prepare(registry)
+        assignment, = runtime.tick()
+        with self.transaction() as registry:
+            state = registry.row("SELECT state FROM assignments WHERE assignment_id = ?", (assignment,))
+            self.assertEqual(state["state"], "OFFERED")
+        runtime.startup()
+        self.assertEqual(runtime.tick(), [])
+        with self.transaction() as registry:
+            state = registry.row("SELECT state FROM assignments WHERE assignment_id = ?", (assignment,))
+            self.assertEqual(state["state"], "CANCELED")
+
+    def test_runtime_rolls_back_unexpected_errors(self):
+        runtime = ControllerRuntime(
+            self.path, ControllerConfig(self.schedule, {}),
+            clock=lambda: self.now,
+        )
+        with self.assertRaisesRegex(RuntimeError, "rollback"):
+            with runtime.transaction() as registry:
+                self.create(registry, self.target)
+                raise RuntimeError("rollback")
+        with self.transaction() as registry:
+            self.assertFalse(registry.rows("SELECT job_id FROM jobs"))
+
+    def test_config_loads_routes_and_relative_benchmark_reference(self):
+        profile_path = self.path.parent / "batch-profiles.json"
+        profile_path.write_text(json.dumps({"profiles": {"64": {
+            "min_goodput_bps": 100_000_000,
+            "setup_budget_ms": 2200,
+            "verify_commit_ms": 200,
+            "margin_ms": 200,
+            "lease_ms": 75_000,
+            "adapter_timeout_ms": 75_000,
+            "basis": "fixture",
+        }}}), encoding="utf-8")
+        path = self.path.parent / "controller.toml"
+        path.write_text(f"""
+max_sessions = 4
+lan_peers = ["{self.target}", "{self.peer}"]
+
+[links.lab]
+max_sessions = 2
+benchmark = {{ path = "batch-profiles.json", profile = "64" }}
+
+[[routes]]
+source = "{self.source}"
+target = "{self.target}"
+link = "lab"
+""", encoding="utf-8")
+        config = ControllerConfig.load(path)
+        self.assertEqual(config.schedule.routes[self.source, self.target], "lab")
+        self.assertEqual(config.schedule.link_slots["lab"], 2)
+        self.assertTrue(config.lease_profiles["lab"].fits(64 * 1024**2))
+
+    def test_config_rejects_bad_route_and_accepts_link_without_budget(self):
+        path = self.path.parent / "controller.toml"
+        source = f"""
+max_sessions = 1
+
+[links.lab]
+max_sessions = 1
+
+[[routes]]
+source = "{self.source}"
+target = "{self.target}"
+link = "testing"
+"""
+        path.write_text(source, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "unknown link"):
+            ControllerConfig.load(path)
+        path.write_text(source.replace('"testing"', '"lab"'), encoding="utf-8")
+        self.assertFalse(ControllerConfig.load(path).lease_profiles)

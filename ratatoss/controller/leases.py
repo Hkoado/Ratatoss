@@ -2,6 +2,7 @@
 
 import secrets
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from string import ascii_letters, digits
 from threading import Lock
@@ -150,7 +151,7 @@ def list_assignments(registry: Registry, device_id: str, codes: SessionCodes) ->
 
 
 def ready(registry: Registry, device_id: str, assignment_id: str, codes: SessionCodes,
-          profile: LeaseProfile | None, *, replay: bool = False) -> dict:
+          profiles: Mapping[str, LeaseProfile], *, replay: bool = False) -> dict:
     maintain_leases(registry)
     codes.discard_expired(registry.now_ms)
     row = _assignment(registry, device_id, assignment_id, rx_only=True)
@@ -161,6 +162,7 @@ def ready(registry: Registry, device_id: str, assignment_id: str, codes: Session
         if code is None:
             raise RegistryError(409)
         return _view(row, "RX", registry.now_ms, code=code)
+    profile = profiles.get(row["relay_profile"])
     if replay or row["state"] != "OFFERED" or profile is None or not profile.fits(row["size_bytes"]):
         raise RegistryError(409)
     expires = registry.now_ms + profile.lease_ms
