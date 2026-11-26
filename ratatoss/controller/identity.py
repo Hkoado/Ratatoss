@@ -24,7 +24,7 @@ class Device:
     device_id: str
     display_name: str
     # Hash of the presented token, so a write can recheck that exact token.
-    token_sha256: str = field(repr=False, compare=False)
+    token_sha256: bytes = field(repr=False, compare=False)
 
 
 def issue_enrollment_code(connection: sqlite3.Connection, *, now_ms: int,
