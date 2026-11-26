@@ -1,4 +1,4 @@
-"""Run the local node, or work with manifests on the command line."""
+"""Run the Node or controller, or work with manifests on the command line."""
 
 import argparse
 import sqlite3
@@ -28,6 +28,19 @@ def main() -> int:
     node.add_argument("--data-dir", type=Path)
     controller = roles.add_parser("controller", help="Initialize the controller database")
     controller.add_argument("--db", type=Path)
+    control = commands.add_parser("controller", help="Run and administer the controller")
+    operations = control.add_subparsers(dest="controller_command", required=True)
+    controller_serve = operations.add_parser("serve", help="Serve the controller API over HTTPS")
+    controller_serve.add_argument("--db", type=Path)
+    controller_serve.add_argument("--config", type=Path, required=True, help="Controller topology and budgets in TOML")
+    controller_serve.add_argument("--pair-key-file", type=Path, required=True,
+                                  help="Private file with 64 lowercase hex digits")
+    controller_serve.add_argument("--host", default=LOOPBACK)
+    controller_serve.add_argument("--port", type=int, default=9443)
+    controller_serve.add_argument("--ssl-certfile", type=Path, required=True)
+    controller_serve.add_argument("--ssl-keyfile", type=Path, required=True)
+    issue = operations.add_parser("issue-enrollment", help="Print a one-time enrollment code")
+    issue.add_argument("--db", type=Path)
     create = commands.add_parser("manifest", help="Create a manifest")
     create.add_argument("file", type=Path)
     create.add_argument("-o", "--output", type=Path, help="Write to a new file instead of stdout")
@@ -40,6 +53,10 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if args.command == "controller":
+            from .controller.service import run
+
+            return run(args)
         if args.command in (None, "serve", "init"):
             from .database import NODE_DATABASE_NAME, initialize_database
 

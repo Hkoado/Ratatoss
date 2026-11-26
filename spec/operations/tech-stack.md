@@ -45,3 +45,24 @@ Tiến trình đọc biến trực tiếp từ môi trường. [.env.example](..
 | `RATATOSS_RX_SLOTS`, `RATATOSS_TX_SLOTS` | Số nguyên không âm, khởi điểm demo `1`, `1` | Hai ngân sách riêng. Số 0 vô hiệu hóa hướng tương ứng |
 
 Khi triển khai loader, kiểm tra kiểu, miền giá trị, quan hệ giữa các timeout và điều kiện đường dẫn lúc khởi động. Chỉ bật role đã có đủ cấu hình hợp lệ. Giới hạn upload, kích thước manifest, dung lượng staging và ngân sách disk/CPU/đường truyền dùng profile của bản đóng gói và phải được chốt trước ca đo. Mặc định tắt nhân bản dự phòng và SafeExit. Các giá trị 30/180 giây và timeout adapter cần hiệu chỉnh bằng số đo, theo [giao thức](../../docs/control-protocol.md) và [kế hoạch](../../plan/ASTRA_PLAN.md).
+
+## Topology và ngân sách lease của controller
+
+Cấu hình TOML của controller khai báo tuyến theo UUID thiết bị, giới hạn tổng số phiên và số phiên đồng thời trên mỗi link. Một link cũng là ID relay profile mà Node nhận trong assignment. Mỗi chiều cần được khai báo riêng. Ví dụ dùng hồ sơ 64 MiB của cổng 0 cho Windows loopback. Đường dẫn benchmark được tính từ thư mục chứa TOML.
+
+```toml
+max_sessions = 2
+
+[links.lab-windows-loopback]
+max_sessions = 2
+benchmark = { path = "../../bench/artifacts/r02/batch-profiles.json", profile = "64" }
+
+[[routes]]
+source = "a0000000-0000-4000-8000-000000000001"
+target = "b0000000-0000-4000-8000-000000000002"
+link = "lab-windows-loopback"
+```
+
+Thay UUID trong ví dụ bằng ID thiết bị đã ghi danh. Có thể dùng bảng `budget` thay `benchmark` trên một link với sáu trường `min_goodput_bps`, `setup_budget_ms`, `verify_commit_ms`, `margin_ms`, `lease_ms` và `adapter_timeout_ms`. Bộ lập lịch chỉ giữ slot trên link có ngân sách đủ cho batch. Controller kiểm lại ngân sách khi nhận `ready` và trả `409` nếu cấu hình hiện tại thiếu ngân sách hoặc batch vượt thời gian khả dụng. Dùng số đo phù hợp với tuyến đang chạy. [Hồ sơ ngân sách R0.2](../../bench/artifacts/r02/batch-profiles.json)
+
+`lan_peers` ở cấp gốc nhận hai UUID theo thứ tự B, C khi đã đo liên kết LAN. Bộ lập lịch chờ chặng tới peer ưu tiên khi chặng này đang có lease sống hoặc có thể cấp ngay. Khi thiếu slot hoặc ngân sách, bộ lập lịch thử nguồn khác đã cấu hình. Bảng `fallbacks` ánh xạ UUID đích tới danh sách UUID nguồn theo thứ tự ưu tiên. Mỗi nguồn dự phòng cần có tuyến tới đích. Hai giới hạn tùy chọn `max_manifest_bytes` và `max_targets` mặc định lần lượt là 4 MiB cho thân yêu cầu tạo job và 32 thiết bị đích.
