@@ -56,3 +56,15 @@ Chạy Setup qua giao diện, giữ thư mục mặc định theo tài khoản v
 VM không có adapter mạng, thư mục chia sẻ, clipboard chia sẻ hay kéo thả. Trong 1.289 mẫu theo dõi máy host, không thấy tiến trình Setup, Web hay Terminal của Ratatoss. Trạng thái host trước và sau ca giống nhau về bản cài, dữ liệu mặc định, shortcut và mục gỡ cài đặt. Trong lúc Node của VM chạy, host không có listener trên cổng `8765`.
 
 Bàn giao qua [#9](https://github.com/Hkoado/Ratatoss/issues/9) cho bản tích hợp và các ca vòng đời phiên ở [#13](https://github.com/Hkoado/Ratatoss/issues/13).
+
+## Chạy lại sau khi gộp main và sửa review · 2026-11-26
+
+Build từ commit `d6f5e91` trên Windows 11 Pro x64 23H2, build `22631.6199`, bằng Python 3.14.2, PyInstaller 6.22.3 và Inno Setup 6.7.4. Cài theo tài khoản vào thư mục thử trên ổ D với `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`. Môi trường này đã có Python. SHA-256 của installer đem thử khớp [manifest mới](issue-59.review.manifest.json), `95fa1dff9c86c3e11b97a5df7c11f2ae922b0fa815e80673a75f428b3f67667f`. Installer có trạng thái `NotSigned`.
+
+| Ca | Kết quả quan sát |
+| --- | --- |
+| Smoke bản đã cài | 8/8 ca đạt qua `python -m unittest discover -s packaging/windows -v` với `RATATOSS_TEST_WINDOWS_APP` trỏ vào bản cài thử. Smoke kiểm tra đích, thư mục làm việc và tham số của hai shortcut. Hai executable chạy đồng thời từ thư mục khác, dùng cùng Node và cổng loopback thay thế. HTML, CSS, health, Host/Origin và SQLite đạt. |
+| Kiểm tra ACL | Dùng lại DB riêng thành công. Launcher từ chối thư mục hoặc DB cấp quyền cho Everyone, giữ nguyên nội dung DB và hiển thị hướng dẫn bằng tiếng Việt. |
+| Croc và giấy phép | Croc đã cài báo `croc version 11.6.5`. SHA-256 của binary và đủ 46 tệp giấy phép khớp với manifest. |
+| Hồi quy và dọn dẹp | 208 kiểm thử repo đạt. 9 tệp gốc, schema Node/controller, bản dựng UI Kit và điểm vào CLI controller đã được kiểm tra. Sau khi gỡ bản thử, không còn shortcut, đăng ký gỡ cài đặt hay tiến trình Node của ca thử. |
+| Cài offline trên VM sạch với installer mới | Chưa chạy. Hai ca VM ở trên ghi nhận installer trước khi sửa review, theo manifest riêng của bản đó. |
