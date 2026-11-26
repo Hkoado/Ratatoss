@@ -529,6 +529,9 @@ class ControlHttpTests(ControllerFixture):
         self.request("POST", f"{route}/ready", self.peer, key=key, want=404)
         self.runtime.config = ControllerConfig(self.schedule, {"other-relay": self.profile})
         self.request("POST", f"{route}/ready", self.target, key=key, want=409)
+        short = leases.LeaseProfile(100_000_000, 1000, 1000, 1000, 1000, 1000)
+        self.runtime.config = ControllerConfig(self.schedule, {"relay": short})
+        self.request("POST", f"{route}/ready", self.target, key=key, want=409)
         with self.transaction() as registry:
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "OFFERED")
         self.runtime.config = ControllerConfig(self.schedule, {"relay": self.profile})
@@ -565,6 +568,29 @@ class ControlHttpTests(ControllerFixture):
         self.reconcile_http(job_id, self.target, [0])
         self.request("POST", f"/jobs/{job_id}/receipt", self.target, body=receipt, key=new_id())
         self.assertEqual(self.request("GET", f"/jobs/{job_id}/status", self.source)["state"], "COMPLETE")
+
+    def test_http_ready_cancels_replacement_after_late_ack_before_next_tick(self):
+        self.open_job()
+        short = leases.LeaseProfile(100_000_000, 0, 0, 0, 1000, 1000)
+        self.runtime.config = ControllerConfig(self.schedule, {"relay": short})
+        first, = self.runtime.tick()
+        self.request("POST", f"/assignments/{first}/ready", self.target, key=new_id())
+        self.now += short.lease_ms
+        replacement, = self.runtime.tick()
+        body = {"batch_sha256": self.manifest.batches[0].sha256}
+        late = self.request("POST", f"/assignments/{first}/ack", self.target, body=body, key=new_id())
+        self.assertEqual(late["outcome"], "LATE_ACKNOWLEDGED")
+        with self.transaction() as registry:
+            self.assertEqual(registry.row("SELECT state FROM assignments WHERE assignment_id = ?",
+                                          (replacement,))["state"], "OFFERED")
+
+        response = self.request("POST", f"/assignments/{replacement}/ready", self.target,
+                                key=new_id(), want=409)
+        self.assertNotIn("croc_code", response)
+        self.assertEqual(self.request("GET", "/devices/me/assignments", self.source)["assignments"], [])
+        with self.transaction() as registry:
+            self.assertEqual(registry.row("SELECT state FROM assignments WHERE assignment_id = ?",
+                                          (replacement,))["state"], "CANCELED")
 
     def test_http_rechecks_authentication_before_replaying(self):
         key = new_id()

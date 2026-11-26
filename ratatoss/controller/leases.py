@@ -83,6 +83,17 @@ def maintain_leases(registry: Registry) -> None:
     )
 
 
+def maintain_dispatchable_leases(registry: Registry) -> None:
+    """Remove stale leases and replacements whose batch has already arrived."""
+    maintain_leases(registry)
+    registry.db.execute(
+        "UPDATE assignments AS a SET state = 'CANCELED', closed_at_ms = max(a.created_at_ms, ?) "
+        "WHERE a.state IN ('OFFERED', 'RUNNING') AND EXISTS (SELECT 1 FROM inventory i "
+        "WHERE i.job_id = a.job_id AND i.batch_id = a.batch_id AND i.device_id = a.target_device_id)",
+        (registry.now_ms,),
+    )
+
+
 def reset_connections(registry: Registry) -> None:
     """Invalidate process-local leases before this controller starts serving."""
     registry.db.execute(
@@ -128,7 +139,7 @@ def _view(row, role: str, now_ms: int, *, code: str | None = None) -> dict:
 
 
 def list_assignments(registry: Registry, device_id: str, codes: SessionCodes) -> dict:
-    maintain_leases(registry)
+    maintain_dispatchable_leases(registry)
     codes.discard_expired(registry.now_ms)
     rows = registry.rows(
         "SELECT a.*, j.manifest_sha256 FROM assignments a JOIN jobs j USING (job_id) "
@@ -152,7 +163,7 @@ def list_assignments(registry: Registry, device_id: str, codes: SessionCodes) ->
 
 def ready(registry: Registry, device_id: str, assignment_id: str, codes: SessionCodes,
           profiles: Mapping[str, LeaseProfile], *, replay: bool = False) -> dict:
-    maintain_leases(registry)
+    maintain_dispatchable_leases(registry)
     codes.discard_expired(registry.now_ms)
     row = _assignment(registry, device_id, assignment_id, rx_only=True)
     if row["expires_at_ms"] <= registry.now_ms:

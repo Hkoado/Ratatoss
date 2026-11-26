@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from uuid import uuid4
 
-from .leases import maintain_leases
+from .leases import maintain_dispatchable_leases
 from .registry import HEARTBEAT_TIMEOUT_MS, Registry
 
 PREPARE_LEASE_MS = 30_000
@@ -35,13 +35,7 @@ class FixedSchedule:
 def issue_assignments(registry: Registry, schedule: FixedSchedule) -> list[str]:
     """Reserve available slots and create leases in the caller's write transaction."""
     registry.expire_offers()
-    maintain_leases(registry)
-    registry.db.execute(
-        "UPDATE assignments AS a SET state = 'CANCELED', closed_at_ms = max(a.created_at_ms, ?) "
-        "WHERE a.state IN ('OFFERED', 'RUNNING') AND EXISTS (SELECT 1 FROM inventory i "
-        "WHERE i.job_id = a.job_id AND i.batch_id = a.batch_id AND i.device_id = a.target_device_id)",
-        (registry.now_ms,),
-    )
+    maintain_dispatchable_leases(registry)
     live = registry.rows(
         "SELECT relay_profile FROM assignments WHERE state IN ('OFFERED', 'RUNNING')"
     )

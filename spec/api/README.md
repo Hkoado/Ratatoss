@@ -117,3 +117,5 @@ Ca `test_enroll_pair_and_deliver_job_through_production_routes` dùng hai thiế
 | Đích báo ACK và receipt | `200 ACKED` rồi `200`, job `COMPLETE` với 1 byte đã xác minh |
 
 Ca kiểm tra bộ điều phối dùng HTTP loopback và mô phỏng báo cáo của Node. Ca chạy CLI qua HTTPS trên macOS dùng chứng thư tin cậy trong client thử, nhận `201` khi ghi danh và `200` khi truy vấn offer bằng token đã cấp.
+
+Ca ACK muộn cho thấy lease cũ giữ `EXPIRED` và lần giao thay thế vẫn `OFFERED` ngay sau ACK. Nếu đích gọi `ready` trước lượt lập lịch kế tiếp, controller kiểm lại inventory, hủy lần giao thay thế và trả `409` mà không cấp mã Croc.
