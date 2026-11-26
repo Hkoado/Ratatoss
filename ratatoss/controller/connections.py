@@ -1,12 +1,13 @@
 """Heartbeat and boot-scoped replacement of verified controller inventory."""
 
-from .registry import Registry, RegistryError, online, utc
+from .registry import Registry, RegistryError, SlotReport, online, utc
 
 
 def heartbeat(registry: Registry, device_id: str, boot_id: str, free_rx: int,
               free_tx: int, active_ids: list[str]) -> dict:
     device = registry.row("SELECT * FROM devices WHERE device_id = ?", (device_id,))
     new_epoch = boot_id != device["boot_id"] or not online(device, registry.now_ms)
+    reported = set()
     if new_epoch:
         registry.cancel_assignments(device_id=device_id)
     else:
@@ -18,15 +19,19 @@ def heartbeat(registry: Registry, device_id: str, boot_id: str, free_rx: int,
             (registry.now_ms, device_id, device_id),
         )
         for lease in live:
-            if lease["assignment_id"] not in active:
-                if lease["source_device_id"] == device_id:
-                    free_tx -= 1
-                else:
-                    free_rx -= 1
+            if lease["assignment_id"] in active:
+                reported.add(lease["assignment_id"])
+            elif lease["source_device_id"] == device_id:
+                free_tx -= 1
+            else:
+                free_rx -= 1
     registry.db.execute(
         "UPDATE devices SET boot_id = ?, heartbeat_at_ms = ?, "
         "connection_epoch = connection_epoch + ?, rx_free = ?, tx_free = ? WHERE device_id = ?",
         (boot_id, registry.now_ms, new_epoch, max(0, free_rx), max(0, free_tx), device_id),
+    )
+    registry.pending_slot_reports[device_id] = SlotReport(
+        frozenset(reported), max(0, -free_rx), max(0, -free_tx),
     )
     return {"server_time": utc(registry.now_ms), "connection": "ONLINE"}
 

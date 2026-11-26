@@ -127,7 +127,7 @@ class ControlStateTests(ControllerFixture):
                 self.connect(registry, device)
             self.reconcile(registry, self.source, job, [0])
             self.assert_status(409, self.reconcile, registry, self.target, job, [])
-            self.assertEqual(schedule.issue_assignments(registry, self.schedule), [])
+            self.assertEqual(schedule.issue_assignments(registry, self.schedule, {"relay": self.profile}), [])
 
     def test_wrong_digest_and_expiry_are_distinct(self):
         with self.transaction() as registry:
@@ -165,7 +165,7 @@ class ControlStateTests(ControllerFixture):
         def tick():
             barrier.wait(5)
             with self.transaction() as registry:
-                return schedule.issue_assignments(registry, self.schedule)
+                return schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(lambda _: tick(), range(2)))
@@ -174,7 +174,7 @@ class ControlStateTests(ControllerFixture):
     def test_ready_requires_budget_and_replays_without_extending(self):
         with self.transaction() as registry:
             self.prepare(registry)
-            assignment, = schedule.issue_assignments(registry, self.schedule)
+            assignment, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             self.assert_status(409, leases.ready, registry, self.target, assignment, self.codes, {})
             self.assertIsNone(self.codes.get(assignment, self.now))
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "OFFERED")
@@ -195,7 +195,7 @@ class ControlStateTests(ControllerFixture):
     def test_ack_replay_does_not_restore_reconciled_batch(self):
         with self.transaction() as registry:
             job = self.prepare(registry)
-            assignment, = schedule.issue_assignments(registry, self.schedule)
+            assignment, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
             self.assert_status(409, leases.ack, registry, self.target, assignment, "0" * 64)
             result = leases.ack(registry, self.target, assignment, self.manifest.batches[0].sha256)
@@ -208,38 +208,38 @@ class ControlStateTests(ControllerFixture):
     def test_late_ack_changes_inventory_but_not_replacement_lease(self):
         with self.transaction() as registry:
             self.prepare(registry)
-            first, = schedule.issue_assignments(registry, self.schedule)
+            first, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             short = leases.LeaseProfile(100_000_000, 0, 0, 0, 1000, 1000)
             leases.ready(registry, self.target, first, self.codes, {"relay": short})
         self.now += 1000
         with self.transaction() as registry:
-            second, = schedule.issue_assignments(registry, self.schedule)
+            second, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             result = leases.ack(registry, self.target, first, self.manifest.batches[0].sha256)
             self.assertEqual(result["outcome"], "LATE_ACKNOWLEDGED")
             self.assertEqual(registry.row("SELECT state FROM assignments WHERE assignment_id = ?", (first,))["state"], "EXPIRED")
             self.assertEqual(registry.row("SELECT state FROM assignments WHERE assignment_id = ?", (second,))["state"], "OFFERED")
-            self.assertEqual(schedule.issue_assignments(registry, self.schedule), [])
+            self.assertEqual(schedule.issue_assignments(registry, self.schedule, {"relay": self.profile}), [])
             self.assertEqual(registry.row("SELECT state FROM assignments WHERE assignment_id = ?", (second,))["state"], "CANCELED")
 
     def test_offline_reconnect_requires_reconcile_and_rejects_old_ack(self):
         with self.transaction() as registry:
             job = self.prepare(registry)
-            first, = schedule.issue_assignments(registry, self.schedule)
+            first, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             leases.ready(registry, self.target, first, self.codes, {"relay": self.profile})
         self.now += 20_000
         with self.transaction() as registry:
-            self.assertEqual(schedule.issue_assignments(registry, self.schedule), [])
+            self.assertEqual(schedule.issue_assignments(registry, self.schedule, {"relay": self.profile}), [])
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "CANCELED")
             old_boot = self.boots[self.target]
             self.boots[self.target] = new_id()
             self.connect(registry, self.source)
             self.connect(registry, self.target)
-            self.assertEqual(schedule.issue_assignments(registry, self.schedule), [])
+            self.assertEqual(schedule.issue_assignments(registry, self.schedule, {"relay": self.profile}), [])
             self.assert_status(409, connections.reconcile, registry, self.target, job["job_id"], old_boot, [])
             self.reconcile(registry, self.source, job, [0])
             self.reconcile(registry, self.target, job, [])
             self.assert_status(409, leases.ack, registry, self.target, first, self.manifest.batches[0].sha256)
-            second, = schedule.issue_assignments(registry, self.schedule)
+            second, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             self.assertNotEqual(first, second)
 
     def test_lan_forward_requires_verified_inventory_and_forward_consent(self):
@@ -251,14 +251,15 @@ class ControlStateTests(ControllerFixture):
             self.approve(registry, job, 0, forward=True)
             self.approve(registry, job, 1)
             for device in (self.source, self.target, self.peer):
-                self.connect(registry, device)
+                self.connect(registry, device, slots=1 if device == self.target else 2)
                 self.reconcile(registry, device, job, [0] if device == self.source else [])
-            first, = schedule.issue_assignments(registry, fixed)
+            first, = schedule.issue_assignments(registry, fixed, {"relay": self.profile})
             self.assertEqual(registry.row("SELECT target_device_id FROM assignments")["target_device_id"],
                              self.target)
+            self.assertEqual(schedule.issue_assignments(registry, fixed, {"relay": self.profile}), [])
             leases.ready(registry, self.target, first, self.codes, {"relay": self.profile})
             leases.ack(registry, self.target, first, self.manifest.batches[0].sha256)
-            second, = schedule.issue_assignments(registry, fixed)
+            second, = schedule.issue_assignments(registry, fixed, {"relay": self.profile})
             self.assertEqual(registry.row("SELECT source_device_id FROM assignments WHERE assignment_id = ?",
                                           (second,))["source_device_id"], self.target)
             self.reconcile(registry, self.target, job, [])
@@ -278,18 +279,18 @@ class ControlStateTests(ControllerFixture):
     def test_restart_invalidates_live_code_and_requires_fresh_heartbeats(self):
         with self.transaction() as registry:
             self.prepare(registry)
-            assignment, = schedule.issue_assignments(registry, self.schedule)
+            assignment, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
         with self.transaction() as registry:
             leases.reset_connections(registry)
             self.assertEqual(leases.list_assignments(registry, self.source, self.codes)["assignments"], [])
-            self.assertEqual(schedule.issue_assignments(registry, self.schedule), [])
+            self.assertEqual(schedule.issue_assignments(registry, self.schedule, {"relay": self.profile}), [])
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "CANCELED")
 
     def test_withdraw_cancels_active_lease_and_blocks_late_ack(self):
         with self.transaction() as registry:
             job = self.prepare(registry)
-            assignment, = schedule.issue_assignments(registry, self.schedule)
+            assignment, = schedule.issue_assignments(registry, self.schedule, {"relay": self.profile})
             leases.ready(registry, self.target, assignment, self.codes, {"relay": self.profile})
             registry.withdraw_offer(self.target, job["offers"][0]["offer_id"])
             self.assertEqual(registry.row("SELECT state FROM assignments")["state"], "CANCELED")
@@ -474,17 +475,101 @@ class ControlHttpTests(ControllerFixture):
         return self.request("POST", f"/jobs/{job_id}/reconcile", device, key=key or new_id(),
                             body={"boot_id": self.boots[device], "verified_batch_ids": batches}, want=want)
 
-    def open_job(self):
-        job = self.request("POST", "/jobs", self.source, body=self.job_body(self.target),
+    def open_job(self, target=None, *, forward=False):
+        target = self.target if target is None else target
+        job = self.request("POST", "/jobs", self.source, body=self.job_body(target),
                            key=new_id(), want=201)
         offer = job["offers"][0]["offer_id"]
-        self.request("POST", f"/offers/{offer}/decision", self.target, key=new_id(),
+        self.request("POST", f"/offers/{offer}/decision", target, key=new_id(),
                      body={"decision": "ACCEPT", "manifest_sha256": job["manifest_sha256"],
-                           "allow_forward": False})
-        for device in (self.source, self.target):
+                           "allow_forward": forward})
+        for device in (self.source, target):
             self.heartbeat_http(device)
             self.reconcile_http(job["job_id"], device, [0] if device == self.source else [])
         return job
+
+    def test_link_without_budget_does_not_starve_a_later_job(self):
+        self.assert_unusable_link_does_not_starve({"relay": self.profile})
+
+    def test_link_with_insufficient_budget_does_not_starve_a_later_job(self):
+        short = leases.LeaseProfile(100_000_000, 1000, 1000, 1000, 1000, 1000)
+        self.assert_unusable_link_does_not_starve({"bad": short, "relay": self.profile})
+
+    def assert_unusable_link_does_not_starve(self, profiles):
+        old_job = self.open_job()
+        self.now += 1
+        later_job = self.open_job(self.peer)
+        fixed = schedule.FixedSchedule(
+            {(self.source, self.target): "bad", (self.source, self.peer): "relay"},
+            {"bad": 1, "relay": 1}, 1,
+        )
+        self.runtime.config = ControllerConfig(fixed, profiles)
+        self.assert_only_job_issued(later_job)
+        with self.transaction() as registry:
+            self.assertIsNone(registry.row("SELECT 1 FROM assignments WHERE job_id = ?",
+                                          (old_job["job_id"],)))
+
+    def assert_only_job_issued(self, job):
+        result = self.runtime.tick()
+        self.assertEqual(len(result), 1)
+        with self.transaction() as registry:
+            row = registry.row("SELECT job_id FROM assignments WHERE assignment_id = ?", (result[0],))
+            self.assertEqual(row["job_id"], job["job_id"])
+
+    def test_direct_route_when_forwarder_has_no_receive_slots(self):
+        job = self.request("POST", "/jobs", self.source, body=self.job_body(self.target, self.peer),
+                           key=new_id(), want=201)
+        for offer in job["offers"]:
+            self.request("POST", f"/offers/{offer['offer_id']}/decision", offer["target_device_id"],
+                         key=new_id(), body={"decision": "ACCEPT", "manifest_sha256": job["manifest_sha256"],
+                                             "allow_forward": True})
+        for device in self.boots:
+            self.heartbeat_http(device, body={
+                "boot_id": self.boots[device], "free_rx_slots": 0 if device == self.target else 1,
+                "free_tx_slots": 1, "active_assignment_ids": [],
+            })
+            self.reconcile_http(job["job_id"], device, [0] if device == self.source else [])
+        fixed = schedule.FixedSchedule(
+            self.schedule.routes, self.schedule.link_slots, 1, (self.target, self.peer),
+        )
+        self.runtime.config = ControllerConfig(fixed, {"relay": self.profile})
+        self.assert_only_job_issued(job)
+        result = self.request("GET", "/devices/me/assignments", self.peer)["assignments"]
+        self.assertEqual([item["source_device_id"] for item in result], [self.source])
+        self.request("POST", f"/assignments/{result[0]['assignment_id']}/ready", self.peer, key=new_id())
+
+    def test_fail_refunds_unreported_slots_and_waits_for_reported_slots(self):
+        self.open_job()
+        for device in (self.source, self.target):
+            self.heartbeat_http(device, body={
+                "boot_id": self.boots[device], "free_rx_slots": 1, "free_tx_slots": 1,
+                "active_assignment_ids": [],
+            })
+        first, = self.runtime.tick()
+        self.request("POST", f"/assignments/{first}/fail", self.target, key=new_id(),
+                     body={"code": "NO_SLOT"})
+        candidates = self.runtime.tick()
+        self.assertEqual(len(candidates), 1)
+        retry = candidates[0]
+        self.heartbeat_http(self.target, body={
+            "boot_id": self.boots[self.target], "free_rx_slots": 0, "free_tx_slots": 1,
+            "active_assignment_ids": [retry],
+        })
+        self.request("POST", f"/assignments/{retry}/fail", self.source, key=new_id(),
+                     body={"code": "TRANSPORT_TIMEOUT"})
+        self.assertEqual(self.runtime.tick(), [])
+        self.heartbeat_http(self.target, body={
+            "boot_id": self.boots[self.target], "free_rx_slots": 1, "free_tx_slots": 1,
+            "active_assignment_ids": [],
+        })
+        last, = self.runtime.tick()
+        self.heartbeat_http(self.target, body={
+            "boot_id": self.boots[self.target], "free_rx_slots": 0, "free_tx_slots": 1,
+            "active_assignment_ids": [],
+        })
+        self.request("POST", f"/assignments/{last}/fail", self.source, key=new_id(),
+                     body={"code": "TRANSPORT_TIMEOUT"})
+        self.assertEqual(self.runtime.tick(), [])
 
     def test_http_rejects_duplicate_json_keys_before_creating_rows(self):
         envelope = json.dumps(self.job_body(self.target))

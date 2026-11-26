@@ -8,6 +8,7 @@ maintenance transitions made before returning that error.
 import json
 import sqlite3
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from uuid import UUID, uuid4
@@ -18,6 +19,14 @@ from ..offer_state import decide_offer, expire_offer
 OFFER_TTL_MS = 24 * 60 * 60 * 1000
 HEARTBEAT_TIMEOUT_MS = 20_000
 SQLITE_MAX_INTEGER = 2**63 - 1
+
+
+@dataclass(frozen=True)
+class SlotReport:
+    active_ids: frozenset[str] = frozenset()
+    # Reservations that exceeded the reported free slots before clamping to zero.
+    rx_debt: int = 0
+    tx_debt: int = 0
 
 
 class RegistryError(Exception):
@@ -72,9 +81,15 @@ def validate_job(payload: dict, *, max_targets: int) -> tuple[Manifest, list[str
 class Registry:
     """Operations for an authenticated controller request at one DB timestamp."""
 
-    def __init__(self, connection: sqlite3.Connection, now_ms: int):
+    def __init__(self, connection: sqlite3.Connection, now_ms: int,
+                 slot_reports: Mapping[str, SlotReport] | None = None):
         self.db = connection
         self.now_ms = now_ms
+        self.slot_reports = {} if slot_reports is None else slot_reports
+        self.pending_slot_reports: dict[str, SlotReport] = {}
+
+    def slot_report(self, device_id: str) -> SlotReport:
+        return self.pending_slot_reports.get(device_id, self.slot_reports.get(device_id, SlotReport()))
 
     def rows(self, sql: str, parameters: tuple = ()) -> list[sqlite3.Row]:
         cursor = self.db.cursor()

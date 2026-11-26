@@ -3,7 +3,7 @@
 import secrets
 import sqlite3
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from string import ascii_letters, digits
 from threading import Lock
 
@@ -238,5 +238,25 @@ def fail(registry: Registry, device_id: str, assignment_id: str, code: str) -> d
         "UPDATE assignments SET state = 'FAILED', closed_at_ms = max(created_at_ms, ?) "
         "WHERE assignment_id = ?", (registry.now_ms, assignment_id),
     )
+    if row["state"] == "OFFERED":
+        _release_prepared_slots(registry, row)
     _audit(registry, row, code)
     return {"assignment_id": assignment_id, "state": "FAILED"}
+
+
+def _release_prepared_slots(registry: Registry, assignment: sqlite3.Row) -> None:
+    for device_id, direction in (
+        (assignment["source_device_id"], "tx"), (assignment["target_device_id"], "rx"),
+    ):
+        report = registry.slot_report(device_id)
+        if assignment["assignment_id"] in report.active_ids:
+            continue
+        debt_field = f"{direction}_debt"
+        debt = getattr(report, debt_field)
+        if debt:
+            registry.pending_slot_reports[device_id] = replace(report, **{debt_field: debt - 1})
+        else:
+            # Direction is one of the two literals above.
+            column = f"{direction}_free"
+            registry.db.execute(f"UPDATE devices SET {column} = {column} + 1 WHERE device_id = ?",
+                                (device_id,))

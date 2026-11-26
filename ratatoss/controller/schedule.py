@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from uuid import uuid4
 
-from .leases import maintain_dispatchable_leases
+from .leases import LeaseProfile, maintain_dispatchable_leases
 from .registry import HEARTBEAT_TIMEOUT_MS, Registry
 
 PREPARE_LEASE_MS = 30_000
@@ -32,7 +32,8 @@ class FixedSchedule:
         return tuple(source for source in dict.fromkeys(choices) if source != target)
 
 
-def issue_assignments(registry: Registry, schedule: FixedSchedule) -> list[str]:
+def issue_assignments(registry: Registry, schedule: FixedSchedule,
+                      profiles: Mapping[str, LeaseProfile]) -> list[str]:
     """Reserve available slots and create leases in the caller's write transaction."""
     registry.expire_offers()
     maintain_dispatchable_leases(registry)
@@ -50,7 +51,7 @@ def issue_assignments(registry: Registry, schedule: FixedSchedule) -> list[str]:
     )
     devices = {row["device_id"]: dict(row) for row in online_devices}
     targets = registry.rows(
-        "SELECT j.job_id, j.source_device_id AS origin, o.target_device_id AS target, b.batch_id "
+        "SELECT j.job_id, j.source_device_id AS origin, o.target_device_id AS target, b.batch_id, b.size_bytes "
         "FROM jobs j JOIN offers o USING (job_id) JOIN job_batches b USING (job_id) "
         "JOIN job_members m ON m.job_id = j.job_id AND m.device_id = o.target_device_id "
         "JOIN devices d ON d.device_id = m.device_id "
@@ -70,7 +71,9 @@ def issue_assignments(registry: Registry, schedule: FixedSchedule) -> list[str]:
             continue
         job_id, batch_id = target["job_id"], target["batch_id"]
         choices = schedule.sources(target["origin"], target["target"], batch_id)
-        if choices and _wait_for_forwarder(registry, schedule, devices, target, choices[0]):
+        if choices and _wait_for_forwarder(
+            registry, schedule, profiles, devices, link_usage, target, choices[0],
+        ):
             continue
         previous = registry.row(
             "SELECT source_device_id FROM assignments WHERE job_id = ? AND target_device_id = ? "
@@ -80,7 +83,7 @@ def issue_assignments(registry: Registry, schedule: FixedSchedule) -> list[str]:
             previous_source = previous["source_device_id"]
             choices = tuple(source for source in choices if source != previous_source) + (previous_source,)
         for source in choices:
-            route = schedule.routes.get((source, target["target"]))
+            route = _usable_route(schedule, profiles, source, target["target"], target["size_bytes"])
             sender = devices.get(source)
             if (
                 sender is None or sender["tx_free"] == 0 or route is None
@@ -110,21 +113,36 @@ def issue_assignments(registry: Registry, schedule: FixedSchedule) -> list[str]:
     return issued
 
 
-def _wait_for_forwarder(registry: Registry, schedule: FixedSchedule, devices: dict,
-                        target, preferred: str) -> bool:
-    """Preserve the first hop while the configured forwarder can still receive it."""
+def _usable_route(schedule: FixedSchedule, profiles: Mapping[str, LeaseProfile],
+                  source: str, target: str, batch_bytes: int) -> str | None:
+    link = schedule.routes.get((source, target))
+    if link is None or not schedule.link_slots.get(link, 0):
+        return None
+    profile = profiles.get(link)
+    return link if profile is not None and profile.fits(batch_bytes) else None
+
+
+def _wait_for_forwarder(registry: Registry, schedule: FixedSchedule,
+                        profiles: Mapping[str, LeaseProfile], devices: dict,
+                        link_usage: Counter, target, preferred: str) -> bool:
+    """Wait for a viable first hop that is already live or can be offered now."""
     origin = target["origin"]
-    if (
-        preferred == origin or origin not in devices or preferred not in devices
-        or not schedule.link_slots.get(schedule.routes.get((origin, preferred)), 0)
-        or not schedule.link_slots.get(schedule.routes.get((preferred, target["target"])), 0)
-    ):
+    if preferred == origin or origin not in devices or preferred not in devices:
         return False
     job_id, batch_id = target["job_id"], target["batch_id"]
+    batch_bytes = target["size_bytes"]
+    first_link = _usable_route(schedule, profiles, origin, preferred, batch_bytes)
+    if first_link is None or _usable_route(
+        schedule, profiles, preferred, target["target"], batch_bytes,
+    ) is None:
+        return False
     if not _can_send(registry, job_id, origin, batch_id, devices[origin]["connection_epoch"]):
         return False
-    return registry.row(
-        "SELECT 1 FROM offers o JOIN job_members m ON m.job_id = o.job_id "
+    first_hop = registry.row(
+        "SELECT EXISTS (SELECT 1 FROM assignments a WHERE a.job_id = o.job_id "
+        "AND a.target_device_id = o.target_device_id AND a.batch_id = ? "
+        "AND a.state IN ('OFFERED', 'RUNNING')) AS live "
+        "FROM offers o JOIN job_members m ON m.job_id = o.job_id "
         "AND m.device_id = o.target_device_id "
         "WHERE o.job_id = ? AND o.target_device_id = ? AND o.state = 'ACCEPTED' "
         "AND o.allow_forward = 1 AND m.reconciled_epoch = ? "
@@ -133,8 +151,14 @@ def _wait_for_forwarder(registry: Registry, schedule: FixedSchedule, devices: di
         "AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.job_id = o.job_id "
         "AND a.target_device_id = o.target_device_id AND a.batch_id = ? "
         "AND a.state IN ('FAILED', 'EXPIRED', 'CANCELED'))",
-        (job_id, preferred, devices[preferred]["connection_epoch"], batch_id, batch_id),
-    ) is not None
+        (batch_id, job_id, preferred, devices[preferred]["connection_epoch"], batch_id, batch_id),
+    )
+    return first_hop is not None and (
+        first_hop["live"] or (
+            devices[preferred]["rx_free"] > 0 and devices[origin]["tx_free"] > 0
+            and link_usage[first_link] < schedule.link_slots[first_link]
+        )
+    )
 
 
 def _can_send(registry: Registry, job_id: str, source: str, batch_id: int, epoch: int) -> bool:
