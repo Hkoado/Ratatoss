@@ -15,6 +15,30 @@ class BatchAssemblyError(ValueError):
     pass
 
 
+class BatchInputError(BatchAssemblyError):
+    """An identified input batch failed inspection or verification."""
+
+    def __init__(self, batch_id: int, message: str, *, state: str = "CORRUPT"):
+        super().__init__(message)
+        self.batch_id = batch_id
+        self.state = state
+
+
+def _input_io_error(batch_id: int, cause: OSError) -> BatchInputError:
+    missing = isinstance(cause, FileNotFoundError)
+    return BatchInputError(
+        batch_id, f"Batch file at index {batch_id} is missing or could not be read",
+        state="MISSING" if missing else "UNREADABLE",
+    )
+
+
+def _read_batch(stream, size: int, batch_id: int) -> bytes:
+    try:
+        return stream.read(size)
+    except OSError as exc:
+        raise _input_io_error(batch_id, exc) from exc
+
+
 def assemble_batches(
     manifest: Manifest,
     batches: Mapping[int, Path | str],
@@ -61,48 +85,51 @@ def assemble_batches(
         with os.fdopen(temp_file_fd, "wb") as destination:
             # Assembly must proceed strictly by offset order from manifest.batches
             for batch_meta in manifest.batches:
+                batch_id = batch_meta.index
                 batch_file_path = Path(batches[batch_meta.index])
-                if not batch_file_path.is_file():
-                    raise BatchAssemblyError(
-                        f"Batch file at index {batch_meta.index} is not a regular file: {batch_file_path}"
-                    )
-
-                batch_stat_before = os.stat(batch_file_path)
+                try:
+                    batch_stat_before = batch_file_path.stat()
+                except OSError as exc:
+                    raise _input_io_error(batch_id, exc) from exc
                 if not stat.S_ISREG(batch_stat_before.st_mode):
-                    raise BatchAssemblyError(
-                        f"Batch file at index {batch_meta.index} is not a regular file: {batch_file_path}"
+                    raise BatchInputError(
+                        batch_id, f"Batch file at index {batch_id} is not a regular file: {batch_file_path}",
                     )
                 if batch_stat_before.st_size != batch_meta.size:
-                    raise BatchAssemblyError(
-                        f"Batch size mismatch at index {batch_meta.index}: "
-                        f"expected {batch_meta.size}, found {batch_stat_before.st_size}"
+                    raise BatchInputError(
+                        batch_id, f"Batch size mismatch at index {batch_id}: "
+                        f"expected {batch_meta.size}, found {batch_stat_before.st_size}",
                     )
 
                 batch_hasher = sha256()
                 batch_read = 0
 
-                with batch_file_path.open("rb") as src:
+                try:
+                    batch_input = batch_file_path.open("rb")
+                except OSError as exc:
+                    raise _input_io_error(batch_id, exc) from exc
+                with batch_input as src:
                     while batch_read < batch_meta.size:
-                        chunk = src.read(min(read_size, batch_meta.size - batch_read))
+                        chunk = _read_batch(src, min(read_size, batch_meta.size - batch_read), batch_id)
                         if not chunk:
-                            raise BatchAssemblyError(
-                                f"Unexpected EOF reading batch index {batch_meta.index} "
-                                f"at offset {batch_read}/{batch_meta.size}"
+                            raise BatchInputError(
+                                batch_id, f"Unexpected EOF reading batch index {batch_id} "
+                                f"at offset {batch_read}/{batch_meta.size}",
                             )
                         destination.write(chunk)
                         batch_hasher.update(chunk)
                         batch_read += len(chunk)
 
-                    trailing = src.read(1)
+                    trailing = _read_batch(src, 1, batch_id)
                     if trailing:
-                        raise BatchAssemblyError(
-                            f"Batch file at index {batch_meta.index} has trailing bytes beyond {batch_meta.size}"
+                        raise BatchInputError(
+                            batch_id, f"Batch file at index {batch_id} has trailing bytes beyond {batch_meta.size}",
                         )
 
                 if batch_hasher.hexdigest() != batch_meta.sha256:
-                    raise BatchAssemblyError(
-                        f"Batch SHA-256 digest mismatch at index {batch_meta.index}: "
-                        f"expected {batch_meta.sha256}, calculated {batch_hasher.hexdigest()}"
+                    raise BatchInputError(
+                        batch_id, f"Batch SHA-256 digest mismatch at index {batch_id}: "
+                        f"expected {batch_meta.sha256}, calculated {batch_hasher.hexdigest()}",
                     )
 
             destination.flush()

@@ -243,6 +243,8 @@ class NodeStoreTests(unittest.TestCase):
                 store.commit_receive(assignment)
             self.assertTrue((staging.parent / "batch-0.bin").is_file())
 
+            with patch.object(store_module, "verify_batch", side_effect=PermissionError):
+                self.assertEqual(store.reconcile(self.job_id), ())
             self.assertEqual(store.reconcile(self.job_id), ())
             self.assertEqual(self.outbox(store), [("RECONCILE", {
                 "boot_id": store.boot_id, "verified_batch_ids": [],
@@ -337,6 +339,38 @@ class NodeStoreTests(unittest.TestCase):
             self.assertEqual([kind for kind, _ in self.outbox(store)], ["RECONCILE"])
             self.receive(store, 1, b"ghij")
             self.assertEqual(store.inventory(self.job_id), (1,))
+
+    def test_startup_isolates_unreadable_batch_and_reconcile_restores_it(self):
+        second_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            blocked = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            store.register_target(second_job, self.source_device, str(uuid4()), self.manifest,
+                                  self.root / "second.bin", consent_request_key=str(uuid4()),
+                                  allow_forward=True)
+            attempt = str(uuid4())
+            store.begin_receive(second_job, 0, attempt).write_bytes(b"abcdef")
+            store.commit_receive(attempt)
+
+        original_open = Path.open
+
+        def deny_batch(path, *args, **kwargs):
+            if path == blocked:
+                raise PermissionError("test simulates a sharing violation")
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", deny_batch):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            self.assertEqual(store.inventory(second_job), (0,))
+            self.assertEqual(store.reconcile(self.job_id), (1,))
+            self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [1])
+
+        self.assertEqual(store.reconcile(self.job_id), (0, 1))
+        self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [0, 1])
+        with store.tx_batch(self.job_id, 0) as tx:
+            self.assertEqual(tx.read_bytes(), b"abcdef")
 
     def test_reconnect_replaces_inventory_after_replaying_inflight_snapshot(self):
         with NodeStore(self.data) as store:
@@ -559,6 +593,33 @@ class NodeStoreTests(unittest.TestCase):
             self.assertFalse(self.output.exists())
             self.assertEqual(store.inventory(self.job_id), (0, 1))
             self.assertEqual([kind for kind, _ in self.outbox(store)], ["ACK", "ACK"])
+
+    def test_assembly_batch_hash_failure_revokes_inventory_and_active_tx(self):
+        real_assemble = store_module.assemble_batches
+        with NodeStore(self.data) as store:
+            self.register(store)
+            batch = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            canceled, unaffected = Event(), Event()
+
+            def corrupt_after_preflight(*args):
+                batch.write_bytes(b"xxxxxx")
+                return real_assemble(*args)
+
+            with (store.tx_batch(self.job_id, 0, cancel_event=canceled) as tx,
+                  store.tx_batch(self.job_id, 1, cancel_event=unaffected),
+                  patch.object(store_module, "assemble_batches", corrupt_after_preflight)):
+                with self.assertRaisesRegex(ValueError, "Batch SHA-256 digest mismatch at index 0"):
+                    store.publish_delivery(self.job_id)
+                self.assertTrue(canceled.is_set())
+                self.assertFalse(unaffected.is_set())
+                self.assertTrue(tx.exists())
+                self.assertEqual(store.inventory(self.job_id), (1,))
+                self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [1])
+                self.assertFalse(self.output.exists())
+
+            self.receive(store, 0, b"abcdef")
+            self.assertEqual(store.publish_delivery(self.job_id).read_bytes(), b"abcdefghij")
 
     def test_delivery_does_not_overwrite_a_file_created_during_publication(self):
         real_publish = store_module.publish

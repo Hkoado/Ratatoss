@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from weakref import WeakValueDictionary
 
 from ._store_files import check_path, discard_staging, lock_store, publish, sync_directory
-from .batch_assembly import assemble_batches
+from .batch_assembly import BatchInputError, assemble_batches
 from .database import NODE_DATABASE_NAME, open_database
 from .manifest import (
     DEFAULT_BATCH_SIZE, DEFAULT_PIECE_SIZE, READ_SIZE, Manifest,
@@ -311,8 +311,14 @@ class NodeStore:
                 raise StoreError("BATCH_NOT_AVAILABLE")
             if state not in ("ASSIGNED", "TRANSFERRING", "RECEIVED", "VERIFIED"):
                 raise StoreError("ASSIGNMENT_NOT_ACTIVE")
+            if stored == "UNREADABLE":
+                with self._db(write=True) as db:
+                    self._invalidate(db, job_id, batch_id, stored)
+                raise StoreError("BATCH_NOT_AVAILABLE")
             # A published file with the same assignment may survive an interrupted DB commit.
             received = self._batch_state(staging, manifest, batch_id)
+            if received == "UNREADABLE":
+                raise StoreError("RX_NOT_STAGED")
             if received != "AVAILABLE" and not (
                 received == "MISSING" and state == "VERIFIED" and stored == "AVAILABLE"
             ):
@@ -354,8 +360,11 @@ class NodeStore:
 
     @staticmethod
     def _batch_state(path, manifest, batch_id):
-        return _file_state(path, manifest.batches[batch_id].size,
-                           lambda: verify_batch(path, manifest, batch_id))
+        try:
+            return _file_state(path, manifest.batches[batch_id].size,
+                               lambda: verify_batch(path, manifest, batch_id))
+        except OSError:
+            return "UNREADABLE"
 
     @staticmethod
     def _source_state(path, manifest):
@@ -368,20 +377,24 @@ class NodeStore:
                VALUES (?, ?, ?, ?, ?) ON CONFLICT(job_id, batch_id) DO UPDATE SET
                storage_path = excluded.storage_path, state = excluded.state,
                updated_at_ms = excluded.updated_at_ms""",
-            (job_id, batch_id, str(path) if state == "AVAILABLE" else None, state, _now()),
+            (job_id, batch_id, str(path) if path is not None else None, state, _now()),
         )
 
     def _invalidate(self, db, job_id, batch_id, state):
-        old = db.execute("SELECT state FROM local_batches WHERE job_id = ? AND batch_id = ?",
+        old = db.execute("SELECT state, storage_path FROM local_batches WHERE job_id = ? AND batch_id = ?",
                          (job_id, batch_id)).fetchone()
-        self._record_unavailable(db, job_id, batch_id, state)
+        self._record_unavailable(db, job_id, batch_id, state,
+                                 read_retry_path=old["storage_path"] if old is not None else None)
         if old is not None and old["state"] == "AVAILABLE":
             self._snapshot(db, job_id)
 
-    def _record_unavailable(self, db, job_id, batch_id, state):
+    def _record_unavailable(self, db, job_id, batch_id, state, *, read_retry_path=None):
         for event in self._active_tx.get((job_id, batch_id), {}).values():
             event.set()
-        self._set_batch(db, job_id, batch_id, None, state)
+        if state == "UNREADABLE":
+            self._set_batch(db, job_id, batch_id, read_retry_path, "MISSING")
+        else:
+            self._set_batch(db, job_id, batch_id, None, state)
         db.execute(
             """DELETE FROM outbox WHERE job_id = ? AND batch_id = ? AND event_kind = 'ACK'
                AND sent_boot_id IS NOT ?""",
@@ -587,10 +600,15 @@ class NodeStore:
                     "intended_path": str(destination), "state": "PUBLISHING",
                 })
                 raise StoreError("PATH_CONFLICT") from exc
-            except Exception:
-                self._recover_delivery(job_id, manifest, {
-                    "intended_path": str(destination), "state": "PUBLISHING",
-                })
+            except Exception as exc:
+                try:
+                    if isinstance(exc, BatchInputError):
+                        with self._job_lock(job_id), self._db(write=True) as db:
+                            self._invalidate(db, job_id, exc.batch_id, exc.state)
+                finally:
+                    self._recover_delivery(job_id, manifest, {
+                        "intended_path": str(destination), "state": "PUBLISHING",
+                    })
                 raise
             receipt = self._receipt(manifest)
             with self._db(write=True) as db:
@@ -723,14 +741,22 @@ class NodeStore:
         return batches
 
     def _record_scan(self, db, job_id, batches, *, adopt):
-        committed = set() if adopt else set(self._inventory(db, job_id))
+        known_paths = set() if adopt else {
+            row[0] for row in db.execute(
+                "SELECT batch_id FROM local_batches WHERE job_id = ? AND storage_path IS NOT NULL",
+                (job_id,),
+            )
+        }
         for batch_id, path, state in batches:
+            known = adopt or batch_id in known_paths
             if state == "AVAILABLE":
-                # Live RX must commit availability and the ACK together.
-                if adopt or batch_id in committed:
+                # A path temporarily blocked by a read error may be verified
+                # again. Fresh live RX must still commit availability and ACK.
+                if known:
                     self._set_batch(db, job_id, batch_id, path, state)
             else:
-                self._record_unavailable(db, job_id, batch_id, state)
+                self._record_unavailable(db, job_id, batch_id, state,
+                                         read_retry_path=path if known else None)
         extra_batches = db.execute(
             "SELECT batch_id FROM local_batches WHERE job_id = ? AND batch_id >= ?",
             (job_id, len(batches)),

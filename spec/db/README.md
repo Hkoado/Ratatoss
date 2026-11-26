@@ -67,7 +67,7 @@ Token và mã thô không nằm trong DB hoặc audit. `result_json` chỉ giữ
 | Bảng | Khóa và dữ liệu |
 |---|---|
 | `local_jobs` | PK `job_id`, nguồn và vai trò `SOURCE`/`TARGET`. Đích lưu `offer_id`, consent, khóa yêu cầu consent hiện hành và quyền forward. Manifest canonical, digest, root riêng của job, đường dẫn snapshot bất biến của nguồn, thời điểm tạo/đóng. |
-| `local_batches` | PK `(job_id, batch_id)`, FK job. `MISSING`, `CORRUPT` hoặc `AVAILABLE`, vị trí lưu và mốc cập nhật. Nguồn có thể trỏ vào snapshot và lấy offset từ manifest. Đích trỏ vào file batch đã publish. |
+| `local_batches` | PK `(job_id, batch_id)`, FK job. `MISSING`, `CORRUPT` hoặc `AVAILABLE`, vị trí lưu và mốc cập nhật. Nguồn có thể trỏ vào snapshot và lấy offset từ manifest. Đích trỏ vào file batch đã publish. Batch tạm thời không đọc được có thể giữ đường dẫn ở trạng thái `MISSING` để đối chiếu lại. Chỉ batch `AVAILABLE` được đưa vào inventory. |
 | `local_attempts` | PK `assignment_id`, FK batch, boot ID, vai trò `TX`/`RX`, đường dẫn staging, vòng đời và các mốc tạo/đóng. Hàng batch `MISSING` có thể tồn tại trước khi tạo RX. |
 | `delivery` | PK và FK `job_id`. Đường dẫn đích dự kiến, trạng thái publish và mốc công bố bền vững. |
 | `outbox` | PK `event_id` tăng dần, `request_key` duy nhất. FK job, FK bộ `(assignment_id, job_id, batch_id)` cho ACK, boot ID trong payload reconcile, JSON request, `first_sent_at_ms`, boot gửi gần nhất `sent_boot_id` và dữ liệu retry. Có tối đa một receipt đang chờ mỗi job và một ACK đang chờ mỗi assignment. |
