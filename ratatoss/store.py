@@ -93,11 +93,12 @@ class NodeStore:
     def close(self):
         self._owner.close()
 
-    def _job_lock(self, job_id):
+    def _job_lock(self, job_id, *, delivery=False):
+        key = (job_id, delivery)
         with self._locks_guard:
-            lock = self._locks.get(job_id)
+            lock = self._locks.get(key)
             if lock is None:
-                lock = self._locks[job_id] = RLock()
+                lock = self._locks[key] = RLock()
             return lock
 
     @contextmanager
@@ -156,7 +157,7 @@ class NodeStore:
         canonical = manifest.canonical_bytes()
         digest = bytes.fromhex(manifest.manifest_sha256())
         destination = self._destination(destination)
-        with self._job_lock(job_id):
+        with self._job_lock(job_id, delivery=True), self._job_lock(job_id):
             directory = self._prepare_directory(job_id)
             with self._db() as db:
                 existing = db.execute("SELECT * FROM local_jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -292,7 +293,7 @@ class NodeStore:
         if attempt is None or attempt["role"] != "RX" or attempt["boot_id"] != self.boot_id:
             raise StoreError("ASSIGNMENT_NOT_ACTIVE")
         job_id, batch_id = attempt["job_id"], attempt["batch_id"]
-        with self._job_lock(job_id):
+        with self._job_lock(job_id, delivery=True), self._job_lock(job_id):
             with self._db() as db:
                 job = self._job(db, job_id)
                 self._target(job)
@@ -332,7 +333,7 @@ class NodeStore:
                     db.execute("UPDATE local_attempts SET state = 'VERIFIED' WHERE assignment_id = ?",
                                (assignment_id,))
                 if stored != "AVAILABLE":
-                    path.unlink(missing_ok=True)
+                    discard_staging(path)
                     publish(staging, path)
             sync_directory(path.parent)
             with self._db(write=True) as db:
@@ -383,8 +384,7 @@ class NodeStore:
         self._set_batch(db, job_id, batch_id, None, state)
         db.execute(
             """DELETE FROM outbox WHERE job_id = ? AND batch_id = ? AND event_kind = 'ACK'
-               AND (first_sent_at_ms IS NULL OR assignment_id IN
-                    (SELECT assignment_id FROM local_attempts WHERE boot_id <> ?))""",
+               AND sent_boot_id IS NOT ?""",
             (job_id, batch_id, self.boot_id),
         )
 
@@ -414,9 +414,10 @@ class NodeStore:
                 job = self._job(db, job_id)
                 if job["role"] == "TARGET":
                     self._target(job)
-            batches = self._scan_batches(job_id, self._stored_manifest(job), job["role"] == "SOURCE")
+            source = job["role"] == "SOURCE"
+            batches = self._scan_batches(job_id, self._stored_manifest(job), source)
             with self._db(write=True) as db:
-                self._record_scan(db, job_id, batches)
+                self._record_scan(db, job_id, batches, adopt=source)
                 self._snapshot(db, job_id)
                 return self._inventory(db, job_id)
 
@@ -534,8 +535,10 @@ class NodeStore:
     def publish_delivery(self, job_id: str, *, destination: Path | None = None) -> Path:
         """Assemble and publish a verified file on the user's volume."""
         job_id = _uuid(job_id)
-        with self._job_lock(job_id):
-            with self._db() as db:
+        # Exclude other delivery operations and RX publication while assembly
+        # reads the canonical files. TX can still pin and read those files.
+        with self._job_lock(job_id, delivery=True):
+            with self._job_lock(job_id), self._db() as db:
                 job = self._job(db, job_id)
                 self._target(job)
                 delivery = self._delivery(db, job_id)
@@ -567,7 +570,7 @@ class NodeStore:
                 for batch_id, path in batches.items():
                     state = self._batch_state(path, manifest, batch_id)
                     if state != "AVAILABLE":
-                        with self._db(write=True) as db:
+                        with self._job_lock(job_id), self._db(write=True) as db:
                             self._invalidate(db, job_id, batch_id, state)
                         raise StoreError("BATCH_NOT_AVAILABLE")
                 temporary = assemble_batches(manifest, batches, stage)
@@ -669,8 +672,8 @@ class NodeStore:
     def _snapshot(self, db, job_id):
         db.execute(
             """DELETE FROM outbox WHERE job_id = ? AND event_kind = 'RECONCILE'
-               AND (boot_id <> ? OR first_sent_at_ms IS NULL)""",
-            (job_id, self.boot_id),
+               AND (boot_id <> ? OR sent_boot_id IS NOT ?)""",
+            (job_id, self.boot_id, self.boot_id),
         )
         self._enqueue(db, job_id, "RECONCILE", {
             "boot_id": self.boot_id, "verified_batch_ids": self._inventory(db, job_id),
@@ -679,16 +682,35 @@ class NodeStore:
     def pending_events(self, job_id: str) -> tuple[dict, ...]:
         """Replay an in-flight request from this boot before a replacement snapshot."""
         with self._db() as db:
-            return tuple(dict(row) for row in db.execute(
-                """SELECT outbox.* FROM outbox LEFT JOIN local_attempts USING (assignment_id)
-                   WHERE outbox.job_id = ?
-                   ORDER BY CASE
-                       WHEN first_sent_at_ms IS NOT NULL
-                            AND coalesce(outbox.boot_id, local_attempts.boot_id) = ? THEN 0
-                       WHEN event_kind = 'RECONCILE' THEN 1 WHEN event_kind = 'ACK' THEN 2 ELSE 3 END,
-                       event_id""",
-                (_uuid(job_id), self.boot_id),
-            ))
+            return tuple(dict(row) for row in self._ordered_events(db, _uuid(job_id)))
+
+    def _ordered_events(self, db, job_id):
+        return db.execute(
+            """SELECT * FROM outbox WHERE job_id = ?
+               ORDER BY CASE
+                   WHEN sent_boot_id = ? THEN 0 WHEN event_kind = 'RECONCILE' THEN 1
+                   WHEN event_kind = 'ACK' THEN 2 ELSE 3 END,
+                   event_id""",
+            (job_id, self.boot_id),
+        )
+
+    def mark_event_sent(self, job_id: str, request_key: str) -> None:
+        """Record the head event's sending boot before the network call.
+
+        If a rescan changed the head, the sender must reload the outbox before
+        sending. Retries retain the original timestamp, request key and payload.
+        """
+        job_id, request_key = map(_uuid, (job_id, request_key))
+        with self._db(write=True) as db:
+            head = self._ordered_events(db, job_id).fetchone()
+            if head is None or head["request_key"] != request_key:
+                raise StoreError("OUTBOX_HEAD_CHANGED")
+            db.execute(
+                """UPDATE outbox SET sent_boot_id = ?,
+                   first_sent_at_ms = coalesce(first_sent_at_ms, max(created_at_ms, ?))
+                   WHERE event_id = ?""",
+                (self.boot_id, _now(), head["event_id"]),
+            )
 
     def _scan_batches(self, job_id, manifest, source):
         snapshot = self._directory(job_id) / "source.bin"
@@ -700,10 +722,13 @@ class NodeStore:
             batches.append((batch.index, path, state))
         return batches
 
-    def _record_scan(self, db, job_id, batches):
+    def _record_scan(self, db, job_id, batches, *, adopt):
+        committed = set() if adopt else set(self._inventory(db, job_id))
         for batch_id, path, state in batches:
             if state == "AVAILABLE":
-                self._set_batch(db, job_id, batch_id, path, state)
+                # Live RX must commit availability and the ACK together.
+                if adopt or batch_id in committed:
+                    self._set_batch(db, job_id, batch_id, path, state)
             else:
                 self._record_unavailable(db, job_id, batch_id, state)
         extra_batches = db.execute(
@@ -744,13 +769,16 @@ class NodeStore:
                     discard_staging(path)
             source = job["role"] == "SOURCE"
             batches = self._scan_batches(job_id, manifest, source)
+            # A previous process may have linked the batch without syncing
+            # this directory. Persist its entries before advertising them.
+            sync_directory(directory)
             with self._db(write=True) as db:
                 db.execute(
                     """UPDATE local_attempts SET state = 'CANCELED', closed_at_ms = max(created_at_ms, ?)
                        WHERE job_id = ? AND closed_at_ms IS NULL""",
                     (_now(), job_id),
                 )
-                self._record_scan(db, job_id, batches)
+                self._record_scan(db, job_id, batches, adopt=True)
                 delivery = self._delivery(db, job_id)
                 if source or job["consent"] == "ACCEPT":
                     self._snapshot(db, job_id)

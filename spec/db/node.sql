@@ -72,6 +72,7 @@ CREATE TABLE outbox (
     next_attempt_at_ms INTEGER NOT NULL CHECK (next_attempt_at_ms >= created_at_ms),
     first_sent_at_ms INTEGER CHECK (first_sent_at_ms >= created_at_ms),
     attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    sent_boot_id TEXT CHECK (sent_boot_id IS NULL OR first_sent_at_ms IS NOT NULL),
     CHECK ((event_kind = 'ACK') = (batch_id IS NOT NULL)),
     CHECK ((event_kind = 'ACK') = (assignment_id IS NOT NULL)),
     CHECK ((event_kind = 'RECONCILE') = (boot_id IS NOT NULL)),

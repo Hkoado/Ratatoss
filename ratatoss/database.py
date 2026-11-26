@@ -11,7 +11,7 @@ from .settings import local_absolute_path
 
 Role = Literal["node", "controller"]
 NODE_DATABASE_NAME = "node.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSIONS = {"node": 2, "controller": 1}
 BUSY_TIMEOUT_MS = 5000
 APPLICATION_IDS = {
     "node": 0x5241544E,        # RATN
@@ -46,18 +46,18 @@ def _schema_statements(role: Role):
         raise ValueError("Incomplete SQLite schema statement")
 
 
-def _needs_schema(connection: sqlite3.Connection, role: Role) -> bool:
+def _schema_version(connection: sqlite3.Connection, role: Role) -> int:
     application_id = connection.execute("PRAGMA application_id").fetchone()[0]
     version = connection.execute("PRAGMA user_version").fetchone()[0]
     if application_id == APPLICATION_IDS[role]:
-        if version != SCHEMA_VERSION:
+        if not 1 <= version <= SCHEMA_VERSIONS[role]:
             raise ValueError(f"Unsupported {role} database schema version")
-        return False
+        return version
     if application_id in APPLICATION_IDS.values():
         raise ValueError(f"Database belongs to the other Ratatoss role, expected {role}")
     if application_id or version or connection.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone():
         raise ValueError("Unrecognized SQLite database schema")
-    return True
+    return 0
 
 
 def _enable_wal(connection: sqlite3.Connection) -> None:
@@ -79,6 +79,7 @@ def _enable_wal(connection: sqlite3.Connection) -> None:
 def open_database(path: Path, role: Role) -> sqlite3.Connection:
     """Return an initialized connection. The caller owns and closes it."""
     application_id = APPLICATION_IDS[role]
+    target_version = SCHEMA_VERSIONS[role]
     if sqlite3.sqlite_version_info < (3, 38, 0):
         raise ValueError("Ratatoss requires SQLite 3.38.0 or later")
     local_absolute_path(path, "Database path")
@@ -93,8 +94,8 @@ def open_database(path: Path, role: Role) -> sqlite3.Connection:
         # Read the identity consistently before changing journal mode.
         with connection:
             connection.execute("BEGIN")
-            needs_schema = _needs_schema(connection, role)
-            if not needs_schema and connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
+            version = _schema_version(connection, role)
+            if version == target_version and connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
                 return connection
         _enable_wal(connection)
 
@@ -102,11 +103,18 @@ def open_database(path: Path, role: Role) -> sqlite3.Connection:
         # the race between the identity check and the journal mode change.
         with connection:
             connection.execute("BEGIN IMMEDIATE")
-            if _needs_schema(connection, role):
+            version = _schema_version(connection, role)
+            if version == 0:
                 for statement in _schema_statements(role):
                     connection.execute(statement)
                 connection.execute(f"PRAGMA application_id = {application_id}")
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            elif role == "node" and version == 1:
+                connection.execute(
+                    """ALTER TABLE outbox ADD COLUMN sent_boot_id TEXT
+                       CHECK (sent_boot_id IS NULL OR first_sent_at_ms IS NOT NULL)"""
+                )
+            if version < target_version:
+                connection.execute(f"PRAGMA user_version = {target_version}")
     except BaseException:
         connection.close()
         raise
