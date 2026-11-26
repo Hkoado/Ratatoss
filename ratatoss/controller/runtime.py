@@ -29,9 +29,9 @@ class ControllerRuntime:
         return open_database(self.database, "controller")
 
     @contextmanager
-    def transaction(self) -> Iterator[Registry]:
+    def transaction(self, *, write: bool = True) -> Iterator[Registry]:
         with closing(self.connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             yield Registry(connection, self.clock())
 
     def startup(self) -> None:

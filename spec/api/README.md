@@ -67,3 +67,9 @@ Dùng `Manifest.canonical_bytes()` để lưu metadata canonical và `Manifest.m
 | `GET /api/health` | `{"status":"ok","mode":"starter","transport_enabled":false}` |
 
 Starter chỉ nhận client loopback và giá trị Host khớp chính xác địa chỉ loopback đã cấu hình. Nếu request có header Origin thì giá trị phải khớp chính xác origin loopback. Request không qua kiểm tra nhận HTTP 403 với plain text `Forbidden`. Các route OpenAPI sinh tự động, Swagger UI và ReDoc của FastAPI đã tắt.
+
+## Kiểm thử HTTP của control plane
+
+`create_control_app` gắn các route job, offer, thu hồi cặp, heartbeat, reconcile, assignment và receipt. Hàm nhận một `ControllerRuntime` cùng hai hàm tra cứu danh tính và cặp đang hoạt động. Tra danh tính cho các thao tác ghi diễn ra sau khi giữ khóa SQLite, trước khi tra khóa idempotency. App chạy bộ lập lịch định kỳ mỗi giây và hủy lease cũ lúc khởi động.
+
+`python -m unittest discover -s tests -p test_control_state.py -v` chạy kiểm thử controller với SQLite tạm và yêu cầu HTTP thật qua Uvicorn trên loopback. Ca HTTP dùng danh tính tổng hợp trong SQLite. Các ca kiểm tra cả response lẫn DB cho khóa JSON lặp, quyền xem offer, phát lại yêu cầu, thu hồi token khi chờ khóa, mã Croc theo vai trò, ACK và receipt. [Mô-đun HTTP](../../ratatoss/controller/control_api.py) · [Cấu hình topology](../operations/tech-stack.md#topology-và-ngân-sách-lease-của-controller)

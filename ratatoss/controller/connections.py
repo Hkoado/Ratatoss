@@ -32,7 +32,7 @@ def heartbeat(registry: Registry, device_id: str, boot_id: str, free_rx: int,
 
 
 def reconcile(registry: Registry, device_id: str, job_id: str, boot_id: str,
-              batch_ids: list[int]) -> dict:
+              batch_ids: list[int], *, replay: bool = False) -> dict:
     member = registry.row(
         "SELECT d.*, j.source_device_id, o.state AS consent FROM job_members m "
         "JOIN devices d USING (device_id) JOIN jobs j USING (job_id) "
@@ -52,6 +52,11 @@ def reconcile(registry: Registry, device_id: str, job_id: str, boot_id: str,
     if not set(batch_ids) <= {row["batch_id"] for row in batches}:
         raise RegistryError(409)
 
+    result = {"job_id": job_id, "device_id": device_id, "boot_id": boot_id,
+              "verified_batch_ids": sorted(batch_ids)}
+    if replay:
+        return result
+
     registry.db.execute("DELETE FROM inventory WHERE job_id = ? AND device_id = ?", (job_id, device_id))
     registry.db.executemany(
         "INSERT INTO inventory VALUES (?, ?, ?, ?)",
@@ -70,5 +75,4 @@ def reconcile(registry: Registry, device_id: str, job_id: str, boot_id: str,
         "WHERE i.job_id = a.job_id AND i.device_id = a.target_device_id AND i.batch_id = a.batch_id)))",
         (registry.now_ms, job_id, device_id, device_id),
     )
-    return {"job_id": job_id, "device_id": device_id, "boot_id": boot_id,
-            "verified_batch_ids": sorted(batch_ids)}
+    return result

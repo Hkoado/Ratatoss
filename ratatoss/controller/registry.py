@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from ..manifest import Manifest, decode_manifest_object
+from ..manifest import Manifest
 from ..offer_state import decide_offer, expire_offer
 
 OFFER_TTL_MS = 24 * 60 * 60 * 1000
@@ -21,9 +21,10 @@ SQLITE_MAX_INTEGER = 2**63 - 1
 
 
 class RegistryError(Exception):
-    def __init__(self, status: int):
+    def __init__(self, status: int, message: str | None = None):
         super().__init__(status)
         self.status = status
+        self.message = message
 
 
 def utc(ms: int) -> str:
@@ -48,12 +49,8 @@ def is_uuid4(value: object) -> bool:
     return parsed.version == 4 and str(parsed) == value
 
 
-def parse_job(raw: bytes, *, max_bytes: int, max_targets: int) -> tuple[Manifest, list[str]]:
-    """Parse the original UTF-8 envelope before duplicate keys can collapse."""
-    if len(raw) > max_bytes:
-        raise RegistryError(400)
+def validate_job(payload: dict, *, max_targets: int) -> tuple[Manifest, list[str]]:
     try:
-        payload = decode_manifest_object(raw)
         if payload.keys() != {"manifest", "target_device_ids"}:
             raise ValueError("Invalid job fields")
         targets = payload["target_device_ids"]
@@ -67,7 +64,7 @@ def parse_job(raw: bytes, *, max_bytes: int, max_targets: int) -> tuple[Manifest
         manifest = Manifest.from_dict(payload["manifest"])
         if manifest.size > SQLITE_MAX_INTEGER:
             raise ValueError("File size exceeds storage limit")
-    except (ValueError, RecursionError) as exc:
+    except ValueError as exc:
         raise RegistryError(400) from exc
     return manifest, targets
 
