@@ -1,6 +1,270 @@
 {
-  "measurement_method": "croc-progress-estimate-only",
-  "byte_marker_status": "not_verified",
+  "measurement_method": "croc-v11.6.5-encrypted-payload-at-b",
+  "byte_marker_status": "verified",
+  "network_profile": "windows-loopback-b-relay-taps-no-compress",
+  "measurement_commits": [
+    "ac30ef27f12e71a0a3bf6be54701fcc68a67d1ae"
+  ],
+  "timing_context": {
+    "croc_upload_limit_flag": "24M",
+    "croc_configured_upload_rate_mib_s": 24,
+    "croc_initial_upload_burst_mib": 24,
+    "croc_initial_upload_burst_resets_per_sender_process": true,
+    "configured_receiver_head_start_ms": 750,
+    "setup_ms": "Observer process start to first payload at B (RX starts before the sender).",
+    "sender_start_to_first_payload_ms": "Sender process start to first payload at B, on the shared loopback clock.",
+    "goodput_scope": "Verified payload over the observed byte interval under the configured rate and initial burst."
+  },
+  "selected_batch_mib": 64,
+  "comparison_payload_mib_per_route": 128,
+  "comparison_method": "Median concurrent makespan multiplied by the number of batches per route; smaller batch breaks ties.",
+  "estimated_equal_volume_makespan_ms": {
+    "32": 8416,
+    "64": 8212,
+    "128": 10049
+  },
+  "equal_volume_makespan_sensitivity_ms": {
+    "remove_initial_burst_credit": {
+      "32": 12416,
+      "64": 10212,
+      "128": 11049
+    },
+    "remove_configured_start_gap": {
+      "32": 5416,
+      "64": 6712,
+      "128": 9299
+    },
+    "remove_both": {
+      "32": 9416,
+      "64": 8712,
+      "128": 10299
+    }
+  },
+  "sensitivity_method": "Illustrative fixed per-session deltas, not new measurements.",
+  "observed": {
+    "32": {
+      "sequential": {
+        "runs": 3,
+        "makespan_ms": {
+          "min": 1713,
+          "median": 1776,
+          "max": 1802
+        },
+        "rx": {
+          "setup_ms": {
+            "min": 1015.4776,
+            "median": 1072.2315,
+            "max": 1144.8343
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 102.4742,
+            "median": 103.3651,
+            "max": 115.7535
+          },
+          "goodput_bps": {
+            "min": 818588706,
+            "median": 819439070,
+            "max": 821388581
+          }
+        }
+      },
+      "concurrent": {
+        "runs": 3,
+        "makespan_ms": {
+          "min": 2053,
+          "median": 2104,
+          "max": 2416
+        },
+        "rx": {
+          "setup_ms": {
+            "min": 1116.3741,
+            "median": 1252.9815,
+            "max": 1386.7664
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 223.4905,
+            "median": 322.6461,
+            "max": 339.8925
+          },
+          "goodput_bps": {
+            "min": 680591570,
+            "median": 753443182,
+            "max": 784559936
+          }
+        },
+        "tx": {
+          "setup_ms": {
+            "min": 163.7476,
+            "median": 202.0867,
+            "max": 246.5525
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 163.7476,
+            "median": 202.0867,
+            "max": 246.5525
+          },
+          "goodput_bps": {
+            "min": 724771368,
+            "median": 817826307,
+            "max": 821405421
+          }
+        },
+        "overlap_ms": {
+          "min": 139.12639999995008,
+          "median": 244.8242999999784,
+          "max": 252.09539999999106
+        }
+      }
+    },
+    "64": {
+      "sequential": {
+        "runs": 3,
+        "makespan_ms": {
+          "min": 3514,
+          "median": 3620,
+          "max": 3884
+        },
+        "rx": {
+          "setup_ms": {
+            "min": 1159.0374,
+            "median": 1333.5859,
+            "max": 1443.8334
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 114.3848,
+            "median": 125.8667,
+            "max": 204.138
+          },
+          "goodput_bps": {
+            "min": 327837656,
+            "median": 327984683,
+            "max": 328091055
+          }
+        }
+      },
+      "concurrent": {
+        "runs": 3,
+        "makespan_ms": {
+          "min": 4038,
+          "median": 4106,
+          "max": 4187
+        },
+        "rx": {
+          "setup_ms": {
+            "min": 1379.2528,
+            "median": 1491.018,
+            "max": 1710.8179
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 328.9295,
+            "median": 330.7685,
+            "max": 338.426
+          },
+          "goodput_bps": {
+            "min": 327817958,
+            "median": 327986166,
+            "max": 328151217
+          }
+        },
+        "tx": {
+          "setup_ms": {
+            "min": 145.2522,
+            "median": 148.1714,
+            "max": 153.0447
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 145.2522,
+            "median": 148.1714,
+            "max": 153.0447
+          },
+          "goodput_bps": {
+            "min": 326141696,
+            "median": 326248105,
+            "max": 327580770
+          }
+        },
+        "overlap_ms": {
+          "min": 1527.1099000000395,
+          "median": 1527.348300000187,
+          "max": 1529.036400000099
+        }
+      }
+    },
+    "128": {
+      "sequential": {
+        "runs": 3,
+        "makespan_ms": {
+          "min": 7173,
+          "median": 7203,
+          "max": 7330
+        },
+        "rx": {
+          "setup_ms": {
+            "min": 1469.7308,
+            "median": 1742.9563,
+            "max": 1765.8609
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 160.7431,
+            "median": 238.1115,
+            "max": 243.4216
+          },
+          "goodput_bps": {
+            "min": 252417312,
+            "median": 252429513,
+            "max": 252439720
+          }
+        }
+      },
+      "concurrent": {
+        "runs": 3,
+        "makespan_ms": {
+          "min": 9808,
+          "median": 10049,
+          "max": 14213
+        },
+        "rx": {
+          "setup_ms": {
+            "min": 2397.0582,
+            "median": 2502.594,
+            "max": 2510.3534
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 850.6746,
+            "median": 950.8927,
+            "max": 980.6093
+          },
+          "goodput_bps": {
+            "min": 144547732,
+            "median": 231436461,
+            "max": 240298443
+          }
+        },
+        "tx": {
+          "setup_ms": {
+            "min": 196.0166,
+            "median": 385.5486,
+            "max": 5349.2641
+          },
+          "sender_start_to_first_payload_ms": {
+            "min": 196.0166,
+            "median": 385.5486,
+            "max": 5349.2641
+          },
+          "goodput_bps": {
+            "min": 218729776,
+            "median": 247341949,
+            "max": 252525480
+          }
+        },
+        "overlap_ms": {
+          "min": 2269.1762999999337,
+          "median": 4325.335200000089,
+          "max": 4336.206999999937
+        }
+      }
+    }
+  },
   "profiles": {
     "32": {
       "min_goodput_bps": 100000000,
@@ -9,7 +273,7 @@
       "margin_ms": 200,
       "lease_ms": 75000,
       "adapter_timeout_ms": 75000,
-      "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers."
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
     },
     "64": {
       "min_goodput_bps": 100000000,
@@ -18,7 +282,7 @@
       "margin_ms": 200,
       "lease_ms": 75000,
       "adapter_timeout_ms": 75000,
-      "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers."
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
     },
     "128": {
       "min_goodput_bps": 100000000,
@@ -27,7 +291,7 @@
       "margin_ms": 200,
       "lease_ms": 75000,
       "adapter_timeout_ms": 75000,
-      "basis": "Conservative loopback progress-estimate setup budget; true byte setup requires byte-level payload markers."
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
     }
   }
 }

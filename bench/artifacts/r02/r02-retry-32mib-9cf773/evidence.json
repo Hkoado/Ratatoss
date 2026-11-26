@@ -1,0 +1,151 @@
+{
+  "run_id": "r02-retry-32mib-9cf773",
+  "gate": "gate0",
+  "scenario": "retry",
+  "baseline": "croc_relay",
+  "repeat": "1",
+  "seed": "",
+  "commit": "ac30ef27f12e71a0a3bf6be54701fcc68a67d1ae",
+  "os": "Windows",
+  "croc_version": "11.6.5",
+  "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "relay_config": "loopback-127.0.0.1",
+  "network_profile": "windows-loopback",
+  "fixture_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+  "file_bytes": "33554432",
+  "batch_mib": "32",
+  "rx_slots": "1",
+  "tx_slots": "1",
+  "status": "pass",
+  "makespan_ms": "2809",
+  "source_payload_bytes": "33554432",
+  "source_wire_bytes": "",
+  "wan_wire_bytes": "",
+  "wan_measurement_scope": "",
+  "retry_payload_bytes": "",
+  "recovery_ms": "",
+  "optional_replication_bytes": "",
+  "setup_p50_ms": "",
+  "setup_p95_ms": "",
+  "peer_utilization_ref": "",
+  "evidence_ref": "bench/artifacts/r02/r02-retry-32mib-9cf773/evidence.json",
+  "notes": "Same fixture and destination as r02-timeout-reproduce-b72359; verified with a new attempt. Payload byte markers are unavailable.",
+  "measured_at": "2026-11-25T12:34:39.038182+00:00",
+  "os_version": "10.0.22631",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "sender_route_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "adapter_timeout_s": 75,
+  "start_gap_s": 0.75,
+  "upload_limit": "24M",
+  "measurement_method": null,
+  "wire_observation": null,
+  "size_profiles": {
+    "32": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 1400,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
+    },
+    "64": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 2200,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
+    },
+    "128": {
+      "min_goodput_bps": 100000000,
+      "setup_budget_ms": 4700,
+      "verify_commit_ms": 200,
+      "margin_ms": 200,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "basis": "Previously configured lab budget, kept fixed for the measured matrix; observed distributions are separate."
+    }
+  },
+  "secrets_redacted": true,
+  "transfers": [
+    {
+      "run_id": "r02-retry-32mib-9cf773",
+      "job_id": "38289d668fa342aaa8d873b98a53647d",
+      "assignment_id": "bc67467e4a154dd2afbcb406c36724a9",
+      "batch_id": "0",
+      "source_peer": "A",
+      "target_peer": "B",
+      "observer_peer": "B",
+      "path_kind": "unknown",
+      "payload_bytes": "33554432",
+      "payload_sent_bytes": "33554432",
+      "start_monotonic_ms": "2596025",
+      "first_byte_monotonic_ms": "",
+      "last_byte_monotonic_ms": "",
+      "end_monotonic_ms": "2598834",
+      "setup_ms": "",
+      "goodput_bps": "",
+      "verified_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "status": "pass",
+      "is_retry": "true",
+      "is_replication": "false",
+      "notes": "Same fixture and destination as r02-timeout-reproduce-b72359; verified with a new attempt. Payload byte markers are unavailable.",
+      "progress_estimate": {
+        "first_progress_monotonic_ms": 2597288,
+        "first_progress_percent": 82,
+        "full_progress_monotonic_ms": 2597516
+      }
+    }
+  ],
+  "processes": {
+    "A_tx": {
+      "started_monotonic_s": 2597.0647462,
+      "stopped_monotonic_s": 2597.6187483,
+      "deadline_monotonic_s": 2671.0220948,
+      "first_progress_monotonic_s": null,
+      "first_progress_percent": null,
+      "full_progress_monotonic_s": null,
+      "sha256_done_monotonic_s": null,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    },
+    "B_rx": {
+      "started_monotonic_s": 2596.0249269,
+      "stopped_monotonic_s": 2597.6408486,
+      "deadline_monotonic_s": 2671.0220948,
+      "first_progress_monotonic_s": 2597.2877614,
+      "first_progress_percent": 82,
+      "full_progress_monotonic_s": 2597.5164472,
+      "sha256_done_monotonic_s": 2598.8343959,
+      "job": {
+        "active_before_stop": 0,
+        "active_after_stop": 0,
+        "total_processes": 2,
+        "exit_code": 0
+      },
+      "staging_cleanup_pending": false
+    }
+  },
+  "retry_of": "r02-timeout-reproduce-b72359",
+  "relay_cleanup": {
+    "active_before_stop": 2,
+    "active_after_stop": 0,
+    "total_processes": 2,
+    "exit_code": 1
+  }
+}
