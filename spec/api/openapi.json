@@ -402,7 +402,7 @@
       "post": {
         "operationId": "decidePair",
         "summary": "Confirm or reject a claimed pair as a participant",
-        "description": "Compare the six-digit code out of band before confirming. Both parties must confirm before the deadline. Any rejection terminates the session. At most one ACTIVE pair may exist for an unordered device pair. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key.",
+        "description": "Compare the six-digit code out of band before confirming. Both parties must confirm before the deadline. Any rejection terminates the session. At most one ACTIVE pair may exist for an unordered device pair. Scope the key to device, method and concrete route. Store the payload digest and committed result while the linked job or pair exists; return 409 on a different payload for the same key. A stored CLAIMED decision can replay its comparison code only while the pair is still CLAIMED before its deadline. Return 410 if that session expired and 409 if it ended in another state. Use GET /v1/pairs to read the current state.",
         "security": [
           {
             "DeviceBearer": []
@@ -2153,7 +2153,8 @@
           },
           "display_name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^[^\\u0000]+$"
           }
         },
         "required": [
