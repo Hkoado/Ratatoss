@@ -41,4 +41,18 @@ Bộ cài được build lại từ commit `25b31bb72b059c8cd608d545a13fe21923d3
 | Host và Origin | Health trả 200 với Host và Origin của cổng thực tế. Host dùng `8765`, Origin dùng `8765` và Origin ngoài loopback đều trả 403. |
 | Croc và giấy phép | Binary đi kèm trả `croc version 11.6.5`. SHA-256 của binary khớp manifest và có đủ 46 tệp giấy phép được liệt kê. |
 
+## Chạy lại smoke bản đã cài · 2026-11-26
+
+Chạy trên máy kiểm thử Windows với Python 3.14.2 và bản cài tạm khớp [manifest](issue-59.clean-vm.manifest.json). Đặt `RATATOSS_TEST_WINDOWS_APP` trỏ vào bản cài rồi chạy `python -B -m unittest discover -s packaging/windows -v`. Cả 5 ca đạt trong 3 lượt liên tiếp. Kiểm tra sau mỗi lượt xác nhận không còn Node hoặc launcher của bản cài tạm.
+
+Trong ca tái hiện race, một Node dùng cùng executable được mở sau khi smoke nhả mutex kiểm tra ban đầu và trước khi worker của smoke bắt đầu. Smoke báo không tạo được DB fixture. Node bên ngoài Job của smoke vẫn phản hồi HTTP sau khi smoke dọn dẹp. Kiểm tra sau khi kết thúc ca không còn tiến trình của bản cài tạm. Riêng bộ kiểm thử repo đạt 138 ca và trình kiểm tra tài liệu gốc xác minh 9 tệp.
+
+## Mở Ratatoss từ màn hình cuối của bộ cài · 2026-11-26
+
+**Đạt.** Chạy trên một VM Windows 11 Enterprise LTSC Evaluation x64 24H2 mới, build `26100.1742`, với tài khoản chuẩn. Kiểm tra trước khi cài ghi nhận 0 adapter mạng hoạt động, 0 route mặc định, chưa cài Python hoặc Croc riêng và chưa có Ratatoss hay tiến trình Node. SHA-256 của bộ cài trong VM khớp [manifest](issue-59.clean-vm.manifest.json), `0e16366314ac3c0573b161416c3148ef30f93a688a3c61be673047667aef00bc`.
+
+Chạy Setup qua giao diện, giữ thư mục mặc định theo tài khoản và chọn **Finish** khi **Mở Ratatoss** đang được đánh dấu. Setup trả mã 0 và tự mở Edge trong VM. Sau màn hình chào Edge, chọn tiếp tục offline và không đăng nhập. Tab Ratatoss do bộ cài mở hiển thị giao diện có định kiểu tại `http://127.0.0.1:8765/`. Có đúng một listener Node. HTTP trả 200 cho HTML (963 byte, `text/html`) và CSS (848 byte, `text/css`).
+
+VM không có adapter mạng, thư mục chia sẻ, clipboard chia sẻ hay kéo thả. Trong 1.289 mẫu theo dõi máy host, không thấy tiến trình Setup, Web hay Terminal của Ratatoss. Trạng thái host trước và sau ca giống nhau về bản cài, dữ liệu mặc định, shortcut và mục gỡ cài đặt. Trong lúc Node của VM chạy, host không có listener trên cổng `8765`.
+
 Bàn giao qua [#9](https://github.com/Hkoado/Ratatoss/issues/9) cho bản tích hợp và các ca vòng đời phiên ở [#13](https://github.com/Hkoado/Ratatoss/issues/13).
