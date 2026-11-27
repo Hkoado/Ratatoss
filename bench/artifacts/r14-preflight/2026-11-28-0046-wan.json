@@ -56,10 +56,23 @@
     }
   },
   "observer": "RelayTap trong container B, time.monotonic_ns(). Cổng 9010-9017 tới relay công cộng và cổng 19009-19010 tới relay nội bộ.",
-  "observer_tap_sha256": "ddac10f8626bf17673cc18f4f7656d7a8af42b8e057a26b2900f4e6673ded3ba",
-  "observer_wrapper_sha256": "5258f17df635291139ab0d719e594a65d150a36feecbe38b4dddc6c22d5f07be",
-  "runner_sha256": "55881fb8dca6130f574853e7ab4c36ba9b00558451af40a501683dfd208b877b",
-  "runner_note": "Script chạy và lớp bọc bộ quan sát nằm trong thư mục phiên trên máy B, chưa đưa vào repo",
+  "observer_tap": {
+    "path": "scripts/croc_r02_tap.py",
+    "sha256": "ddac10f8626bf17673cc18f4f7656d7a8af42b8e057a26b2900f4e6673ded3ba"
+  },
+  "observer_wrapper": {
+    "path": "bench/artifacts/r14-preflight/wan-runner/observe.py",
+    "sha256": "5258f17df635291139ab0d719e594a65d150a36feecbe38b4dddc6c22d5f07be"
+  },
+  "runner": {
+    "path": "bench/artifacts/r14-preflight/wan-runner/wan.py",
+    "sha256": "55881fb8dca6130f574853e7ab4c36ba9b00558451af40a501683dfd208b877b"
+  },
+  "lab_setup": {
+    "path": "bench/artifacts/r14-preflight/wan-runner/prepare.py",
+    "sha256": "0b9c693b9afec3b19c11808ea921c4414d0a0d9fd92259ca2d3ff9c57cbcc79f"
+  },
+  "runner_note": "Ba tệp trong wan-runner/ giữ nguyên byte đã chạy trên máy B nên khớp digest. Tệp không chứa bí mật: mật khẩu và mã của relay nội bộ sinh ngẫu nhiên lúc chạy, mã WAN đọc từ tệp riêng rồi xóa. Đường dẫn /private/tmp và thư mục cache là đường dẫn tạm trên máy B.",
   "receiver_attempts_at_b": [
     {
       "at": "2026-11-28T00:46:01+07:00",
