@@ -146,3 +146,13 @@ Dùng lại VM VirtualBox 7.2.6 với Windows Hypervisor Platform qua NEM, Windo
 | Bấm **Finish** một lần với **Mở Ratatoss** đang chọn | Edge tự mở tab `http://127.0.0.1:8765/`. Cửa sổ ban đầu trắng trong lúc tải, sau đó tab hiển thị tiêu đề Ratatoss, thanh điều hướng nền xanh đậm và ba khối nội dung **Gửi**, **Hoạt động**, **Thiết bị**. Không có hộp thoại lỗi, không dùng **Retry**, không tải lại tab và không chuyển tab để mở trang. |
 | Node sẵn sàng và tài nguyên loopback | Named pipe trả cổng `8765` sau 7,830 giây tính từ lúc launcher bắt đầu. Bộ đo kết nối sau khi Edge bắt đầu nên đây là cận trên. HTML (963 byte), CSS (848 byte) và health (58 byte) đều trả HTTP 200. |
 | Kiểm tra mã nguồn | Bộ test repo đạt 208 ca. Bộ test launcher đạt 8 ca, bỏ qua 1 ca dành cho bản đã cài trên máy build. Trình kiểm tra tài liệu gốc xác minh 9 tệp. |
+
+## Xác nhận thủ công bước Finish trên VirtualBox · 2026-11-28
+
+**Đạt.** Người thử trực tiếp thao tác trong wizard của VM VirtualBox 7.2.6 đã dùng ở trên, chạy Windows 11 Enterprise LTSC Evaluation x64 24H2 build `26100.1742`. Trước khi cài, tài khoản chuẩn mới chưa có Ratatoss, không có tiến trình Edge đang chạy và không phát hiện Python, Croc hay Docker cài riêng. Guest có 0 adapter mạng đang hoạt động và 0 route mặc định.
+
+Dùng đúng installer đã build từ `922865d`. SHA-256 đo trong guest là `3ff4074cee85d81f501c73cdae03634090b73613175c1d5332be995cd1c41595`, khớp [manifest của bản đem thử](issue-59.finish-922865d.manifest.json). Setup ghi một lần gọi launcher với `--from-setup` và trả mã 0.
+
+Người thử xác nhận bấm **Finish** một lần khi **Mở Ratatoss** đang chọn. Edge hiển thị trang Ratatoss có định kiểu ở lần mở đầu, không bấm **Retry** và không tải lại. Ảnh chụp guest sau ca cho thấy trang tại `http://127.0.0.1:8765/` với thanh điều hướng nền xanh đậm và các khối **Gửi**, **Hoạt động**, **Thiết bị**. Tại thời điểm chụp có hai tab Ratatoss.
+
+Bộ đo trong guest nhận cổng `8765` qua named pipe sau 4,354 giây kể từ khi tiến trình launcher bắt đầu. Bộ đo kết nối sau khi Edge bắt đầu, nên đây là cận trên của thời gian sẵn sàng qua IPC. HTML (963 byte), CSS (848 byte) và health (58 byte) đều trả HTTP 200.
