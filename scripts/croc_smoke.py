@@ -1,4 +1,4 @@
-"""Exercise Ratatoss with the pinned Windows Croc and a local test relay."""
+"""Exercise the pinned Windows Croc adapter with two local test peers."""
 
 import argparse
 import asyncio
@@ -143,42 +143,48 @@ def check_success(case, destination, first):
     case["status"] = "pass"
 
 
-async def simulate(executable, fixture, area, report, *, tailcat=False, start_first="rx"):
+async def simulate(executable, fixture, area, report, *, tailcat=False, start_first="rx",
+                   rendezvous=None):
     require(fixture.stat().st_size == FIXTURE_SIZE, "LAB_FIXTURE_SIZE_MISMATCH")
     require(sha256_file(fixture) == FIXTURE_SHA256, "LAB_FIXTURE_HASH_MISMATCH")
-    password = secrets.token_hex(24)
+    password = None if rendezvous else secrets.token_hex(24)
     setup_ms = round(START_GAP_S * 1000) + HANDSHAKE_BUDGET_MS
     profile = RelayProfile(
-        f"{HOST}:{PORTS[0]}", password, 100_000_000, setup_ms, 200, 200,
+        rendezvous or f"{HOST}:{PORTS[0]}", password, 100_000_000, setup_ms, 200, 200,
         transport="derp" if tailcat else "relay", no_compress=tailcat,
     )
     report["profile"] = {
-        "name": "lab-windows-loopback", "endpoint": profile.endpoint, "ports": PORTS,
+        "name": "lab-windows-public-rendezvous" if rendezvous else "lab-windows-loopback",
+        "endpoint": profile.endpoint,
         "min_goodput_bps": profile.min_goodput_bps, "setup_ms": profile.setup_ms,
         "verify_commit_ms": profile.verify_commit_ms, "margin_ms": profile.margin_ms,
         "route": "unknown", "transport": profile.transport, "start_gap_s": START_GAP_S,
     }
+    if not rendezvous:
+        report["profile"]["ports"] = PORTS
     if not tailcat:
         report["profile"]["fault_upload_limit"] = THROTTLE
     adapter_root = area / "attempts"
     adapter_root.mkdir()
-    adapter = CrocAdapter(executable, adapter_root, profile)
+    adapter = CrocAdapter(executable, adapter_root, profile, observe_payload=tailcat)
     report["croc"] = {
         "version": CROC_VERSION, "sha256": sha256_file(executable),
         "probes_passed": ["--version", "--help", "send --help", "relay --help"],
     }
-    relay_root = area / "relay"
-    relay_root.mkdir()
-    args = [
-        str(executable), *COMMON_FLAGS, "relay", "--host", HOST, "--ports",
-        ",".join(map(str, PORTS)),
-    ]
-    report["relay"] = {"argv": redact(args)}
     clipboard = ctypes.windll.user32.GetClipboardSequenceNumber
     clipboard_before = clipboard()
-    relay = WindowsChild(args, cwd=relay_root, env=child_environment(relay_root) | {"CROC_PASS": password})
+    relay = None
     try:
-        report["relay"]["listeners"] = wait_for_relay(relay)
+        if not rendezvous:
+            relay_root = area / "relay"
+            relay_root.mkdir()
+            args = [
+                str(executable), *COMMON_FLAGS, "relay", "--host", HOST, "--ports",
+                ",".join(map(str, PORTS)),
+            ]
+            report["relay"] = {"argv": redact(args)}
+            relay = WindowsChild(args, cwd=relay_root, env=child_environment(relay_root) | {"CROC_PASS": password})
+            report["relay"]["listeners"] = wait_for_relay(relay)
         cases = report["cases"]
         rooms = set()
         for first in (start_first,) if tailcat else ("rx", "tx"):
@@ -237,7 +243,8 @@ async def simulate(executable, fixture, area, report, *, tailcat=False, start_fi
         )
         report["previous_verified_files_preserved"] = True
     finally:
-        report["relay"]["cleanup"] = asdict(relay.stop())
+        if relay is not None:
+            report["relay"]["cleanup"] = asdict(relay.stop())
         report["clipboard_sequence_unchanged"] = clipboard() == clipboard_before
 
 
@@ -249,9 +256,10 @@ def main():
     parser.add_argument("--report", type=Path, required=True, help="write the sanitized JSON report to a new file")
     parser.add_argument("--tailcat", action="store_true", help="run a pinned 32 MiB transfer through Tailcat")
     parser.add_argument("--start-first", choices=("rx", "tx"), help="first peer for the Tailcat smoke (default rx)")
+    parser.add_argument("--rendezvous", help="approved Tailcat host:port using Croc's public relay password")
     args = parser.parse_args()
-    if args.start_first and not args.tailcat:
-        parser.error("--start-first requires --tailcat")
+    if (args.start_first or args.rendezvous) and not args.tailcat:
+        parser.error("--start-first and --rendezvous require --tailcat")
     if os.name != "nt":
         parser.error("This profile requires Windows")
     report = {
@@ -269,11 +277,12 @@ def main():
                 asyncio.run(simulate(
                     args.croc, args.fixture, Path(temp), report,
                     tailcat=args.tailcat, start_first=args.start_first or "rx",
+                    rendezvous=args.rendezvous,
                 ))
             report["status"] = "pass"
         except CrocError as exc:
             report["error"] = exc.code
-        except (OSError, ExceptionGroup) as exc:
+        except (OSError, ValueError, ExceptionGroup) as exc:
             report["error"] = type(exc).__name__
         finally:
             output.write(json.dumps(report, indent=2) + "\n")

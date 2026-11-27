@@ -66,7 +66,7 @@ Profile cũ mặc định dùng `transport="relay"`. Tùy chọn `transport="aut
 
 Với Tailcat, adapter đọc output Croc trong bộ nhớ và chỉ giữ `tailcat_summary` gồm đường cuối tại đầu báo, số luồng và bộ đếm byte Tailcat. Dựa vào socket từng chiều ở bước 3 để xác nhận đường payload. SHA-256 và điều kiện publish áp dụng cho mọi profile. [Adapter Croc](../../ratatoss/transport.py)
 
-Chạy smoke với binary Windows và fixture 32 MiB đã ghim. Cờ `--tailcat` mặc định mở RX trước và kiểm SHA-256 cùng số luồng, byte Tailcat ở hai đầu. Dùng `--start-first tx` để thử thứ tự ngược và lưu riêng lỗi thiết lập nếu có. Cả hai đầu và kênh ghép mô phỏng nằm trên cùng máy Windows. [Fixture và pin](croc-lab.md) · [Smoke CLI](../../scripts/croc_smoke.py)
+Chạy smoke với binary Windows và fixture 32 MiB đã ghim. Cờ `--tailcat` mặc định mở RX trước và kiểm SHA-256 cùng số luồng, byte Tailcat ở hai đầu. Dùng `--start-first tx` để thử thứ tự ngược. Hai đầu chạy trên cùng máy Windows. Mặc định smoke mở relay loopback. Thêm `--rendezvous 1.getcroc.com:9009` để dùng đúng kênh ghép đã chạy ở #60. [Fixture và pin](croc-lab.md) · [Smoke CLI](../../scripts/croc_smoke.py)
 
 ```powershell
 python -m scripts.croc_smoke --croc $croc --fixture $fixture --work-parent $lab --report $report --tailcat
