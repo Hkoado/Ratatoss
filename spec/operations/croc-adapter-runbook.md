@@ -35,6 +35,26 @@ Nguồn kiểm cú pháp và cơ chế tiến trình gồm [README theo tag](htt
 3. Cùng assignment chỉ khởi động một child cho mỗi vai trò và giữ slot đến khi cây child đã dừng. Chốt deadline khi nhận lease dựa vào thời gian monotonic và phần lease còn lại, dùng hạn sớm hơn với timeout adapter. Retry `ready` không mở lease mới. Nếu mất HTTPS, chỉ phiên đã có mã tiếp tục trong hạn. Snapshot đầy đủ mất assignment, hết hạn, mất quyền, yêu cầu cancel/withdraw, hoặc lỗi child đều dẫn đến dừng. Mỗi lần retry controller cấp assignment và mã mới. Xem [giao thức](../../docs/control-protocol.md).
 4. Với RX, chỉ sau khi cây child dừng và exit thành công mới bắt đầu kiểm một file thường hợp lệ, đúng kích thước, SHA-256 batch và từng piece. Flush và publish nguyên tử, commit `AVAILABLE` cùng ACK outbox rồi mới gửi ACK. Đối với final, kiểm SHA-256 toàn file và công bố bền vững trước receipt. TX chỉ giữ reference batch đến khi child kết thúc. Xem [thứ tự commit](../../docs/storage-and-recovery.md).
 
+## WAN trực tiếp qua IPv6
+
+Issue #60 · R1.4 · Tuyến `integration`. Kịch bản này dùng profile Tailcat đã chạy trên Windows A và macOS B để truyền tệp qua WAN. Mục tiêu là giảm thời gian từ lúc bắt đầu sau consent đến khi người nhận cuối cùng xác minh SHA-256 toàn tệp. Khi đường trực tiếp khả dụng, ưu tiên thử tuyến đó và dùng thời gian thiết lập, goodput đã đo, retry và thời gian xác minh để đánh giá thời gian hoàn tất. [Brief §1](../../docs/source/Ratatoss_Project_Brief_v1.3.md) · [Quy tắc đo makespan](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
+
+1. Xác nhận hai đầu có kết nối Internet IPv6. Dùng đúng Croc v11.6.5 và đối chiếu SHA-256 của executable theo OS/kiến trúc. Với ca tái hiện #60, dùng fixture tổng hợp `a-32mib.bin` và kiểm kích thước, SHA-256 trước khi gửi. Chuẩn bị thư mục phiên trống và cấu hình worker riêng như hợp đồng child process. [Manifest fixture](croc-lab.md#fixture-tổng-hợp-tái-tạo-được) · [Pin và lệnh đã chạy](../../bench/artifacts/r14-preflight/tailcat/2026-11-28-0211-concurrent.json)
+2. Chốt cùng kênh ghép phiên ở hai đầu. Đích xác nhận nhận trước khi mở RX với `--yes`. Cấp mã dùng một lần qua `CROC_SECRET` trong môi trường từng child. Ghi thông báo đã phân loại và số đếm đã lược thông tin mạng. Dùng argv dưới đây để tái hiện profile #60.
+
+   ```text
+   TX: [CROC, "--disable-clipboard", "--no-update-check", "--no-compress", "--debug",
+        "--relay", "1.getcroc.com:9009", "send", "--no-local", "--transport", "derp",
+        "a-32mib.bin"]
+   RX: [CROC, "--debug", "--disable-clipboard", "--no-update-check", "--no-compress",
+        "--relay", "1.getcroc.com:9009", "--yes"]
+   ```
+
+3. Đối chiếu tóm tắt Tailcat ở hai đầu và số byte theo giao thức, họ địa chỉ và chiều ở socket nhận. Croc dùng TCP 9009 để ghép phiên trong ca này. `--transport derp` chọn Tailcat và tắt fallback sang relay dữ liệu Croc. Tailcat có thể dùng DERP trước và chuyển sang UDP trực tiếp khi kết nối được. Ghi riêng đường payload A→B và lưu lượng phản hồi B→A, cùng mốc chuyển tuyến nếu quan sát được. Khi thiếu bằng chứng cho một chiều, ghi `unknown`. [Tài liệu Croc v11.6.5](https://github.com/schollz/croc/blob/v11.6.5/README.md#data-transport-selection)
+4. Kiểm kích thước và SHA-256 toàn tệp ở đích. Lưu goodput payload, đường đi, mốc thiết lập và mốc xác minh theo các tín hiệu quan sát được. Trong ca tích hợp có nhiều đích, lấy ACK xác minh của đích cuối để tính makespan theo đồng hồ monotonic của controller. [Runbook thử nghiệm](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
+
+Trong lượt #60 lúc 02:11 ngày 28/11/2026 (UTC+7), A→B chuyển đủ 32 MiB, khớp SHA-256 và đạt **5,47 MiB/s**. Payload đến B trực tiếp qua UDP/IPv6. Chiều phản hồi B→A đi qua DERP khoảng 4,15 giây đầu rồi chuyển sang UDP/IPv6. Đây là kết quả trên mạng thử đã ghi trong hồ sơ. [Profile Tailcat và bộ chạy](../../bench/artifacts/r14-preflight/tailcat/README.md) · [Số đo lượt 02:11](../../bench/artifacts/r14-preflight/tailcat/2026-11-28-0211-concurrent.json)
+
 ## Preflight ngân sách lease chạy
 
 Issue #25 · tuyến `transport` và điểm bàn giao `control`. Căn cứ [Brief §6.3 và §8 giai đoạn 0](../../docs/source/Ratatoss_Project_Brief_v1.3.md#63-thành-phần-và-trạng-thái), [kế hoạch cổng 0 và lịch cố định](../../plan/ASTRA_PLAN.md), [giao thức phân công và báo cáo](../../docs/control-protocol.md#phân-công-và-báo-cáo) và [runbook thử nghiệm cổng 0–1](../../docs/experiments.md#cổng-0--transport). Phạm vi gồm mục này, [preflight](../../ratatoss/lease_profile.py) và [kiểm thử CLI](../../tests/test_croc_lease.py).
