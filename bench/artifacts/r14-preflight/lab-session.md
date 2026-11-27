@@ -17,12 +17,12 @@ OS/build của Mac do Huy cung cấp. Build Windows và kiến trúc hệ điề
 
 Trên Windows, tại cây xuất phát từ `98edb713a18145d72a799a876ea4374d5476ca4a`, dùng Python 3.14.2 chạy `python scripts/make_croc_lab_fixtures.py <thư-mục-mới>`. Đọc lại độ dài và SHA-256 từ tệp bằng `Path.stat()` và `hashlib.file_digest()`. Cả sáu fixture ở 32/64/128 MiB khớp [bảng byte và SHA-256 của #3](../../../spec/operations/croc-lab.md#fixture-tổng-hợp-tái-tạo-được). Bản cục bộ ở `build/issue-60-inputs/fixture/` của workspace chuẩn bị. Người trực A/B/C có thể tái tạo trong thư mục thử riêng rồi ghi vị trí đã được cấp quyền dưới bí danh của mỗi máy.
 
-Đã tải hai gói chính thức, tính SHA-256 archive bằng `Get-FileHash -Algorithm SHA256`, đối chiếu trường `digest` trong metadata phát hành rồi giải nén và tính SHA-256 executable. Đã chạy `croc.exe --version` trên Windows và nhận `croc version 11.6.5`. Bản macOS được kiểm đến bước giải nén trên máy chuẩn bị. Nếu Huy chạy native trên Mac, kiểm lại bản macOS tại máy. Nếu chạy trong container, ghi pin executable Linux của container. [Metadata Croc v11.6.5](https://api.github.com/repos/schollz/croc/releases/tags/v11.6.5)
+Đã tải hai gói chính thức, tính SHA-256 archive bằng `Get-FileHash -Algorithm SHA256`, đối chiếu trường `digest` trong metadata phát hành rồi giải nén và tính SHA-256 executable. Đã chạy `croc.exe --version` trên Windows và nhận `croc version 11.6.5`. Trên Mac arm64 của Huy, executable chạy trực tiếp trả về `croc version 11.6.5`. SHA-256 của executable này khớp bản giải nén từ gói macOS trong bảng. Nếu chạy trong container, ghi pin executable Linux của container. [Metadata Croc v11.6.5](https://api.github.com/repos/schollz/croc/releases/tags/v11.6.5)
 
 | Nền tảng | Gói chính thức | SHA-256 archive khớp upstream | SHA-256 executable đã giải nén |
 | --- | --- | --- | --- |
 | Windows x64 | `croc_v11.6.5_Windows-64bit.zip` | `ae5b9d249099ff159f6a4b91824a2bf7d2b32f0dd77342aef51b34154aa4fffb` | `1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e` |
-| macOS arm64 | `croc_v11.6.5_macOS-ARM64.tar.gz` | `b6a6da6c6a21bd5a3723003295cf232da281d3767687f5731725c6c4360e1015` | `56d4c1845f2638217c6e8fe2464e3db19db518a0772b570aafbef61af0125a54b` |
+| macOS arm64 | `croc_v11.6.5_macOS-ARM64.tar.gz` | `b6a6da6c6a21bd5a3723003295cf232da281d3767687f5731725c6c4360e1015` | `56d4c1845f2638217c6e8fe2464e3db19db518a0772b570aafbe61af0125a54b` |
 
 ## Kết quả Croc đã có
 
