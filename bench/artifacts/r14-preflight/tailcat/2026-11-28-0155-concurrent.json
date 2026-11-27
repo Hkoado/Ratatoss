@@ -17,8 +17,9 @@
   },
   "flows": {
     "A-B": {
-      "sender_a": "<CROC_EXE> … --debug --relay 1.getcroc.com:9009 send --no-local --transport derp <FIXTURE_DIR>/a-32mib.bin",
-      "sender_a_note": "Phần cờ theo báo cáo của Khoa cho profile Tailcat (https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7225691624). Các cờ chung còn lại của A chưa được ghi cho lượt 01:55.",
+      "sender_a": "croc --disable-clipboard --no-update-check --no-compress --debug --relay 1.getcroc.com:9009 send --no-local --transport derp a-32mib.bin",
+      "sender_a_source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7226113748",
+      "sender_a_upload_throttle": null,
       "receiver_b": "<CROC_EXE> --debug --disable-clipboard --no-update-check --no-compress --relay 1.getcroc.com:9009 --yes",
       "control_channel": "Relay công cộng 1.getcroc.com:9009, cố định ở hai đầu, chỉ dùng để ghép phiên",
       "data_transport": "Tailcat (WireGuard userspace). --transport derp tắt fallback sang relay dữ liệu của Croc.",
@@ -77,8 +78,16 @@
   },
   "rx_mark_error": {
     "calibration": "calibration/run1.json đến run3.json, chạy bằng runner/calibrate_rx_marks.py",
-    "rx_first_lag_ms": [1.837458, 3.999583, 1.896208],
-    "rx_last_lag_ms": [0.214416, 0.44075, 0.362417],
+    "rx_first_lag_ms": [
+      1.837458,
+      3.999583,
+      1.896208
+    ],
+    "rx_last_lag_ms": [
+      0.214416,
+      0.44075,
+      0.362417
+    ],
     "poll_s": 0.005,
     "scope": "Hiệu chuẩn trên relay Croc một luồng trên Mac (loopback). Chưa kiểm chứng trên Tailcat 8 luồng vì không có mốc dây để đối chiếu UDP WireGuard đã mã hóa."
   },
@@ -86,9 +95,18 @@
     "source": "2026-11-28-0155-b-rx-sockets.csv, nettop mỗi 1 s cho tiến trình receiver A→B",
     "kind": "Byte tầng socket, gồm header WireGuard, UDP và IP. Không phải byte payload, không dùng để tính goodput.",
     "last_sample_by_family": {
-      "udp6": {"in": 37032176, "out": 2452448},
-      "tcp4": {"in": 11362, "out": 6861},
-      "udp4": {"in": 64, "out": 328}
+      "udp6": {
+        "in": 37032176,
+        "out": 2452448
+      },
+      "tcp4": {
+        "in": 11362,
+        "out": 6861
+      },
+      "udp4": {
+        "in": 64,
+        "out": 328
+      }
     },
     "note": "Mẫu cuối lấy trước khi tiến trình thoát nên có thể thiếu phần cuối. Không có socket tcp6 (DERP) mang dữ liệu."
   },
