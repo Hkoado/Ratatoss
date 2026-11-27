@@ -1,0 +1,48 @@
+{
+  "started_at": "2026-11-28T01:55:28.882+07:00",
+  "completed_at": "2026-11-28T01:55:44.345+07:00",
+  "ab_relay_control": "1.getcroc.com:9009",
+  "exit_codes": {
+    "b-rx": 0,
+    "b-tx": 0,
+    "c-rx": 0
+  },
+  "A-B": {
+    "bytes": 33554432,
+    "sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+    "tailcat_summary": "path=direct streams=8 setup=543.222584ms sent=0 received=33599488"
+  },
+  "B-C": {
+    "bytes": 33554432,
+    "sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+  },
+  "marks_ns": {
+    "rx_first": 174906456985708,
+    "rx_last": 174916390054041,
+    "tx_first": 174906619001666,
+    "tx_last": 174909614435916
+  },
+  "rx_first_wall": "2026-11-28T01:55:33.316+07:00",
+  "tx_payload_bytes": 33554432,
+  "poll_s": 0.005,
+  "overlap_ns": 2995434250,
+  "goodput_MiBps": {
+    "A-B": 3.2215624545427155,
+    "B-C": 10.682925188559889
+  },
+  "tx_first_after_rx_first_ms": 162.015958,
+  "b_rx_socket_bytes_by_family": {
+    "tcp4": {
+      "in": 11362,
+      "out": 6861
+    },
+    "udp4": {
+      "in": 64,
+      "out": 328
+    },
+    "udp6": {
+      "in": 37032176,
+      "out": 2452448
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "started_at": "2026-11-28T00:46:01+07:00",
+  "completed_at": "2026-11-28T00:47:09+07:00",
+  "clock": "B và C theo đồng hồ Mac của Huy (UTC+07:00)",
+  "scope": "Windows A gửi sang Mac B qua relay công cộng, đồng thời B gửi sang C trên cùng Mac",
+  "nodes": {
+    "A": "Khoa · Windows 11 Pro 23H2, build 22631.6199, x64",
+    "B": "Huy · Mac ARM64, macOS 27.0.1 (26A434), container Linux aarch64",
+    "C": "Cùng Mac của Huy, container và thư mục nhận riêng"
+  },
+  "physical_hosts": 2,
+  "container_os": "Linux 7.0.14-linuxkit aarch64",
+  "image": "python:3.11-alpine@sha256:7fbad8e4652eae0186429a6f26cf5b23e27e8c6fd7ac4d0cfd7a6988cdeea1e1",
+  "croc_version_b_c": "croc version 11.6.5",
+  "croc_sha256_b_c": "93648f374ef5dcdb9e64d78ca9729f13af3e723312db44278970695be877f2d2",
+  "common_flags_b_c": [
+    "--disable-clipboard",
+    "--no-update-check",
+    "--no-compress"
+  ],
+  "receiver_a_b_flags": [
+    "--debug",
+    "--ip",
+    "127.0.0.2:9009",
+    "--yes"
+  ],
+  "sender_b_c_flags": [
+    "--throttleUpload",
+    "8M",
+    "send",
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "sender_a": {
+    "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224902119",
+    "croc_version": "croc version 11.6.5",
+    "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "croc_sha256_check": "Khớp croc.exe trong croc_v11.6.5_Windows-64bit.zip của bản phát hành chính thức và khớp executable đã ghim ở hồ sơ R0.1/R0.2",
+    "command_redacted": "<CROC_EXE> --disable-clipboard --no-update-check --no-compress --relay 1.getcroc.com:9009 send --no-local --transport relay --no-multi <FIXTURE_DIR>/a-32mib.bin",
+    "secret_handling": "Mã phiên truyền qua CROC_SECRET riêng của tiến trình con. Cấu hình và staging tách theo từng lần chạy.",
+    "upload_throttle": null
+  },
+  "secret_handling": "Mã Croc của A→B được chuyển riêng và không lưu trong hiện vật",
+  "routes": {
+    "A-B": {
+      "route": "relay",
+      "relay": "1.getcroc.com",
+      "evidence": "Socket dữ liệu tại B đi qua bộ quan sát tới relay công cộng. Toàn bộ payload đi trên cổng 9010."
+    },
+    "B-C": {
+      "route": "relay",
+      "relay": "Relay Docker nội bộ trên Mac, cổng 19009 và 19010",
+      "evidence": "Socket dữ liệu tại B đi qua bộ quan sát tới relay nội bộ, cổng 19010"
+    }
+  },
+  "observer": "RelayTap trong container B, time.monotonic_ns(). Cổng 9010-9017 tới relay công cộng và cổng 19009-19010 tới relay nội bộ.",
+  "observer_tap": {
+    "path": "scripts/croc_r02_tap.py",
+    "sha256": "ddac10f8626bf17673cc18f4f7656d7a8af42b8e057a26b2900f4e6673ded3ba"
+  },
+  "observer_wrapper": {
+    "path": "bench/artifacts/r14-preflight/wan-runner/observe.py",
+    "sha256": "5258f17df635291139ab0d719e594a65d150a36feecbe38b4dddc6c22d5f07be"
+  },
+  "runner": {
+    "as_run": {
+      "sha256": "55881fb8dca6130f574853e7ab4c36ba9b00558451af40a501683dfd208b877b",
+      "commit": "f0fee2c",
+      "path": "bench/artifacts/r14-preflight/wan-runner/wan.py",
+      "note": "Bản đã chạy lúc 00:46. Hàm start() ghi thẳng stdout/stderr của Croc vào log, nên log B→C chứa mã và --pass của relay nội bộ. Log này chỉ ở trên máy B, chưa từng được commit, và đã được lược sau khi review phát hiện. Relay và container đã bị xóa sau ca."
+    },
+    "current": {
+      "sha256": "efef0fe2350b38ae1209a5e3092570f2345f1d176e3564b0aa27365e5126c029",
+      "path": "bench/artifacts/r14-preflight/wan-runner/wan.py",
+      "note": "Bản sửa. classify() chỉ ghi thông báo cố định từ số đã parse và từ liệt kê: progress %, finished receiving, loại lỗi. Không ghi nguyên văn dòng nào của Croc, nên mã, --pass và địa chỉ không thể vào log. Logic đo, điều kiện kích hoạt B→C và cách kiểm hash giữ nguyên."
+    }
+  },
+  "lab_setup": {
+    "path": "bench/artifacts/r14-preflight/wan-runner/prepare.py",
+    "sha256": "0b9c693b9afec3b19c11808ea921c4414d0a0d9fd92259ca2d3ff9c57cbcc79f"
+  },
+  "runner_note": "prepare.py và observe.py giữ nguyên byte đã chạy trên máy B nên khớp digest. wan.py có hai digest: bản đã chạy (as_run, xem commit f0fee2c) và bản đã sửa cách ghi log (current). Không tệp nào chứa bí mật: mật khẩu và mã của relay nội bộ sinh ngẫu nhiên lúc chạy, mã WAN đọc từ tệp riêng rồi xóa. Đường dẫn /private/tmp và thư mục cache là đường dẫn tạm trên máy B.",
+  "receiver_attempts_at_b": [
+    {
+      "at": "2026-11-28T00:46:01+07:00",
+      "result": "Croc thoát trước khi có payload"
+    },
+    {
+      "at": "2026-11-28T00:46:07+07:00",
+      "result": "Ghép được phiên với A và nhận đủ fixture"
+    }
+  ],
+  "transfers": {
+    "A-B": {
+      "file": "a-32mib.bin",
+      "bytes": 33554432,
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+    },
+    "B-C": {
+      "file": "b-to-c-32mib.bin",
+      "bytes": 33554432,
+      "received_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+    }
+  },
+  "observed_intervals_at_b": {
+    "rx": {
+      "first_ns": 43695193680900,
+      "last_ns": 43716524171951,
+      "payload_bytes": 33554432,
+      "frames": 1024,
+      "streams": [
+        {
+          "port": 9010,
+          "first_ns": 43695193680900,
+          "last_ns": 43716524171951,
+          "payload_bytes": 33554432,
+          "frames": 1024,
+          "wire_bytes": 33600369
+        }
+      ]
+    },
+    "tx": {
+      "first_ns": 43695439317525,
+      "last_ns": 43698434345901,
+      "payload_bytes": 33554432,
+      "frames": 1024,
+      "streams": [
+        {
+          "port": 19010,
+          "first_ns": 43695439317525,
+          "last_ns": 43698434345901,
+          "payload_bytes": 33554432,
+          "frames": 1024,
+          "wire_bytes": 33599851
+        }
+      ]
+    }
+  },
+  "payload_overlap_at_b_ns": 2995028376,
+  "derived": {
+    "rx_payload_span_s": 21.330491051,
+    "tx_payload_span_s": 2.995028376,
+    "tx_first_after_rx_first_s": 0.245636625,
+    "rx_last_after_tx_last_s": 18.08982605,
+    "overlap_note": "B→C bắt đầu sau byte payload đầu tiên của A→B 0,246 giây và xong trước A→B 18,09 giây. Vì vậy overlap bằng toàn bộ khoảng payload của B→C."
+  },
+  "sender_a_report": {
+    "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224788222",
+    "reported_open_on_a_clock": "00:47:23 (UTC+07:00)",
+    "reported_exit_on_a_clock": "00:47:47 (UTC+07:00), mã 0",
+    "clock_offset": {
+      "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224902119",
+      "command": "w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly",
+      "measured_at": "2026-11-28T00:54+07:00",
+      "samples_s": [
+        -38.8962551,
+        -38.8963761,
+        -38.8954416
+      ],
+      "median_s": -38.8962551,
+      "meaning": "Đồng hồ A chạy nhanh khoảng 38,9 giây so với time.windows.com"
+    },
+    "corrected_open": "2026-11-28T00:46:44.206+07:00",
+    "corrected_exit": "2026-11-28T00:47:08.846+07:00",
+    "reconciliation": "Sau khi trừ độ lệch, A mở sau lượt nhận thứ hai của B (00:46:07) và thoát lúc 00:47:08.846. Sender sống 24,64 giây, dài hơn khoảng payload 21,330 giây đo tại B. B ghi xong kết quả lúc 00:47:09. Overlap vẫn chỉ tính từ bốn mốc monotonic tại B."
+  },
+  "temporary_containers_and_network_removed": true
+}

@@ -1,0 +1,14 @@
+{
+  "checks": {
+    "fixture-hash": {
+      "status": "pass",
+      "evidence": {
+        "fixture-hashes.json": "8e56e9abac9659ea681e528534438165ed2e5ffe275d162bca34986f1de0c7a0"
+      }
+    },
+    "locked-croc-network-slots": {
+      "status": "blocked",
+      "reason": "Phiên preflight #60 ngày 28/11 đã ghi Croc v11.6.5 kèm SHA-256 executable cho A (Windows x64) và B/C (Linux arm64), topology A→B qua relay công cộng 1.getcroc.com và B→C qua relay Docker nội bộ, cùng cờ Croc từng đầu. Còn thiếu để #12 khóa cấu hình: relay và cấu hình relay được duyệt cho đối chứng, slot RX/TX theo ngân sách #6, link rate, latency, loss và nút nghẽn của từng tuyến, SHA-256 executable Croc tại D, cùng topology demo của #11."
+    }
+  }
+}

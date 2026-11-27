@@ -1,0 +1,51 @@
+{
+ "poll_s": 0.005,
+ "exit_codes": [
+  0,
+  0,
+  1
+ ],
+ "sha256_c": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679",
+ "tap": {
+  "first_ns": 175061309442625,
+  "last_ns": 175064304659000,
+  "payload_bytes": 33554432
+ },
+ "file_first_nonzero": [
+  175061311338833,
+  983040
+ ],
+ "file_full": [
+  175062317753708,
+  33554432
+ ],
+ "first_size_samples": [
+  [
+   175061293196875,
+   0
+  ],
+  [
+   175061311338833,
+   983040
+  ],
+  [
+   175061316495583,
+   4620288
+  ],
+  [
+   175061321557708,
+   8454144
+  ]
+ ],
+ "distinct_sizes": 172,
+ "first_lag_ms": 1.896208,
+ "last_lag_ms": -1986.905292,
+ "tap_span_s": 2.995216375,
+ "file_span_s": 1.006414875,
+ "progress_first_lag_ms": 203.68225,
+ "progress_first_pct": 27,
+ "progress_100_lag_ms": 0.20575,
+ "finished_lag_ms": 0.214416,
+ "progress_updates": 30,
+ "progress_gap_ms_max": 102.202792
+}

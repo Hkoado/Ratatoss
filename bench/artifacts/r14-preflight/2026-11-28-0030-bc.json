@@ -1,0 +1,75 @@
+{
+  "started_at": "2026-11-28T00:30:00+07:00",
+  "host_os": "macOS-27.0.1-arm64-arm-64bit",
+  "physical_hosts": 1,
+  "container_os": "Linux 7.0.14-linuxkit aarch64",
+  "image": "python:3.11-alpine@sha256:7fbad8e4652eae0186429a6f26cf5b23e27e8c6fd7ac4d0cfd7a6988cdeea1e1",
+  "topology": "A/B/C và relay trên Docker internal bridge",
+  "common_flags": [
+    "--disable-clipboard",
+    "--no-update-check",
+    "--no-compress"
+  ],
+  "sender_flags": [
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "upload_throttle": "8M",
+  "croc_version": "croc version 11.6.5",
+  "croc_sha256": "93648f374ef5dcdb9e64d78ca9729f13af3e723312db44278970695be877f2d2",
+  "relay_ports": [
+    19009,
+    19010
+  ],
+  "observer": "RelayTap trong container B, time.monotonic_ns()",
+  "runner_sha256": "2cf78f5294946953ce99b0f88ee8bf4dd9d0a5dcbe883e175daf99c3a8fb1e8d",
+  "observer_sha256": "ddac10f8626bf17673cc18f4f7656d7a8af42b8e057a26b2900f4e6673ded3ba",
+  "temporary_containers_and_network_removed": true,
+  "runs": {
+    "bc": {
+      "transfers": {
+        "B-C": {
+          "route": "relay",
+          "bytes": 33554432,
+          "received_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+        }
+      },
+      "observed_intervals_at_b": {
+        "rx": null,
+        "tx": {
+          "first_ns": 42690064219609,
+          "last_ns": 42693060887402,
+          "payload_bytes": 33554432,
+          "frames": 1024,
+          "wire_bytes": 33599851
+        }
+      },
+      "payload_overlap_at_b_ns": null
+    },
+    "cb": {
+      "transfers": {
+        "C-B": {
+          "route": "relay",
+          "bytes": 33554432,
+          "received_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+        }
+      },
+      "observed_intervals_at_b": {
+        "rx": {
+          "first_ns": 42694118133194,
+          "last_ns": 42697113452821,
+          "payload_bytes": 33554432,
+          "frames": 1024,
+          "wire_bytes": 33599498
+        },
+        "tx": null
+      },
+      "payload_overlap_at_b_ns": null
+    }
+  },
+  "scheduled_for": "2026-11-28T00:30:00+07:00",
+  "completed_at": "2026-11-28T00:30:09+07:00",
+  "scope": "B/C on Huy Mac, Windows A and D outside this run"
+}

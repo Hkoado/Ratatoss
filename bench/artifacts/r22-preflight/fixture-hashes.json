@@ -1,0 +1,39 @@
+{
+  "measured_at": "2026-11-27T23:50:42+07:00",
+  "environment": "macOS arm64, workspace local",
+  "source_commit": "98edb713a18145d72a799a876ea4374d5476ca4a",
+  "manifest": "spec/operations/croc-lab.md",
+  "method": "stat().st_size and SHA-256 of files reopened after generation",
+  "fixtures": [
+    {
+      "file": "fixture/a-32mib.bin",
+      "bytes": 33554432,
+      "sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+    },
+    {
+      "file": "fixture/a-64mib.bin",
+      "bytes": 67108864,
+      "sha256": "545a0e718c1a1584c397c853018a16581a31cd66377209041f0984778a4a6a67"
+    },
+    {
+      "file": "fixture/a-128mib.bin",
+      "bytes": 134217728,
+      "sha256": "cdf2287f633d6558a33bcdbbfd6428708c8f869b3fc4ffb3cca88366703a353c"
+    },
+    {
+      "file": "fixture/b-to-c-32mib.bin",
+      "bytes": 33554432,
+      "sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+    },
+    {
+      "file": "fixture/b-to-c-64mib.bin",
+      "bytes": 67108864,
+      "sha256": "69befdfa85c9f9d3283797ebe5869630fd52bd685afa52f651246357930d6c84"
+    },
+    {
+      "file": "fixture/b-to-c-128mib.bin",
+      "bytes": 134217728,
+      "sha256": "f9205ac9406aed59a117658ac37648e3c85a49a9b2a37a2a349a55101750b5f8"
+    }
+  ]
+}
