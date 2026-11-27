@@ -13,7 +13,7 @@ Vai trò dưới đây theo kịch bản demo. Chốt định danh lab, hệ đi
 | C | Nhận từ B và gửi chiều ngược | Cùng Mac của Huy, container và thư mục nhận riêng | Huy vận hành phiên 00:30 UTC+7 | Hai chiều đã khớp fixture qua relay trên Docker bridge. |
 | D | Đích cho ca bốn node | Bảo · Windows 11 Pro 25H2, build 26200.9974, x64 | Bảo đã kiểm OS/build. Giờ chạy ca bốn node và quyền cài ứng viên chờ xác nhận. | Bảo đã nhận `a-32mib.bin` bằng Croc v11.6.5 và kiểm đủ 33.554.432 byte, SHA-256 khớp manifest #3. Còn chờ cài và chạy thử ứng viên #9/#10 theo sơ đồ demo. [Kết quả tại D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577) · [Xác nhận D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224510940) |
 
-Vị trí chạy controller xác định theo cấu hình demo #11. Xác nhận riêng quyền dùng relay và quyền xem số đếm mạng với người quản lý lab. Ghi vị trí truy cập fixture tại mỗi đầu mút khi cấp phát xong.
+Vị trí chạy controller xác định theo cấu hình demo #11. Xác nhận riêng quyền dùng relay và quyền xem số đếm mạng với người quản lý lab. Vị trí fixture tại mỗi đầu mút ghi ở mục [Bàn giao](#fixture-tại-từng-đầu-mút).
 
 ## Fixture đã đối chiếu
 
@@ -28,7 +28,7 @@ Vị trí chạy controller xác định theo cấu hình demo #11. Xác nhận 
 | `fixture/b-to-c-64mib.bin` | 67108864 | `69befdfa85c9f9d3283797ebe5869630fd52bd685afa52f651246357930d6c84` |
 | `fixture/b-to-c-128mib.bin` | 134217728 | `f9205ac9406aed59a117658ac37648e3c85a49a9b2a37a2a349a55101750b5f8` |
 
-Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fixture rồi mở lại từng file để đo số byte và SHA-256. Hồ sơ R2.2 lưu số đo theo tên tương đối dưới `fixture/`. Vị trí cấp phát trên từng máy lab sẽ được ghi khi bàn giao. [Số đo sáu fixture](../r22-preflight/fixture-hashes.json) · [Trạng thái đầu vào #12](../r22-preflight/readiness.json)
+Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fixture rồi mở lại từng file để đo số byte và SHA-256. Hồ sơ R2.2 lưu số đo theo tên tương đối dưới `fixture/`. Vị trí và cách kiểm fixture tại từng đầu mút ghi ở mục [Bàn giao](#fixture-tại-từng-đầu-mút). [Số đo sáu fixture](../r22-preflight/fixture-hashes.json) · [Trạng thái đầu vào #12](../r22-preflight/readiness.json)
 
 ## Phiên đo B↔C
 
@@ -53,7 +53,7 @@ Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fix
 
 Trong ca đồng thời, B→C bắt đầu sau byte payload đầu tiên của A→B 0,246 giây. B→C xong trước A→B 18,09 giây, nên overlap bằng toàn bộ khoảng payload của B→C. A→B đạt khoảng 1,50 MiB/s qua relay công cộng. B→C chạy với `--throttleUpload 8M` và đạt khoảng 10,68 MiB/s. Hai số này không dùng để so tốc độ giữa hai tuyến.
 
-Ca đồng thời dùng ba tệp trong [wan-runner/](wan-runner/). [`prepare.py`](wan-runner/prepare.py) dựng mạng Docker nội bộ và các container B, C, relay. [`observe.py`](wan-runner/observe.py) bọc [RelayTap R0.2](../../../scripts/croc_r02_tap.py) tại B: cổng 9009–9017 tới relay công cộng và cổng 19009–19010 tới relay nội bộ. [`wan.py`](wan-runner/wan.py) mở receiver A→B, rồi chỉ khởi động B→C khi observer thấy payload A→B đầu tiên. Script này kiểm kích thước và SHA-256 ở B và C, tính overlap, rồi dọn container. `prepare.py` và `observe.py` giữ nguyên byte đã chạy trên máy B và khớp digest trong [số đo](2026-11-28-0046-wan.json). `wan.py` đã được sửa cách ghi log sau ca. Bản đã chạy ghi thẳng output của Croc, gồm cả mã và `--pass` của relay nội bộ. Bản hiện tại chỉ ghi dòng tiến độ, mốc và lỗi, và che các giá trị bí mật. Số đo ghi digest của cả hai bản. Bản đã chạy xem tại [commit `f0fee2c`](https://github.com/Hkoado/Ratatoss/blob/f0fee2c/bench/artifacts/r14-preflight/wan-runner/wan.py). Mã WAN được đọc từ tệp riêng rồi xóa, nên không nằm trong repo. Đường dẫn `/private/tmp` và thư mục cache trong script là đường dẫn tạm trên máy B, cần đổi khi chạy lại.
+Ca đồng thời dùng ba tệp trong [wan-runner/](wan-runner/). [`prepare.py`](wan-runner/prepare.py) dựng mạng Docker nội bộ và các container B, C, relay. [`observe.py`](wan-runner/observe.py) bọc [RelayTap R0.2](../../../scripts/croc_r02_tap.py) tại B: cổng 9009–9017 tới relay công cộng và cổng 19009–19010 tới relay nội bộ. [`wan.py`](wan-runner/wan.py) mở receiver A→B, rồi chỉ khởi động B→C khi observer thấy payload A→B đầu tiên. Script này kiểm kích thước và SHA-256 ở B và C, tính overlap, rồi dọn container. `prepare.py` và `observe.py` giữ nguyên byte đã chạy trên máy B và khớp digest trong [số đo](2026-11-28-0046-wan.json). `wan.py` đã được sửa cách ghi log sau ca. Bản đã chạy ghi thẳng output của Croc, gồm cả mã và `--pass` của relay nội bộ. Bản hiện tại không ghi nguyên văn dòng nào của Croc, chỉ ghi thông báo cố định: tiến độ %, `finished receiving` và loại lỗi. Số đo ghi digest của cả hai bản. Bản đã chạy xem tại [commit `f0fee2c`](https://github.com/Hkoado/Ratatoss/blob/f0fee2c/bench/artifacts/r14-preflight/wan-runner/wan.py). Mã WAN được đọc từ tệp riêng rồi xóa, nên không nằm trong repo. Đường dẫn `/private/tmp` và thư mục cache trong script là đường dẫn tạm trên máy B, cần đổi khi chạy lại.
 
 ## Chạy thử bộ đo trên Docker
 
@@ -72,8 +72,22 @@ Trước khi chạy lab, điền bảng kiểm kê ở trên cùng đầu mối 
 
 ## Bàn giao
 
+Lab gồm bốn vai trò trên ba máy theo bố trí đã chốt. **B và C chạy trên cùng một Mac**: trong profile relay, B và C là hai container trên Docker bridge; trong profile Tailcat, B và C là hai tiến trình native trên Mac. Mọi số đo B↔C vì vậy không phản ánh đường LAN giữa hai máy riêng.
+
+### Fixture tại từng đầu mút
+
+| Đầu mút | Fixture đang có | Cách tạo hoặc nhận | Cách đã kiểm |
+| --- | --- | --- | --- |
+| A · Windows (Khoa) | Sáu fixture trong `fixture/` của workspace cục bộ | Theo hồ sơ tại `49a225c`. Nguồn tạo chưa được ghi; có thể tạo lại bằng [script fixture](../../../scripts/make_croc_lab_fixtures.py) | `Get-Item` và `Get-FileHash -Algorithm SHA256` ngày 26/11, khớp [manifest #3](../../../spec/operations/croc-lab.md#fixture-tổng-hợp-tái-tạo-được) |
+| B, C · Mac (Huy) | Sáu fixture trong một thư mục cache cục bộ trên Mac, ngoài repo | Tạo bằng script fixture tại `98edb71` | Đo lại byte và SHA-256 sau khi tạo. [Số đo sáu fixture](../r22-preflight/fixture-hashes.json). Mỗi lượt kiểm lại SHA-256 tại thư mục nhận của B và C |
+| D · Windows (Bảo) | Chỉ có `a-32mib.bin` | Nhận từ B bằng Croc v11.6.5 | Đủ 33.554.432 byte, SHA-256 khớp manifest. [Kết quả tại D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577). Các fixture khác cần tạo bằng script, hoặc nhận rồi kiểm lại trên D |
+
+### Bên nhận
+
 | Bên nhận | Có thể dùng ngay | Còn thiếu |
 | --- | --- | --- |
-| [#9 · Smoke tích hợp](https://github.com/Hkoado/Ratatoss/issues/9) | Fixture xác minh và kiểm kê theo vai trò | OS/build, quyền và lịch cài/chạy trên từng máy, vị trí fixture trên các máy thử |
-| [#11 · Demo bốn Node](https://github.com/Hkoado/Ratatoss/issues/11) | Kịch bản đo B↔C và fixture độc lập để chạy đồng thời | Hồ sơ đầu mút đã xác nhận, hiện vật B↔C, và ứng viên tích hợp từ #9/#10 để chạy `r14 same-installer-abcd` |
-| [#12 · Đối chứng](https://github.com/Hkoado/Ratatoss/issues/12) | Digest fixture và danh sách cấu hình cần ghi | Topology, relay, pin Croc, slot RX/TX và bằng chứng đo thực tế để #12 khóa cấu hình. Ngân sách transport lấy từ [#6](https://github.com/Hkoado/Ratatoss/issues/6). [Checklist #43](../../../spec/operations/r22-run-checklist.md) |
+| [#9 · Smoke tích hợp](https://github.com/Hkoado/Ratatoss/issues/9) | [Kiểm kê đầu mút](#kiểm-kê-đầu-mút) kèm OS/build của A, B, C, D. Fixture và cách kiểm tại từng đầu mút ở bảng trên. Croc v11.6.5 kèm SHA-256 executable: A Windows `1c59981c…`, B/C macOS `56d4c184…`, B/C container Linux `93648f37…` | Quyền và lịch cài, chạy ứng viên #9/#10 trên từng máy. Vị trí controller và cấu hình tích hợp. SHA-256 executable Croc tại D |
+| [#11 · Demo bốn Node](https://github.com/Hkoado/Ratatoss/issues/11) | Hiện vật B↔C trên cùng Mac: [B→C và C→B lúc 00:30](2026-11-28-0030-bc.json). Ca đồng thời có overlap đo tại B: [relay WAN A→B lúc 00:46](2026-11-28-0046-wan.json) và [profile Tailcat direct IPv6 lúc 01:55 và 02:11](tailcat/README.md). Runner và hiệu chuẩn bộ đo đi kèm | Ứng viên tích hợp từ #9/#10 và lịch demo để chạy `r14 same-installer-abcd`. Nếu demo yêu cầu B và C là hai máy riêng thì cần thêm số đo B↔C trên LAN thật |
+| [#12 · Đối chứng](https://github.com/Hkoado/Ratatoss/issues/12) | Digest fixture (`fixture-hash` đạt). Pin Croc và SHA-256 executable của A, B, C. Topology, relay và cờ của từng đầu cho profile relay và profile Tailcat. Bối cảnh mạng: upload của A và download của B tới Cloudflare, ghi trên [#60](https://github.com/Hkoado/Ratatoss/issues/60), chưa phải phép đo độc lập trên tuyến A→B | **Cấu hình đối chứng chờ #6/#12:** relay được duyệt, slot RX/TX theo [ngân sách #6](https://github.com/Hkoado/Ratatoss/issues/6), link rate, latency, loss và nút nghẽn đo độc lập của từng tuyến, SHA-256 executable Croc tại D, topology demo của #11. [Checklist #43](../../../spec/operations/r22-run-checklist.md) · [Trạng thái `locked-croc-network-slots`](../r22-preflight/readiness.json) |
+
+Ứng viên demo #9/#10 và cấu hình đối chứng #6/#12 là hai đầu vào riêng. Hồ sơ này không thay thế bước khóa cấu hình của #12 và không thay thế lịch demo của #11.

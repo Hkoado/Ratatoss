@@ -8,10 +8,14 @@ time.monotonic_ns() of this host.
   tx_first/tx_last  RelayTap payload frames B->C on the local relay data port
 
 B->C sender waits in its room from the start; C joins at rx_first, which
-starts the B->C payload. Croc output is filtered (allowlist) and secrets are
-redacted; IP addresses are scrubbed. Requires Python 3.11 (RelayTap).
+starts the B->C payload. Croc output is never logged verbatim: classify()
+reduces each line to a fixed message built from parsed numbers and enumerated
+words (progress %, Tailcat path, summary fields, finished, error class).
+Requires Python 3.11 (RelayTap).
 
 Usage: python -I run-concurrent.py <scripts_dir> <fixture_dir> <session_dir> [ab_relay]
+<session_dir> must be new for every run (only the code file inside); the run
+stops if receive or config directories already exist.
 <session_dir>/code holds the A->B Croc code (43 chars); it is deleted after reading.
 """
 import asyncio, csv, datetime, hashlib, json, os, re, secrets, subprocess, sys, threading, time
@@ -25,19 +29,24 @@ X = os.path.expanduser('~/Library/Caches/Ratatoss/mac-c.g0mZhb/croc')
 SIZE = 32 * 1024 * 1024
 POLL_S = 0.005
 FLAGS = ['--disable-clipboard', '--no-update-check', '--no-compress']
+SESSION_DIRS = ('rx-b', 'rx-c', 'cfg-b-rx', 'cfg-b-tx', 'cfg-c', 'cfg-relay')
+stale = [d for d in SESSION_DIRS if os.path.exists(f'{R}/{d}')]
+if stale:
+    sys.exit(f'{R} already holds {", ".join(stale)}; use a new session directory for every run')
 code = open(f'{R}/code').read().strip()
 os.unlink(f'{R}/code')
 if len(code) != 43 and AB_RELAY == '1.getcroc.com:9009':
     sys.exit(f'A->B code has {len(code)} characters, expected 43')
 pw, bc_code = secrets.token_hex(24), '5522-' + secrets.token_hex(18)
-HIDDEN = [code, pw, bc_code]
-for d in ('rx-b', 'rx-c', 'cfg-b-rx', 'cfg-b-tx', 'cfg-c', 'cfg-relay'):
-    os.makedirs(f'{R}/{d}', exist_ok=True)
+# Every run needs fresh receive and config directories: a file left by an
+# earlier run would otherwise satisfy rx_first before any real payload.
+for d in SESSION_DIRS:
+    try:
+        os.makedirs(f'{R}/{d}')
+    except FileExistsError:
+        sys.exit(f'{R}/{d} already exists; use a new session directory for every run')
 rx_file = f'{R}/rx-b/a-32mib.bin'
 c_file = f'{R}/rx-c/b-to-c-32mib.bin'
-ALLOWED = re.compile(r'\d+%|error|fail|timeout|refused|reset|EOF|panic|finished|connected to|banner|Tailcat|path=|transport|pake', re.I)
-V4 = re.compile(r'\d{1,3}(?:\.\d{1,3}){3}')
-V6 = re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){3,7}\b')
 events = {}
 stop = threading.Event()
 
@@ -46,10 +55,41 @@ def wall():
     return datetime.datetime.now().astimezone().isoformat(timespec='milliseconds')
 
 
-def scrub(line):
-    for value in HIDDEN:
-        line = line.replace(value, '<redacted>')
-    return V6.sub('<v6>', V4.sub('<v4>', line))
+# Croc output is never written verbatim. Each line is reduced to one of these
+# fixed messages, built only from parsed numbers and enumerated words, so no
+# address, code, password or raw debug text can reach the log.
+SUMMARY = re.compile(r'Tailcat transport summary: path=(direct|derp|relay) streams=(\d+) '
+                     r'setup=([0-9.]+(?:ns|µs|us|ms|s)) sent=(\d+) received=(\d+)')
+PATH = re.compile(r'Tailcat transport: path=(direct|derp|relay)\b')
+PROGRESS = re.compile(r'\s(\d{1,3})%\s*\|')
+
+
+def classify(line):
+    m = SUMMARY.search(line)
+    if m:
+        return 'tailcat summary path=%s streams=%s setup=%s sent=%s received=%s' % m.groups()
+    m = PATH.search(line)
+    if m:
+        return 'tailcat path=' + m.group(1)
+    if 'finished receiving' in line:
+        return 'finished receiving'
+    low = line.lower()
+    if 'panic' in low:
+        return 'error: panic'
+    if 'pake' in low and ('fail' in low or 'error' in low):
+        return 'error: pake failed'
+    if 'timeout' in low:
+        return 'error: timeout'
+    if 'refused' in low:
+        return 'error: connection refused'
+    if 'reset' in low:
+        return 'error: connection reset'
+    if 'error' in low or 'fail' in low:
+        return 'eof' if 'eof' in low else 'error: other'
+    m = PROGRESS.search(line)
+    if m:
+        return f'progress {int(m.group(1))}%'
+    return None
 
 
 def pump(proc, name):
@@ -59,14 +99,14 @@ def pump(proc, name):
             t = time.monotonic_ns()
             *lines, buf = re.split(rb'[\r\n]', buf + chunk)
             for raw in lines:
-                line = scrub(raw.decode(errors='replace'))
-                if '--pass' in line or 'CROC_SECRET' in line or not ALLOWED.search(line):
+                msg = classify(raw.decode(errors='replace'))
+                if msg is None:
                     continue
-                if name == 'b-rx' and 'finished receiving' in line and 'rx_last' not in events:
+                if name == 'b-rx' and msg == 'finished receiving' and 'rx_last' not in events:
                     events['rx_last'] = t
-                if name == 'b-rx' and 'Tailcat transport summary' in line:
-                    events['tailcat_summary'] = line.split('Tailcat transport summary:')[-1].strip()
-                out.write(f'{t} {line}\n')
+                if name == 'b-rx' and msg.startswith('tailcat summary '):
+                    events['tailcat_summary'] = msg[len('tailcat summary '):]
+                out.write(f'{t} {msg}\n')
                 out.flush()
 
 

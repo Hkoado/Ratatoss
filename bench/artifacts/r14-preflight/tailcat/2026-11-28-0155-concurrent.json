@@ -117,9 +117,17 @@
     "Đường Tailcat phụ thuộc NAT và IPv6 của mạng từng đầu. Trước đó, lượt 01:14 khi A chưa có IPv6 chạy hết bằng DERP."
   ],
   "runner": {
-    "path": "runner/run-concurrent.py",
-    "sha256": "d20ff3f8b4616b9bed1db24f408a3fdfcadda842a066343d55fbb7fc4a030783",
-    "note": "Giữ nguyên byte đã chạy lúc 01:55. Output của Croc qua bộ lọc: che mã và mật khẩu, bỏ dòng chứa --pass hoặc CROC_SECRET, xóa địa chỉ IP, chỉ giữ dòng tiến độ, mốc và lỗi. Không chứa bí mật."
+    "as_run": {
+      "path": "bench/artifacts/r14-preflight/tailcat/runner/run-concurrent.py",
+      "sha256": "d20ff3f8b4616b9bed1db24f408a3fdfcadda842a066343d55fbb7fc4a030783",
+      "commit": "1f8d0d0",
+      "note": "Bản đã chạy lúc 01:55 và 02:11. Bộ lọc ghi nguyên văn các dòng khớp từ khóa, chỉ che mã và mật khẩu, đồng thời xóa địa chỉ bằng regex. Review chỉ ra regex IPv6 để sót dạng rút gọn như [2001:db8::]:443. Log của hai lượt chỉ lưu trên máy B, không commit."
+    },
+    "current": {
+      "path": "bench/artifacts/r14-preflight/tailcat/runner/run-concurrent.py",
+      "sha256": "1e137553d8ae28b1eed13268f5abea1f50d392ffe777bb3234d4dc2d84e77fe3",
+      "note": "Bản sửa. classify() chỉ ghi thông báo cố định từ số đã parse và từ liệt kê: progress %, tailcat path, các trường tóm tắt, finished receiving, loại lỗi. Không ghi nguyên văn dòng nào của Croc. Runner dừng nếu thư mục nhận hoặc cấu hình của phiên đã tồn tại. Logic đo, cách kích hoạt C và cách kiểm hash giữ nguyên."
+    }
   },
   "raw_result": "2026-11-28-0155-concurrent-result.json",
   "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7226023751",

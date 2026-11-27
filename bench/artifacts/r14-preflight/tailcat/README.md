@@ -75,8 +75,9 @@ Hiệu chuẩn bằng [`calibrate_rx_marks.py`](runner/calibrate_rx_marks.py): b
 
 ## Runner
 
-[`run-concurrent.py`](runner/run-concurrent.py) giữ nguyên byte đã chạy lúc 01:55 (SHA-256 `d20ff3f8…4a030783`).
-- **Output của Croc:** đi qua bộ lọc. Bộ lọc che mã và mật khẩu, bỏ dòng chứa `--pass` hoặc `CROC_SECRET`, xóa địa chỉ IP, và chỉ giữ dòng tiến độ, mốc và lỗi.
+[`run-concurrent.py`](runner/run-concurrent.py) là bản đã sửa sau review (SHA-256 `1e137553…84e77fe3`). Bản đã chạy lúc 01:55 và 02:11 có SHA-256 `d20ff3f8…4a030783`, xem tại [commit `1f8d0d0`](https://github.com/Hkoado/Ratatoss/blob/1f8d0d0/bench/artifacts/r14-preflight/tailcat/runner/run-concurrent.py). Hai thay đổi: chỉ ghi thông báo cố định thay cho dòng log của Croc, và dừng nếu thư mục phiên đã có thư mục nhận hoặc cấu hình.
+- **Output của Croc:** không ghi nguyên văn. `classify()` rút mỗi dòng thành một thông báo cố định: `progress N%`, `tailcat path=…`, các trường số của dòng tóm tắt, `finished receiving`, hoặc loại lỗi. Mã, mật khẩu và địa chỉ vì vậy không thể vào log.
+- **Thư mục phiên:** mỗi lượt phải dùng thư mục mới, chỉ chứa tệp mã. Runner dừng trước khi đọc mã nếu thư mục nhận hoặc cấu hình đã tồn tại, để tệp cũ không kích hoạt `rx_first`.
 - **Mã A→B:** đọc từ một tệp riêng rồi xóa ngay. Runner từ chối nếu mã không đủ 43 ký tự.
 - **Môi trường:** cần Python 3.11 cho RelayTap. Đường dẫn executable Croc và fixture là đường dẫn trên máy B.
 

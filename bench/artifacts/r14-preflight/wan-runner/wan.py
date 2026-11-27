@@ -8,25 +8,33 @@ b,c,r=[base+'-'+role for role in ('b','c','relay')]
 def run(*args):
     return s.check_output(['docker',*args],text=True,timeout=15).strip()
 # Croc prints the receive instructions, including the session code and the
-# relay --pass, on stderr. Only allowlisted milestone/error lines reach the log.
-ALLOWED=re.compile(r'\d+%|error|fail|timeout|refused|reset|EOF|panic|finished|connected to|banner|Tailcat|path=|transport|pake',re.I)
-SECRET_VARS=('CROC_SECRET','CROC_PASS')
-def pump(stream,path,hidden):
+# relay --pass, plus addresses in debug lines. Output is never logged verbatim:
+# classify() reduces each line to a fixed message built from parsed numbers and
+# enumerated words (progress %, finished, error class).
+PROGRESS=re.compile(r'\s(\d{1,3})%\s*\|')
+def classify(line):
+    if 'finished receiving' in line: return 'finished receiving'
+    low=line.lower()
+    if 'panic' in low: return 'error: panic'
+    if 'pake' in low and ('fail' in low or 'error' in low): return 'error: pake failed'
+    if 'timeout' in low: return 'error: timeout'
+    if 'refused' in low: return 'error: connection refused'
+    if 'reset' in low: return 'error: connection reset'
+    if 'error' in low or 'fail' in low: return 'eof' if 'eof' in low else 'error: other'
+    m=PROGRESS.search(line)
+    return f'progress {int(m.group(1))}%' if m else None
+def pump(stream,path):
     with open(path,'ab') as out:
         buf=b''
         for chunk in iter(lambda: stream.read1(65536),b''):
             *lines,buf=re.split(rb'[\r\n]',buf+chunk)
             for raw in lines:
-                line=raw.decode(errors='replace')
-                for value in hidden:
-                    line=line.replace(value,'<redacted>')
-                if '--pass' in line or 'CROC_SECRET' in line or not ALLOWED.search(line):
-                    continue
-                out.write((line+'\n').encode()); out.flush()
+                msg=classify(raw.decode(errors='replace'))
+                if msg is None: continue
+                out.write((msg+'\n').encode()); out.flush()
 def start(node,cmd,folder,variables):
-    hidden=[value for name,value in variables.items() if name in SECRET_VARS and value]
     proc=s.Popen(['docker','exec','-w',folder,*[arg for name in variables for arg in ('-e',name)],node,'/croc',*cmd],env={**os.environ,**variables},stderr=s.STDOUT,stdout=s.PIPE)
-    proc.pump=threading.Thread(target=pump,args=(proc.stdout,root/(node+folder.replace("/", "-")+".log"),hidden),daemon=True)
+    proc.pump=threading.Thread(target=pump,args=(proc.stdout,root/(node+folder.replace("/", "-")+".log")),daemon=True)
     proc.pump.start()
     return proc
 def wait_file(node,path,sec,proc=None):

@@ -72,9 +72,9 @@
       "note": "Bản đã chạy lúc 00:46. Hàm start() ghi thẳng stdout/stderr của Croc vào log, nên log B→C chứa mã và --pass của relay nội bộ. Log này chỉ ở trên máy B, chưa từng được commit, và đã được lược sau khi review phát hiện. Relay và container đã bị xóa sau ca."
     },
     "current": {
-      "sha256": "3acc05869c2532948383d2d1091cb181a41ab076919f1f74ebc51e6f894f03d6",
+      "sha256": "efef0fe2350b38ae1209a5e3092570f2345f1d176e3564b0aa27365e5126c029",
       "path": "bench/artifacts/r14-preflight/wan-runner/wan.py",
-      "note": "Bản sửa. Output của Croc qua luồng lọc: che giá trị CROC_SECRET và CROC_PASS, bỏ dòng chứa --pass hoặc CROC_SECRET, chỉ giữ dòng tiến độ, mốc và lỗi. Logic đo, điều kiện kích hoạt B→C và kiểm hash giữ nguyên."
+      "note": "Bản sửa. classify() chỉ ghi thông báo cố định từ số đã parse và từ liệt kê: progress %, finished receiving, loại lỗi. Không ghi nguyên văn dòng nào của Croc, nên mã, --pass và địa chỉ không thể vào log. Logic đo, điều kiện kích hoạt B→C và cách kiểm hash giữ nguyên."
     }
   },
   "lab_setup": {
