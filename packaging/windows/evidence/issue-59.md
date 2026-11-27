@@ -98,3 +98,5 @@ Chạy trên Windows 11 Pro x64 23H2, build `22631.6199`, với Python 3.14.2 c�
 | Hồi quy | `python -m unittest discover -s packaging/windows -v` có 9 ca đạt, gồm smoke với `RATATOSS_TEST_WINDOWS_APP` trỏ tới bản đã cài. `python -m unittest discover -s tests` có 208 ca đạt. Cả hai bản thử gỡ với mã 0, mục Start Menu và đăng ký gỡ cài đặt đều được dọn. |
 
 Build bản sửa bằng Python 3.14.2, PyInstaller 6.22.3, Inno Setup 6.7.4 và Croc v11.6.5 đã ghim. SHA-256 bộ cài đo được là `acd440c99a97fd512e6e349c347fbe94346edc4423f8afb6f8c6eeb1bc23a912`, khớp manifest do build sinh. Authenticode báo `NotSigned`.
+
+Ca lặp lại **Finish → Edge → HTML/CSS** trên VM sạch chưa chạy. Đã tạo đĩa Windows mới từ ISO Windows 11 Enterprise LTSC Evaluation x64 `26100.1742` và boot bằng QEMU 11.1.0 TCG với `-nic none`. WHPX không khởi tạo được trên máy này. Windows đã vào desktop của tài khoản thử và đã gắn đĩa dữ liệu chỉ đọc chứa installer gốc cùng bộ đo IPC. Ca đo chờ thao tác qua wizard.
