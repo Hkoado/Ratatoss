@@ -5,12 +5,15 @@ import re
 import tomllib
 import unittest
 from html.parser import HTMLParser
+from importlib.resources import files
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "ratatoss"
-STATIC = PACKAGE / "static"
-PREVIEW = STATIC / "preview"
+PYPROJECT = ROOT / "pyproject.toml"
+IN_CHECKOUT = PYPROJECT.is_file()
+STATIC = files("ratatoss").joinpath("static")
+PREVIEW = STATIC.joinpath("preview")
 
 
 class PreviewMarkup(HTMLParser):
@@ -48,9 +51,11 @@ class PreviewMarkup(HTMLParser):
 
 
 class TransferUITests(unittest.TestCase):
+    @unittest.skipUnless(IN_CHECKOUT, "The demo files only ship in the checkout")
     def test_preview_loads_local_assets_without_inline_code(self):
+        preview = PACKAGE / "static" / "preview"
         parser = PreviewMarkup()
-        parser.feed((PREVIEW / "transfer.html").read_text(encoding="utf-8"))
+        parser.feed((preview / "transfer.html").read_text(encoding="utf-8"))
         parser.close()
         self.assertEqual(parser.violations, [])
         self.assertIn("DEMO", parser.visible_text)
@@ -58,23 +63,36 @@ class TransferUITests(unittest.TestCase):
         self.assertEqual(parser.stylesheets, ["../transfer-ui.css"])
         for path in parser.scripts + parser.stylesheets:
             with self.subTest(path=path):
-                self.assertTrue((PREVIEW / path).is_file())
+                self.assertTrue((preview / path).is_file())
 
     def test_javascript_uses_no_markup_insertion_sinks(self):
-        for path in (STATIC / "transfer-ui.js", PREVIEW / "demo-data.js"):
+        sources = [STATIC.joinpath("transfer-ui.js")]
+        if IN_CHECKOUT:
+            sources.append(PREVIEW.joinpath("demo-data.js"))
+        for path in sources:
             with self.subTest(path=path.name):
                 self.assertNotRegex(path.read_text(encoding="utf-8"),
                                     r"\b(?:innerHTML|insertAdjacentHTML)\b")
 
     def test_wheel_asset_globs_include_renderers_and_exclude_preview_files(self):
-        config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        names = {"transfer-ui.js", "transfer-ui.css"}
+        for name in names:
+            with self.subTest(name=name):
+                self.assertTrue(STATIC.joinpath(name).is_file())
+        if not IN_CHECKOUT:
+            self.assertFalse(PREVIEW.is_dir())
+            return
+
+        config = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         patterns = config["tool"]["setuptools"]["package-data"]["ratatoss"]
         assets = {path for pattern in patterns for path in PACKAGE.glob(pattern) if path.is_file()}
-        self.assertTrue({STATIC / "transfer-ui.js", STATIC / "transfer-ui.css"} <= assets)
-        self.assertTrue(assets.isdisjoint(PREVIEW.glob("*")))
+        source_static = PACKAGE / "static"
+        self.assertTrue({source_static / name for name in names} <= assets)
+        self.assertTrue(assets.isdisjoint((source_static / "preview").glob("*")))
 
+    @unittest.skipUnless(IN_CHECKOUT, "The demo files only ship in the checkout")
     def test_synthetic_data_covers_required_cases(self):
-        source = (PREVIEW / "demo-data.js").read_text(encoding="utf-8")
+        source = PREVIEW.joinpath("demo-data.js").read_text(encoding="utf-8")
         self.assertIn("TỔNG HỢP", source)
         cases = set(re.findall(r"^    (\w+): \{", source, re.MULTILINE))
         self.assertTrue({
@@ -91,5 +109,5 @@ class TransferUITests(unittest.TestCase):
         }
         for name, digest in expected.items():
             with self.subTest(name=name):
-                source = (STATIC / name).read_text(encoding="utf-8")
+                source = STATIC.joinpath(name).read_text(encoding="utf-8")
                 self.assertEqual(hashlib.sha256(source.encode("utf-8")).hexdigest(), digest)
