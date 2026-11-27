@@ -35,6 +35,29 @@ Nguồn kiểm cú pháp và cơ chế tiến trình gồm [README theo tag](htt
 3. Cùng assignment chỉ khởi động một child cho mỗi vai trò và giữ slot đến khi cây child đã dừng. Chốt deadline khi nhận lease dựa vào thời gian monotonic và phần lease còn lại, dùng hạn sớm hơn với timeout adapter. Retry `ready` không mở lease mới. Nếu mất HTTPS, chỉ phiên đã có mã tiếp tục trong hạn. Snapshot đầy đủ mất assignment, hết hạn, mất quyền, yêu cầu cancel/withdraw, hoặc lỗi child đều dẫn đến dừng. Mỗi lần retry controller cấp assignment và mã mới. Xem [giao thức](../../docs/control-protocol.md).
 4. Với RX, chỉ sau khi cây child dừng và exit thành công mới bắt đầu kiểm một file thường hợp lệ, đúng kích thước, SHA-256 batch và từng piece. Flush và publish nguyên tử, commit `AVAILABLE` cùng ACK outbox rồi mới gửi ACK. Đối với final, kiểm SHA-256 toàn file và công bố bền vững trước receipt. TX chỉ giữ reference batch đến khi child kết thúc. Xem [thứ tự commit](../../docs/storage-and-recovery.md).
 
+## WAN trực tiếp qua IPv6
+
+Issue #60 · R1.4 · Tuyến `integration`. Kịch bản này dùng profile thử Tailcat đã chạy trên Windows A và macOS B để truyền tệp qua WAN. Mục tiêu là giảm thời gian từ lúc bắt đầu sau consent đến khi người nhận cuối cùng xác minh SHA-256 toàn tệp. Khi đường trực tiếp khả dụng, ưu tiên thử tuyến đó và dùng thời gian thiết lập, goodput đã đo, retry và thời gian xác minh để đánh giá thời gian hoàn tất. [Brief §1](../../docs/source/Ratatoss_Project_Brief_v1.3.md#1-tầm-nhìn-và-bài-toán) · [Quy tắc đo makespan](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
+
+1. Xác nhận hai đầu có IPv6 toàn cục, tuyến mặc định IPv6 và gửi được UDP ra Internet. Có thể dùng `UDP=true` và `IPv6=true` từ `netcheck` để kiểm tra đầu vào, rồi xác minh đường thực tế ở bước 3. Dùng đúng Croc v11.6.5 và đối chiếu SHA-256 của executable theo OS/kiến trúc. Kiểm kích thước và SHA-256 của fixture tổng hợp `a-32mib.bin` trước khi gửi. Chuẩn bị thư mục phiên trống và cấu hình worker riêng. [Manifest fixture](croc-lab.md#fixture-tổng-hợp-tái-tạo-được) · [Pin và lệnh đã chạy](../../bench/artifacts/r14-preflight/tailcat/2026-11-28-0211-concurrent.json)
+2. Chốt cùng kênh ghép phiên ở hai đầu. Đích xác nhận nhận trước khi mở RX với `--yes`. Cấp mã dùng một lần qua `CROC_SECRET` trong môi trường từng child. Đưa output `--debug` qua bộ phân loại trước khi lưu, chỉ giữ sự kiện đã phân loại và số đếm đã lược thông tin mạng. Dùng argv dưới đây để tái hiện profile #60.
+
+   ```text
+   TX: [CROC, "--disable-clipboard", "--no-update-check", "--no-compress", "--debug",
+        "--relay", "1.getcroc.com:9009", "send", "--no-local", "--transport", "derp",
+        "a-32mib.bin"]
+   RX: [CROC, "--debug", "--disable-clipboard", "--no-update-check", "--no-compress",
+        "--relay", "1.getcroc.com:9009", "--yes"]
+   ```
+
+3. Dùng số byte vào theo giao thức và họ địa chỉ tại socket của B để xác định đường payload A→B. Ghi riêng lưu lượng phản hồi B→A. Lưu sự kiện Tailcat `path=…` đã phân loại kèm mốc monotonic ở từng đầu khi có thể. Một sự kiện `path=` chỉ mô tả tuyến quan sát tại đầu báo. Dòng tóm tắt cho biết trạng thái cuối phiên. Khi thiếu bằng chứng cho một chiều, ghi `unknown`.
+4. Croc dùng TCP 9009 để ghép phiên trong ca này. `--transport derp` chọn Tailcat và tắt fallback sang relay dữ liệu Croc. Tailcat có thể giữ luồng trên DERP nếu đường UDP trực tiếp chưa khả dụng. Với ca tái hiện, có thể giữ lượt để đo và ghi `derp` nếu dữ liệu thực sự qua DERP. Với ca vận hành ưu tiên tốc độ, dùng ngân sách chờ đã khóa cho profile. Khi hết ngân sách mà payload vẫn qua DERP, so thời gian còn lại của phiên với thời gian thiết lập lại, truyền và xác minh qua profile relay được duyệt. Chỉ chuyển tuyến khi dự kiến hoàn tất sớm hơn. [Tài liệu Croc v11.6.5](https://github.com/schollz/croc/blob/v11.6.5/README.md#data-transport-selection) · [Các lượt DERP và relay đã đo](../../bench/artifacts/r14-preflight/tailcat/README.md#các-lượt-ab)
+5. Kiểm kích thước và SHA-256 toàn tệp ở đích. Lưu goodput payload, đường đi, mốc thiết lập và mốc xác minh theo các tín hiệu quan sát được. Trong ca tích hợp có nhiều đích, lấy ACK xác minh của đích cuối để tính makespan theo đồng hồ monotonic của controller. [Runbook thử nghiệm](../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
+
+Để đưa profile vào allowlist tích hợp, duyệt kênh ghép phiên và relay được phép, khóa phiên bản, cấu hình đường truyền và ngân sách slot, rồi kiểm từ hai đầu theo quy trình tích hợp. Trong profile thử #60, kênh ghép Croc và DERP đều dùng dịch vụ công cộng. [Trạng thái đầu vào R2.2](../../bench/artifacts/r22-preflight/readiness.json)
+
+Trong lượt #60 lúc 02:11 ngày 28/11/2026 (UTC+7), A→B chuyển đủ 32 MiB, khớp SHA-256 và đạt **5,47 MiB/s**. Payload đến B trực tiếp qua UDP/IPv6. Chiều phản hồi B→A đi qua DERP khoảng 4,15 giây đầu rồi chuyển sang UDP/IPv6. Đây là kết quả trên mạng thử đã ghi trong hồ sơ. [Profile Tailcat và bộ chạy](../../bench/artifacts/r14-preflight/tailcat/README.md) · [Số đo lượt 02:11](../../bench/artifacts/r14-preflight/tailcat/2026-11-28-0211-concurrent.json)
+
 ## Preflight ngân sách lease chạy
 
 Issue #25 · tuyến `transport` và điểm bàn giao `control`. Căn cứ [Brief §6.3 và §8 giai đoạn 0](../../docs/source/Ratatoss_Project_Brief_v1.3.md#63-thành-phần-và-trạng-thái), [kế hoạch cổng 0 và lịch cố định](../../plan/ASTRA_PLAN.md), [giao thức phân công và báo cáo](../../docs/control-protocol.md#phân-công-và-báo-cáo) và [runbook thử nghiệm cổng 0–1](../../docs/experiments.md#cổng-0--transport). Phạm vi gồm mục này, [preflight](../../ratatoss/lease_profile.py) và [kiểm thử CLI](../../tests/test_croc_lease.py).
