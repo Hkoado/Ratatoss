@@ -1,0 +1,109 @@
+{
+  "profile": "tailcat-direct-ipv6",
+  "run": "A→B đồng thời B→C",
+  "started_at": "2026-11-28T01:55:28.882+07:00",
+  "completed_at": "2026-11-28T01:55:44.345+07:00",
+  "clock": "time.monotonic_ns() của Mac B. B và C chạy native trên cùng Mac nên mọi mốc dùng chung đồng hồ.",
+  "physical_hosts": 2,
+  "nodes": {
+    "A": "Khoa · Windows 11 Pro 23H2, build 22631.6199, x64. Mạng có IPv6 Internet.",
+    "B": "Huy · Mac ARM64, macOS 27.0.1 (26A434), native. Mạng có IPv6 không NAT.",
+    "C": "Cùng Mac với B, tiến trình Croc native riêng, cấu hình và thư mục nhận riêng."
+  },
+  "croc": {
+    "version": "croc version 11.6.5",
+    "A_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "B_C_sha256": "56d4c1845f2638217c6e8fe2464e3db19db518a0772b570aafbe61af0125a54b"
+  },
+  "flows": {
+    "A-B": {
+      "sender_a": "<CROC_EXE> … --debug --relay 1.getcroc.com:9009 send --no-local --transport derp <FIXTURE_DIR>/a-32mib.bin",
+      "sender_a_note": "Phần cờ theo báo cáo của Khoa cho profile Tailcat (https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7225691624). Các cờ chung còn lại của A chưa được ghi cho lượt 01:55.",
+      "receiver_b": "<CROC_EXE> --debug --disable-clipboard --no-update-check --no-compress --relay 1.getcroc.com:9009 --yes",
+      "control_channel": "Relay công cộng 1.getcroc.com:9009, cố định ở hai đầu, chỉ dùng để ghép phiên",
+      "data_transport": "Tailcat (WireGuard userspace). --transport derp tắt fallback sang relay dữ liệu của Croc.",
+      "route": "direct",
+      "route_evidence": "B: 'Tailcat transport: path=derp' rồi 'path=direct' ở mốc 174905481286708, sớm hơn rx_first 0,976 s. Tóm tắt hai đầu ghi path=direct streams=8.",
+      "tailcat_summary": {
+        "A": "path=direct streams=8 setup=889.8673ms sent=33599488 received=0",
+        "B": "path=direct streams=8 setup=543.222584ms sent=0 received=33599488"
+      },
+      "secret_handling": "Mã 43 ký tự chuyển riêng cho Huy, truyền qua CROC_SECRET, không lưu trong hiện vật"
+    },
+    "B-C": {
+      "relay": "Croc relay native trên ::1, cổng 19009 và 19010, mật khẩu sinh ngẫu nhiên mỗi lượt",
+      "sender_b": "<CROC_EXE> --throttleUpload 8M --disable-clipboard --no-update-check --no-compress --relay 127.0.0.1:19009 send --no-local --transport relay --no-multi b-to-c-32mib.bin",
+      "receiver_c": "<CROC_EXE> --disable-clipboard --no-update-check --no-compress --relay 127.0.0.1:19009 --yes",
+      "observer": "RelayTap R0.2 (scripts/croc_r02_tap.py) nghe 127.0.0.1:19009-19010 và chuyển tiếp tới relay trên ::1",
+      "route": "relay",
+      "trigger": "Sender B→C chờ sẵn trong phòng từ đầu lượt. C tham gia phòng tại rx_first nên payload B→C bắt đầu sau đó."
+    }
+  },
+  "payload": {
+    "A-B": {
+      "file": "a-32mib.bin",
+      "bytes_at_B": 33554432,
+      "sha256_at_B": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+    },
+    "B-C": {
+      "file": "b-to-c-32mib.bin",
+      "bytes_at_C": 33554432,
+      "sha256_at_C": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679",
+      "relaytap_payload_bytes": 33554432
+    }
+  },
+  "marks_ns": {
+    "rx_first": 174906456985708,
+    "tx_first": 174906619001666,
+    "tx_last": 174909614435916,
+    "rx_last": 174916390054041
+  },
+  "mark_sources": {
+    "rx_first": "Lần đầu st_blocks của tệp nhận tại B tăng, lấy mẫu mỗi 5 ms",
+    "rx_last": "Dòng debug 'finished receiving' của receiver Croc tại B",
+    "tx_first_tx_last": "Khung payload B→C đầu và cuối do RelayTap ghi, đã loại header, nonce, tag và byte điều khiển"
+  },
+  "derived": {
+    "overlap_ns": 2995434250,
+    "rx_span_s": 9.933068333,
+    "tx_span_s": 2.99543425,
+    "tx_first_after_rx_first_ms": 162.015958,
+    "tx_last_before_rx_last_s": 6.775618125,
+    "goodput_MiBps": {
+      "A-B": 3.2215624545427155,
+      "B-C": 10.682925188559889
+    },
+    "overlap_note": "Khoảng payload B→C nằm trọn trong A→B, với biên 162 ms ở đầu và 6,776 s ở cuối. Overlap vì vậy bằng khoảng payload B→C và không phụ thuộc sai số của mốc RX."
+  },
+  "rx_mark_error": {
+    "calibration": "calibration/run1.json đến run3.json, chạy bằng runner/calibrate_rx_marks.py",
+    "rx_first_lag_ms": [1.837458, 3.999583, 1.896208],
+    "rx_last_lag_ms": [0.214416, 0.44075, 0.362417],
+    "poll_s": 0.005,
+    "scope": "Hiệu chuẩn trên relay Croc một luồng trên Mac (loopback). Chưa kiểm chứng trên Tailcat 8 luồng vì không có mốc dây để đối chiếu UDP WireGuard đã mã hóa."
+  },
+  "socket_bytes_b_rx": {
+    "source": "2026-11-28-0155-b-rx-sockets.csv, nettop mỗi 1 s cho tiến trình receiver A→B",
+    "kind": "Byte tầng socket, gồm header WireGuard, UDP và IP. Không phải byte payload, không dùng để tính goodput.",
+    "last_sample_by_family": {
+      "udp6": {"in": 37032176, "out": 2452448},
+      "tcp4": {"in": 11362, "out": 6861},
+      "udp4": {"in": 64, "out": 328}
+    },
+    "note": "Mẫu cuối lấy trước khi tiến trình thoát nên có thể thiếu phần cuối. Không có socket tcp6 (DERP) mang dữ liệu."
+  },
+  "limits": [
+    "Goodput A→B 3,22 MiB/s vẫn dưới mục tiêu 10–50+ MiB/s.",
+    "Ca này chưa đo băng thông WAN độc lập (link rate, latency, loss) của A và B.",
+    "B và C dùng chung một Mac, nên B→C không phản ánh đường mạng giữa hai máy.",
+    "Đường Tailcat phụ thuộc NAT và IPv6 của mạng từng đầu. Trước đó, lượt 01:14 khi A chưa có IPv6 chạy hết bằng DERP."
+  ],
+  "runner": {
+    "path": "runner/run-concurrent.py",
+    "sha256": "d20ff3f8b4616b9bed1db24f408a3fdfcadda842a066343d55fbb7fc4a030783",
+    "note": "Giữ nguyên byte đã chạy lúc 01:55. Output của Croc qua bộ lọc: che mã và mật khẩu, bỏ dòng chứa --pass hoặc CROC_SECRET, xóa địa chỉ IP, chỉ giữ dòng tiến độ, mốc và lỗi. Không chứa bí mật."
+  },
+  "raw_result": "2026-11-28-0155-concurrent-result.json",
+  "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7226023751",
+  "verified_by_a": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7226038404"
+}

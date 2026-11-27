@@ -1,6 +1,6 @@
 # Hồ sơ chuẩn bị lab A/B/C/D · Issue #60
 
-Ngày kiểm fixture 2026-11-26 (UTC+07:00), trên Windows, theo hồ sơ tại `49a225c`. Đã xác minh sáu fixture tại workspace. Phiên 00:30 ngày 28/11/2026 dùng bốn vai trò trên ba máy theo bố trí đã chốt. B và C đã chạy hai chiều trên cùng Mac. Lúc 00:46, A gửi sang B qua relay công cộng trong khi B gửi sang C. [Phiếu chạy lab](https://github.com/Hkoado/Ratatoss/blob/e62dfe2/bench/artifacts/r14-preflight/lab-session.md) · [Số đo phiên 00:30](2026-11-28-0030-bc.json) · [Số đo A→B đồng thời B→C](2026-11-28-0046-wan.json) · [Issue #60](https://github.com/Hkoado/Ratatoss/issues/60) · [Runbook thử nghiệm](../../../docs/experiments.md)
+Ngày kiểm fixture 2026-11-26 (UTC+07:00), trên Windows, theo hồ sơ tại `49a225c`. Đã xác minh sáu fixture tại workspace. Phiên 00:30 ngày 28/11/2026 dùng bốn vai trò trên ba máy theo bố trí đã chốt. B và C đã chạy hai chiều trên cùng Mac. Lúc 00:46, A gửi sang B qua relay công cộng trong khi B gửi sang C. Lúc 01:55, A gửi sang B qua Tailcat direct IPv6 trong khi B gửi sang C. [Phiếu chạy lab](https://github.com/Hkoado/Ratatoss/blob/e62dfe2/bench/artifacts/r14-preflight/lab-session.md) · [Số đo phiên 00:30](2026-11-28-0030-bc.json) · [Số đo A→B đồng thời B→C](2026-11-28-0046-wan.json) · [Issue #60](https://github.com/Hkoado/Ratatoss/issues/60) · [Runbook thử nghiệm](../../../docs/experiments.md)
 
 ## Kiểm kê đầu mút
 
@@ -57,7 +57,7 @@ Ca đồng thời dùng ba tệp trong [wan-runner/](wan-runner/). [`prepare.py`
 
 ## Chạy thử bộ đo trên Docker
 
-Ba container A/B/C và một relay chạy trên cùng một máy Mac arm64. Mạng Docker chỉ dùng nội bộ và không publish port ra máy chủ. Đã chạy B→C, C→B và A→B đồng thời B→C. Cả bốn lượt nhận đều khớp 32 MiB và SHA-256 với fixture. Bộ quan sát tại B ghi đầu/cuối payload theo cùng đồng hồ monotonic và đếm đủ byte từng hướng. Kết quả này xác nhận quy trình thu số đo qua relay trong môi trường thử cục bộ. Số đo trên hai máy thật cho ca Windows A→Mac B đồng thời B→C nằm ở bảng phía trên. [Kết quả Docker](docker-rehearsal.json) · [Mã chạy thử](../../../scripts/croc_r14_rehearsal.py)
+Ba container A/B/C và một relay chạy trên cùng một máy Mac arm64. Mạng Docker chỉ dùng nội bộ và không publish port ra máy chủ. Đã chạy B→C, C→B và A→B đồng thời B→C. Cả bốn lượt nhận đều khớp 32 MiB và SHA-256 với fixture. Bộ quan sát tại B ghi đầu/cuối payload theo cùng đồng hồ monotonic và đếm đủ byte từng hướng. Kết quả này xác nhận quy trình thu số đo qua relay trong môi trường thử cục bộ. Số đo trên hai máy thật cho ca Windows A→Mac B đồng thời B→C nằm ở bảng phía trên. Các lượt A→B dùng Tailcat, gồm ca đồng thời 01:55 đi direct qua IPv6, nằm ở [profile Tailcat](tailcat/README.md). [Kết quả Docker](docker-rehearsal.json) · [Mã chạy thử](../../../scripts/croc_r14_rehearsal.py)
 
 Để chạy lại trên Docker Linux ARM64, dùng bản Croc Linux ARM64 v11.6.5 và bộ fixture đã tạo bằng script của repo. SHA-256 của tệp nén là `095526c841d989ef231ce87634e9d4e1410d390d1fa7e825be9d17170286d5ef`. Script xác minh SHA-256 executable và hai fixture 32 MiB trước khi chạy. [Bản Croc v11.6.5](https://github.com/schollz/croc/releases/tag/v11.6.5)
 

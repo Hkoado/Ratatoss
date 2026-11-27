@@ -16,3 +16,7 @@ bench/artifacts/r14-preflight/wan-runner/*.py text eol=lf
 bench/artifacts/r22-preflight/*.json text eol=lf
 scripts/croc_r02_tap.py text eol=lf
 scripts/croc_r14_rehearsal.py text eol=lf
+bench/artifacts/r14-preflight/tailcat/*.json text eol=lf
+bench/artifacts/r14-preflight/tailcat/*.csv text eol=lf
+bench/artifacts/r14-preflight/tailcat/calibration/*.json text eol=lf
+bench/artifacts/r14-preflight/tailcat/runner/*.py text eol=lf
