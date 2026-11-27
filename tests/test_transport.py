@@ -58,6 +58,58 @@ class CrocAdapterTests(unittest.IsolatedAsyncioTestCase):
             timeout=timeout, lease_deadline=time.monotonic() + 2 if lease is None else lease,
         )
 
+    def test_tailcat_profile_selects_transport_for_small_batches(self):
+        legacy = self.adapter()
+        self.assertEqual(
+            legacy.argv("tx", self.batch)[-5:],
+            ["send", "--no-local", "--transport", "relay", self.batch.filename],
+        )
+        self.profile = replace(
+            self.profile, endpoint="1.getcroc.com:9009", password=None,
+            transport="derp", no_compress=True,
+        )
+        adapter = self.adapter()
+        tx = adapter.argv("tx", self.batch)
+        self.assertEqual(tx[-5:], ["send", "--no-local", "--transport", "derp", self.batch.filename])
+        self.assertIn("--no-compress", tx)
+        self.assertNotIn("--throttleUpload", tx)
+        rx = adapter.argv("rx", self.batch)
+        self.assertEqual(rx[-3:], ["--relay", self.profile.endpoint, "--yes"])
+        self.assertNotIn("--transport", rx)
+        self.profile = replace(self.profile, transport="auto")
+        self.assertEqual(self.adapter().argv("tx", self.batch)[-2], "auto")
+
+    def test_tailcat_profile_validates_operator_endpoint_and_transport(self):
+        for endpoint in ("http://host:9009", "host:65536", "-bad.test:9009", "999.0.0.1:9009"):
+            with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
+                replace(self.profile, transport="derp", endpoint=endpoint)
+        with self.assertRaises(ValueError):
+            replace(self.profile, transport="unknown")
+        with self.assertRaises(ValueError):
+            replace(self.profile, password=None)
+
+    async def test_tailcat_summary_from_stdout_preserves_only_structured_fields(self):
+        self.profile = replace(self.profile, endpoint="1.getcroc.com:9009", password=None, transport="derp")
+
+        def receive_with_output(argv, *, cwd, env, stdout, stderr):
+            self.assertIs(stdout, stderr)
+            self.assertNotIn("CROC_PASS", env)
+            self.assertEqual(env["CROC_SECRET"], "test-session-code")
+            (cwd / self.batch.filename).write_bytes(self.payload)
+            stdout.write(
+                b"connect to [2001:db8::1]:9009 for test-session-code\r\n"
+                b"Tailcat transport summary: path=direct streams=8 setup=5ms sent=0 received=1234\n"
+            )
+            return FakeChild(0)
+
+        with patch("ratatoss.transport.WindowsChild", side_effect=receive_with_output):
+            result = await self.receive(self.adapter())
+        summary = result.tailcat_summary
+        self.assertEqual((summary.path, summary.streams, summary.sent, summary.received), ("direct", 8, 0, 1234))
+        self.assertNotIn("test-session-code", repr(result))
+        self.assertNotIn("2001:db8", repr(result))
+        self.assertEqual(self.destination.read_bytes(), self.payload)
+
     @unittest.skipUnless(os.name == "nt", "Windows Croc pin")
     def test_wrong_digest_never_executes_binary(self):
         self.binary.write_bytes(b"untrusted fixture")

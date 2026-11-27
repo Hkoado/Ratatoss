@@ -28,6 +28,7 @@ FIXTURE_SHA256 = "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec
 START_GAP_S = 0.75
 HANDSHAKE_BUDGET_MS = 200
 TIMEOUT_S = 25
+TAILCAT_TIMEOUT_S = 45
 FAULT_TIMEOUT_S = 6
 NO_PEER_TIMEOUT_S = 4.5
 THROTTLE = "512k"
@@ -142,22 +143,26 @@ def check_success(case, destination, first):
     case["status"] = "pass"
 
 
-async def simulate(executable, fixture, area, report):
+async def simulate(executable, fixture, area, report, *, tailcat=False, start_first="rx"):
     require(fixture.stat().st_size == FIXTURE_SIZE, "LAB_FIXTURE_SIZE_MISMATCH")
     require(sha256_file(fixture) == FIXTURE_SHA256, "LAB_FIXTURE_HASH_MISMATCH")
     password = secrets.token_hex(24)
     setup_ms = round(START_GAP_S * 1000) + HANDSHAKE_BUDGET_MS
-    profile = RelayProfile(f"{HOST}:{PORTS[0]}", password, 100_000_000, setup_ms, 200, 200)
+    profile = RelayProfile(
+        f"{HOST}:{PORTS[0]}", password, 100_000_000, setup_ms, 200, 200,
+        transport="derp" if tailcat else "relay", no_compress=tailcat,
+    )
     report["profile"] = {
         "name": "lab-windows-loopback", "endpoint": profile.endpoint, "ports": PORTS,
         "min_goodput_bps": profile.min_goodput_bps, "setup_ms": profile.setup_ms,
         "verify_commit_ms": profile.verify_commit_ms, "margin_ms": profile.margin_ms,
-        "route": "unknown", "start_gap_s": START_GAP_S, "fault_upload_limit": THROTTLE,
+        "route": "unknown", "transport": profile.transport, "start_gap_s": START_GAP_S,
     }
+    if not tailcat:
+        report["profile"]["fault_upload_limit"] = THROTTLE
     adapter_root = area / "attempts"
     adapter_root.mkdir()
     adapter = CrocAdapter(executable, adapter_root, profile)
-    throttled = ThrottledAdapter(executable, adapter_root, profile)
     report["croc"] = {
         "version": CROC_VERSION, "sha256": sha256_file(executable),
         "probes_passed": ["--version", "--help", "send --help", "relay --help"],
@@ -176,10 +181,22 @@ async def simulate(executable, fixture, area, report):
         report["relay"]["listeners"] = wait_for_relay(relay)
         cases = report["cases"]
         rooms = set()
-        for first in ("rx", "tx"):
+        for first in (start_first,) if tailcat else ("rx", "tx"):
             dest = area / f"{first}-first.bin"
-            case, _ = await run_case(f"{first}-first", adapter, fixture, dest, cases, rooms, first=first)
+            case, _ = await run_case(
+                f"{first}-first", adapter, fixture, dest, cases, rooms, first=first,
+                timeout=TAILCAT_TIMEOUT_S if tailcat else TIMEOUT_S,
+            )
             check_success(case, dest, first)
+            if tailcat:
+                tx = case["roles"]["tx"]["process"]["tailcat_summary"]
+                rx = case["roles"]["rx"]["process"]["tailcat_summary"]
+                require(tx and rx and tx["streams"] > 0 and tx["streams"] == rx["streams"],
+                        "LAB_TAILCAT_SUMMARY_MISSING")
+                require(tx["sent"] == rx["received"] and tx["sent"] >= FIXTURE_SIZE,
+                        "LAB_TAILCAT_BYTES_MISMATCH")
+        if tailcat:
+            return
 
         dest = area / "retried.bin"
         case, _ = await run_case(
@@ -190,6 +207,7 @@ async def simulate(executable, fixture, area, report):
         require(rx["process"]["job"]["active_before_stop"] >= 1, "LAB_RX_ALREADY_EXITED")
         case["status"] = "pass"
 
+        throttled = ThrottledAdapter(executable, adapter_root, profile)
         case, batch = await run_case(
             "partial-rx-timeout", throttled, fixture, dest, cases, rooms, timeout=FAULT_TIMEOUT_S,
         )
@@ -229,7 +247,11 @@ def main():
     parser.add_argument("--fixture", type=Path, required=True, help="the #3 synthetic a-32mib.bin fixture")
     parser.add_argument("--work-parent", type=Path, required=True, help="absolute path to a private lab directory")
     parser.add_argument("--report", type=Path, required=True, help="write the sanitized JSON report to a new file")
+    parser.add_argument("--tailcat", action="store_true", help="run a pinned 32 MiB transfer through Tailcat")
+    parser.add_argument("--start-first", choices=("rx", "tx"), help="first peer for the Tailcat smoke (default rx)")
     args = parser.parse_args()
+    if args.start_first and not args.tailcat:
+        parser.error("--start-first requires --tailcat")
     if os.name != "nt":
         parser.error("This profile requires Windows")
     report = {
@@ -244,7 +266,10 @@ def main():
     with args.report.open("x", encoding="utf-8") as output:
         try:
             with tempfile.TemporaryDirectory(dir=args.work_parent) as temp:
-                asyncio.run(simulate(args.croc, args.fixture, Path(temp), report))
+                asyncio.run(simulate(
+                    args.croc, args.fixture, Path(temp), report,
+                    tailcat=args.tailcat, start_first=args.start_first or "rx",
+                ))
             report["status"] = "pass"
         except CrocError as exc:
             report["error"] = exc.code
