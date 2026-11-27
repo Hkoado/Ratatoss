@@ -51,6 +51,21 @@ Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fix
 | --- | --- | --- |
 | A→B đồng thời B→C | | Chưa chạy trên lab |
 
+## Chạy thử bộ đo trên Docker
+
+Ba container A/B/C và một relay chạy trên cùng một máy Mac arm64. Mạng Docker chỉ dùng nội bộ và không publish port ra máy chủ. Đã chạy B→C, C→B và A→B đồng thời B→C. Cả bốn lượt nhận đều khớp 32 MiB và SHA-256 với fixture. Bộ quan sát tại B ghi đầu/cuối payload theo cùng đồng hồ monotonic và đếm đủ byte từng hướng. Kết quả này xác nhận quy trình thu số đo qua relay trong môi trường thử cục bộ. Các ô kết quả LAN ở trên chờ chạy trên A/B/C thật. [Kết quả Docker](docker-rehearsal.json) · [Mã chạy thử](../../../scripts/croc_r14_rehearsal.py)
+
+Để chạy lại trên Docker Linux ARM64, dùng bản Croc Linux ARM64 v11.6.5 và bộ fixture đã tạo bằng script của repo. SHA-256 của tệp nén là `095526c841d989ef231ce87634e9d4e1410d390d1fa7e825be9d17170286d5ef`. Script xác minh SHA-256 executable và hai fixture 32 MiB trước khi chạy. [Bản Croc v11.6.5](https://github.com/schollz/croc/releases/tag/v11.6.5)
+
+```sh
+python -B -m scripts.croc_r14_rehearsal \
+  --croc /path/to/linux-arm64/croc \
+  --fixtures /path/to/fixture \
+  --output /path/to/new-evidence.json
+```
+
+Trước khi chạy lab, điền bảng kiểm kê ở trên cùng đầu mối cấp quyền, giờ chạy và cách truy cập từng máy. Ghi cấu hình tích hợp dự kiến cho #9, gồm vị trí controller, bản Node, đường relay và slot RX/TX. Trên tuyến thực tế, thử bộ đo với fixture đã kiểm rồi ghi loại đường và hiện vật theo từng luồng. Dùng kết quả để hoàn thiện `test-nodes` và `integration-config` cho #9, `measured-lan-bc` cho #11, và `locked-croc-network-slots` cho #12. Ca `same-installer-abcd` tiếp tục dùng ứng viên tích hợp và lịch của #11. [Quy tắc hiện vật](../../../spec/operations/issue-readiness.md#hiện-vật-dùng-cho-phép-kiểm)
+
 ## Bàn giao
 
 | Bên nhận | Có thể dùng ngay | Còn thiếu |
