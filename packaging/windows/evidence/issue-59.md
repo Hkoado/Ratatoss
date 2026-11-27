@@ -87,7 +87,7 @@ Cài đặt và chạy starter offline đã được xác nhận. Lần mở t�
 
 ## Kiểm tra bản sửa thời gian chờ khi mở từ Setup · 2026-11-27
 
-Theo [hợp đồng launcher](../../../spec/operations/windows-installer.md#hợp-đồng-launcher), Setup truyền `--from-setup` để launcher đợi tối đa 60 giây cho IPC báo Node sẵn sàng. Shortcut và Terminal vẫn dùng giới hạn 20 giây. Khi hết hạn, hộp thoại ghi rõ Node chưa báo sẵn sàng và số giây đã chờ.
+Lượt kiểm tra đầu dùng bản sửa ở `c9a4e31`. Theo [hợp đồng launcher](../../../spec/operations/windows-installer.md#hợp-đồng-launcher), Setup truyền `--from-setup` để launcher đợi tối đa 60 giây cho IPC báo Node sẵn sàng. Shortcut và Terminal dùng giới hạn 20 giây. Khi hết hạn, hộp thoại ghi rõ Node chưa báo sẵn sàng và số giây đã chờ.
 
 Chạy trên Windows 11 Pro x64 23H2, build `22631.6199`, với Python 3.14.2 có sẵn trên máy. Mỗi lượt cài silent vào thư mục thử riêng, rồi chạy trực tiếp executable đã cài với thư mục làm việc là LocalAppData như mục `[Run]` của Setup. Thời gian đo từ lúc gọi launcher tới lúc named pipe trả cổng loopback. Ca này kiểm tra IPC và HTTP trên máy build. Ca **Finish → Edge → HTML/CSS** trên Windows sạch được theo dõi riêng.
 
@@ -99,4 +99,18 @@ Chạy trên Windows 11 Pro x64 23H2, build `22631.6199`, với Python 3.14.2 c�
 
 Build bản sửa bằng Python 3.14.2, PyInstaller 6.22.3, Inno Setup 6.7.4 và Croc v11.6.5 đã ghim. SHA-256 bộ cài đo được là `acd440c99a97fd512e6e349c347fbe94346edc4423f8afb6f8c6eeb1bc23a912`, khớp manifest do build sinh. Authenticode báo `NotSigned`.
 
-Ca lặp lại **Finish → Edge → HTML/CSS** trên VM sạch chưa chạy. Đã tạo đĩa Windows mới từ ISO Windows 11 Enterprise LTSC Evaluation x64 `26100.1742` và boot bằng QEMU 11.1.0 TCG với `-nic none`. WHPX không khởi tạo được trên máy này. Windows đã vào desktop của tài khoản thử và đã gắn đĩa dữ liệu chỉ đọc chứa installer gốc cùng bộ đo IPC. Ca đo chờ thao tác qua wizard.
+## Tái hiện lần mở đầu với bộ cài gốc trên VM sạch · 2026-11-27
+
+Windows 11 Enterprise LTSC Evaluation x64 `26100.1742` chạy trên QEMU 11.1.0 TCG với `-nic none`. WHPX không khởi tạo được trên máy này. Kiểm tra trước khi cài ghi nhận tài khoản chuẩn, 0 card mạng, 0 route mặc định, chưa có Ratatoss, Python, Croc hay Docker riêng. SHA-256 từ đĩa dữ liệu chỉ đọc khớp [installer đính kèm PR #62](https://github.com/user-attachments/files/35451794/Ratatoss-Starter-PR62-d6f5e91-win-x64.zip), `95fa1dff9c86c3e11b97a5df7c11f2ae922b0fa815e80673a75f428b3f67667f`.
+
+Setup trả mã 0 sau khi bấm **Finish** với ô **Mở Ratatoss** đang chọn. Lần mở đầu hiển thị hộp thoại **Không khởi động được Ratatoss. Hãy kiểm tra quyền ghi thư mục dữ liệu và dung lượng đĩa, rồi thử lại.** Hộp thoại có **Retry** và **Cancel**. Trước khi bấm **Retry**, named pipe trả cổng `8765` sau **77,648 giây** tính từ thời điểm bắt đầu tiến trình launcher. HTML (963 byte), CSS (848 byte) và health (58 byte) đều trả HTTP 200. Phép đo bắt đầu ở lúc tạo tiến trình, còn bộ đếm chờ trong mã bắt đầu sau khi khởi chạy tiến trình Node.
+
+Sau khi hộp lỗi đóng, cửa sổ Edge hiện địa chỉ `127.0.0.1:8765`. Ở thời điểm chụp, phần nội dung của tab còn trống. Kết quả tải HTML/CSS ở trên do bộ đo HTTP ghi nhận.
+
+## Kiểm tra installer với giới hạn 120 giây
+
+Bản sửa tiếp theo dùng giới hạn 120 giây cho **Finish** để có thêm thời gian so với lần khởi động quan sát được. Shortcut và Terminal dùng giới hạn 20 giây. Bộ cài build lại bằng cùng phiên bản Python, PyInstaller, Inno Setup và Croc. SHA-256 đo được là `0477031b612a0dd7ad6781e8c8e50e1c4c2052769e9b007c112719360b37d7fc`, khớp manifest.
+
+Trên máy build Windows 11 Pro x64 `22631.6199`, giữ mutex Node 78 giây rồi nhả và chạy Node. Launcher ở bản đã cài nhận cổng qua IPC sau **79,406 giây** và trả mã 0. HTML, CSS và health trả HTTP 200. Chạy lại `python -m unittest discover -s packaging/windows -v` với bản đã cài, cả 9 ca đạt. `python -m unittest discover -s tests` có 208 ca đạt. Bản thử gỡ với mã 0, mục Start Menu và đăng ký gỡ cài đặt được dọn.
+
+Ca **Finish → Edge → HTML/CSS** với installer 120 giây trên VM sạch chưa chạy.

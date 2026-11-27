@@ -21,8 +21,8 @@ from ratatoss.database import NODE_DATABASE_NAME
 from ratatoss.settings import LOOPBACK, NodeSettings
 
 START_TIMEOUT = 20
-# The first launch from Setup can contend with fresh install files and a cold runtime.
-SETUP_START_TIMEOUT = 60
+# Allow headroom for the observed 78-second cold start on the offline Windows VM.
+SETUP_START_TIMEOUT = 120
 START_ERROR = (
     "Không khởi động được Ratatoss. Hãy kiểm tra quyền ghi thư mục dữ liệu "
     "và dung lượng đĩa, rồi thử lại."

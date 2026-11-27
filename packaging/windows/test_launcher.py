@@ -156,7 +156,7 @@ class LauncherTests(unittest.TestCase):
             display.assert_called_once_with(DATA_PERMISSION_ERROR, 0x15)
 
     def test_setup_launch_waits_for_slow_node_and_reports_timeout(self):
-        for args, ready_after, expected_code in ((["--from-setup"], 25, 0), ([], 25, 2),
+        for args, ready_after, expected_code in ((["--from-setup"], 80, 0), ([], 80, 2),
                                                  (["--from-setup"], None, 2)):
             with self.subTest(args=args, ready_after=ready_after):
                 elapsed = 0.0
@@ -186,7 +186,7 @@ class LauncherTests(unittest.TestCase):
                         display.assert_not_called()
                     else:
                         browser.assert_not_called()
-                        seconds = 60 if args else 20
+                        seconds = 120 if args else 20
                         self.assertAlmostEqual(elapsed, seconds, delta=0.05)
                         display.assert_called_once()
                         self.assertIn(f"{seconds} giây", display.call_args.args[0])
