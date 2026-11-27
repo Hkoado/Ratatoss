@@ -33,8 +33,15 @@
     "relay",
     "--no-multi"
   ],
-  "sender_a_flags": null,
-  "sender_a_note": "Lệnh và cờ của sender trên A chưa được ghi lại tại B",
+  "sender_a": {
+    "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224902119",
+    "croc_version": "croc version 11.6.5",
+    "croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "croc_sha256_check": "Khớp croc.exe trong croc_v11.6.5_Windows-64bit.zip của bản phát hành chính thức và khớp executable đã ghim ở hồ sơ R0.1/R0.2",
+    "command_redacted": "<CROC_EXE> --disable-clipboard --no-update-check --no-compress --relay 1.getcroc.com:9009 send --no-local --transport relay --no-multi <FIXTURE_DIR>/a-32mib.bin",
+    "secret_handling": "Mã phiên truyền qua CROC_SECRET riêng của tiến trình con. Cấu hình và staging tách theo từng lần chạy.",
+    "upload_throttle": null
+  },
   "secret_handling": "Mã Croc của A→B được chuyển riêng và không lưu trong hiện vật",
   "routes": {
     "A-B": {
@@ -119,9 +126,23 @@
   },
   "sender_a_report": {
     "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224788222",
-    "reported_open": "00:47:23 (UTC+07:00)",
-    "reported_exit": "00:47:47 (UTC+07:00), mã 0",
-    "discrepancy": "B đã nhận xong lúc 00:47:09 theo đồng hồ Mac. Bình luận của Khoa đăng lúc 00:47:23 theo GitHub, nhưng ghi giờ thoát 00:47:47. Mốc giờ phía A chưa đối chiếu được với B. Cần kiểm độ lệch đồng hồ trên máy A."
+    "reported_open_on_a_clock": "00:47:23 (UTC+07:00)",
+    "reported_exit_on_a_clock": "00:47:47 (UTC+07:00), mã 0",
+    "clock_offset": {
+      "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224902119",
+      "command": "w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly",
+      "measured_at": "2026-11-28T00:54+07:00",
+      "samples_s": [
+        -38.8962551,
+        -38.8963761,
+        -38.8954416
+      ],
+      "median_s": -38.8962551,
+      "meaning": "Đồng hồ A chạy nhanh khoảng 38,9 giây so với time.windows.com"
+    },
+    "corrected_open": "2026-11-28T00:46:44.206+07:00",
+    "corrected_exit": "2026-11-28T00:47:08.846+07:00",
+    "reconciliation": "Sau khi trừ độ lệch, A mở sau lượt nhận thứ hai của B (00:46:07) và thoát lúc 00:47:08.846. Sender sống 24,64 giây, dài hơn khoảng payload 21,330 giây đo tại B. B ghi xong kết quả lúc 00:47:09. Overlap vẫn chỉ tính từ bốn mốc monotonic tại B."
   },
   "temporary_containers_and_network_removed": true
 }

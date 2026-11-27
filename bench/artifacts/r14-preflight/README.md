@@ -8,7 +8,7 @@ Vai trò dưới đây theo kịch bản demo. Chốt định danh lab, hệ đi
 
 | Node | Vai trò dự kiến | Định danh lab / OS và build | Quyền / lịch (kèm múi giờ) | Trạng thái và lý do |
 | --- | --- | --- | --- | --- |
-| A | Gửi fixture 32 MiB sang B | Khoa · Windows 11 Pro 23H2, build 22631.6199, x64 | Khoa xác nhận sẵn sàng trong phiên 00:30 UTC+7 | Đã kiểm hash fixture và TCP tới relay WAN. B nhận đủ `a-32mib.bin` từ A qua relay công cộng lúc 00:47:09 theo đồng hồ B, SHA-256 khớp. Giờ mở và thoát sender mà Khoa báo chưa khớp đồng hồ B. Còn thiếu lệnh sender đã lược mã trên A. [Báo cáo sender](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224788222) · [Số đo tại B](2026-11-28-0046-wan.json) · [Xác nhận A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532) |
+| A | Gửi fixture 32 MiB sang B | Khoa · Windows 11 Pro 23H2, build 22631.6199, x64 | Khoa xác nhận sẵn sàng trong phiên 00:30 UTC+7 | Đã kiểm hash fixture và TCP tới relay WAN. B nhận đủ `a-32mib.bin` từ A qua relay công cộng lúc 00:47:09 theo đồng hồ B, SHA-256 khớp. Đồng hồ A nhanh 38,9 giây. Sau khi trừ độ lệch, sender mở lúc 00:46:44 và thoát mã 0 lúc 00:47:09, khớp mốc tại B. Croc v11.6.5, SHA-256 executable khớp bản phát hành. Lệnh sender đã lược mã nằm trong số đo. [Thông tin sender A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224902119) · [Số đo tại B](2026-11-28-0046-wan.json) · [Xác nhận A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532) |
 | B | Nhận từ A, gửi sang C, thu mốc RX/TX | Huy · Mac ARM64, macOS 27.0.1 (26A434), container Linux aarch64 | Huy vận hành phiên 00:30 UTC+7 | Đã gửi/nhận với C. Đã nhận từ A qua relay WAN trong lúc gửi sang C, với overlap payload 2,995 giây. [Kiểm tra tại B](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155) |
 | C | Nhận từ B và gửi chiều ngược | Cùng Mac của Huy, container và thư mục nhận riêng | Huy vận hành phiên 00:30 UTC+7 | Hai chiều đã khớp fixture qua relay trên Docker bridge. |
 | D | Đích cho ca bốn node | Bảo · Windows 11 Pro 25H2, build 26200.9974, x64 | Bảo đã kiểm OS/build. Giờ chạy ca bốn node và quyền cài ứng viên chờ xác nhận. | Bảo đã nhận `a-32mib.bin` bằng Croc v11.6.5 và kiểm đủ 33.554.432 byte, SHA-256 khớp manifest #3. Còn chờ cài và chạy thử ứng viên #9/#10 theo sơ đồ demo. [Kết quả tại D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577) · [Xác nhận D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224510940) |
@@ -44,7 +44,7 @@ Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fix
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B→C riêng | B→C (TX tại B) | Đã chạy | relay | Docker bridge cùng Mac | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0030-bc.json) | |
 | C→B riêng | C→B (RX tại B) | Đã chạy | relay | Docker bridge cùng Mac | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0030-bc.json) | |
-| Đồng thời | A→B (RX tại B) | Đã chạy | relay | Relay công cộng `1.getcroc.com`, payload trên cổng 9010 | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0046-wan.json), 21,330 giây | Chưa có lệnh sender đã lược mã trên A |
+| Đồng thời | A→B (RX tại B) | Đã chạy | relay | Relay công cộng `1.getcroc.com`, payload trên cổng 9010 | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0046-wan.json), 21,330 giây | |
 | Đồng thời | B→C (TX tại B) | Đã chạy | relay | Relay Docker nội bộ trên Mac, cổng 19010 | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0046-wan.json), 2,995 giây | |
 
 | Ca | Overlap tại B | Lý do khi thiếu số đo |
