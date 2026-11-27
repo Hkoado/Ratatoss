@@ -1,0 +1,830 @@
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from dataclasses import replace
+from hashlib import sha256
+import json
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import subprocess
+import sys
+from threading import Event
+import unittest
+from unittest.mock import patch
+from uuid import uuid4
+
+from ratatoss import store as store_module
+from ratatoss.database import NODE_DATABASE_NAME, open_database
+from ratatoss.manifest import Manifest, Segment, build_manifest
+from ratatoss.store import NodeStore, StoreError
+
+
+# A real subprocess exit leaves the filesystem and SQLite in the tested window.
+CRASH = """
+import os
+from pathlib import Path
+import sys
+from ratatoss import store
+
+root, identifier, window, assignment = sys.argv[1:]
+with store.NodeStore(Path(root)) as node:
+    real_publish = store.publish
+    def interrupt(source, destination):
+        batch = destination.name == 'batch-0.bin'
+        output = destination == Path(root).parent / 'delivered.bin'
+        if (batch and window == 'before-batch-publish') or (output and window == 'before-delivery-publish'):
+            os._exit(71)
+        if batch and window == 'after-batch-link':
+            os.link(source, destination)
+            os._exit(71)
+        real_publish(source, destination)
+        if destination.name == 'source.bin' and window == 'after-source-publish':
+            os._exit(71)
+        if (batch and window == 'after-batch-publish') or (output and window == 'after-delivery-publish'):
+            os._exit(71)
+    store.publish = interrupt
+    if 'delivery' in window:
+        node.publish_delivery(identifier)
+    elif window == 'after-source-publish':
+        node.import_source(identifier, assignment, Path(root).parent / 'sample.bin', max_bytes=10,
+                           piece_size=3, batch_size=6)
+    else:
+        staging = node.begin_receive(identifier, 0, assignment)
+        staging.write_bytes(b'abcdef')
+        node.commit_receive(assignment)
+        if window == 'after-batch-commit':
+            os._exit(71)
+raise AssertionError('Crash point was not reached')
+"""
+
+
+class NodeStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(__file__).resolve().parent / f".tmp-store-{uuid4().hex}"
+        self.root.mkdir()
+        self.addCleanup(shutil.rmtree, self.root)
+        self.data = self.root / "node"
+        self.source = self.root / "sample.bin"
+        self.source.write_bytes(b"abcdefghij")
+        self.output = self.root / "delivered.bin"
+        self.manifest = build_manifest(self.source, piece_size=3, batch_size=6)
+        self.source_device = str(uuid4())
+        self.job_id = str(uuid4())
+        self.offer_id = str(uuid4())
+        self.consent_key = str(uuid4())
+
+    def register(self, store, manifest=None, *, forward=True):
+        return store.register_target(
+            self.job_id, self.source_device, self.offer_id,
+            self.manifest if manifest is None else manifest, self.output,
+            consent_request_key=self.consent_key, allow_forward=forward,
+        )
+
+    def stage(self, store, batch_id, payload):
+        assignment = str(uuid4())
+        staging = store.begin_receive(self.job_id, batch_id, assignment)
+        staging.write_bytes(payload)
+        return assignment, staging
+
+    def receive(self, store, batch_id, payload):
+        assignment, _ = self.stage(store, batch_id, payload)
+        return store.commit_receive(assignment)
+
+    def rows(self, query, args=()):
+        with closing(open_database(self.data / NODE_DATABASE_NAME, "node")) as db:
+            return db.execute(query, args).fetchall()
+
+    def write_db(self, query, args=()):
+        with closing(open_database(self.data / NODE_DATABASE_NAME, "node")) as db, db:
+            db.execute(query, args)
+
+    def outbox(self, store):
+        return [(event["event_kind"], json.loads(event["payload_json"]))
+                for event in store.pending_events(self.job_id)]
+
+    @staticmethod
+    def block_read(blocked_path):
+        original_open = Path.open
+
+        def deny(path, *args, **kwargs):
+            if path == blocked_path:
+                raise PermissionError("test simulates a sharing violation")
+            return original_open(path, *args, **kwargs)
+
+        return patch.object(Path, "open", deny)
+
+    def crash(self, window, *, assignment=""):
+        run = subprocess.run(
+            [sys.executable, "-B", "-c", CRASH, str(self.data), self.job_id, window, assignment],
+            capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(run.returncode, 71, run.stdout + run.stderr)
+
+    def test_corrupt_batch_and_piece_hash_are_rejected(self):
+        wrong_piece = replace(self.manifest.pieces[1], sha256=sha256(b"xxx").hexdigest())
+        altered = replace(self.manifest, pieces=(self.manifest.pieces[0], wrong_piece,
+                                                *self.manifest.pieces[2:]))
+        with NodeStore(self.data) as store:
+            self.register(store, altered)
+            for payload in (b"abcxyz", b"abcdef"):
+                assignment, staging = self.stage(store, 0, payload)
+                with self.assertRaisesRegex(StoreError, "^CORRUPT$"):
+                    store.commit_receive(assignment)
+                self.assertFalse(staging.exists())
+                self.assertEqual(store.inventory(self.job_id), ())
+                self.assertEqual(self.outbox(store), [])
+            self.assertEqual(self.rows("SELECT state FROM local_batches"), [("CORRUPT",)])
+            self.assertEqual(self.rows("SELECT state FROM local_attempts"), [("FAILED",), ("FAILED",)])
+
+    def test_duplicate_receive_and_retry_preserve_file_and_ack_identity(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            first, _ = self.stage(store, 0, b"abcdef")
+            second, _ = self.stage(store, 0, b"abcdef")
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                paths = list(pool.map(store.commit_receive, (first, second)))
+            self.assertEqual(paths[0], paths[1])
+            before = store.pending_events(self.job_id)
+            self.assertEqual({event["assignment_id"] for event in before}, {first, second})
+            self.assertEqual(store.commit_receive(first), paths[0])
+            self.assertEqual(store.pending_events(self.job_id), before)
+            with self.assertRaisesRegex(StoreError, "^CORRUPT$"):
+                self.receive(store, 0, b"abcdef!")
+            self.assertEqual(store.inventory(self.job_id), (0,))
+            self.assertEqual(store.pending_events(self.job_id), before)
+            with store.tx_batch(self.job_id, 0) as path:
+                self.assertEqual(path.read_bytes(), b"abcdef")
+
+    def test_source_import_is_immutable_and_duplicate_safe(self):
+        with NodeStore(self.data) as store:
+            with self.assertRaisesRegex(StoreError, "^SOURCE_TOO_LARGE$"):
+                store.import_source(self.job_id, self.source_device, self.source, max_bytes=9)
+            options = dict(max_bytes=10, piece_size=3, batch_size=6)
+            self.assertEqual(store.import_source(self.job_id, self.source_device, self.source, **options),
+                             self.manifest)
+            snapshot = self.data / "jobs" / self.job_id / "source.bin"
+            original = snapshot.stat()
+            self.assertEqual(store.import_source(self.job_id, self.source_device, self.source, **options),
+                             self.manifest)
+            self.assertEqual(snapshot.stat().st_ino, original.st_ino)
+            self.source.write_bytes(b"0123456789")
+            with self.assertRaisesRegex(StoreError, "^JOB_CONFLICT$"):
+                store.import_source(self.job_id, self.source_device, self.source, **options)
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+            with store.tx_batch(self.job_id, 1) as path:
+                self.assertEqual(path.read_bytes(), b"ghij")
+            self.assertFalse(path.exists())
+            self.assertEqual(snapshot.read_bytes(), b"abcdefghij")
+
+    def test_startup_discards_snapshot_published_before_source_registration(self):
+        committed_id = str(uuid4())
+        options = dict(max_bytes=10, piece_size=3, batch_size=6)
+        with NodeStore(self.data) as store:
+            store.import_source(committed_id, self.source_device, self.source, **options)
+        committed = self.data / "jobs" / committed_id / "source.bin"
+        original = committed.stat()
+        self.crash("after-source-publish", assignment=self.source_device)
+        orphan = self.data / "jobs" / self.job_id / "source.bin"
+        self.assertTrue(orphan.is_file())
+        self.assertEqual(self.rows("SELECT job_id FROM local_jobs"), [(committed_id,)])
+
+        with NodeStore(self.data) as store:
+            self.assertFalse(orphan.exists())
+            self.assertEqual(committed.stat().st_ino, original.st_ino)
+            self.assertEqual(committed.read_bytes(), b"abcdefghij")
+            self.assertEqual(store.inventory(committed_id), (0, 1))
+            self.assertEqual(store.import_source(self.job_id, self.source_device, self.source, **options),
+                             self.manifest)
+
+    def test_wrong_type_rx_staging_is_discarded_on_commit_and_startup(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            valid = self.receive(store, 1, b"ghij")
+            rejected_assignment = str(uuid4())
+            rejected = store.begin_receive(self.job_id, 0, rejected_assignment)
+            rejected.mkdir()
+            (rejected / "partial.bin").write_bytes(b"abc")
+            with self.assertRaisesRegex(StoreError, "^CORRUPT$"):
+                store.commit_receive(rejected_assignment)
+            self.assertFalse(rejected.exists())
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            abandoned_assignment = str(uuid4())
+            abandoned = store.begin_receive(self.job_id, 0, abandoned_assignment)
+            abandoned.mkdir()
+            (abandoned / "partial.bin").write_bytes(b"abc")
+        with NodeStore(self.data) as store:
+            self.assertFalse(abandoned.exists())
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            self.assertEqual(valid.read_bytes(), b"ghij")
+            self.assertEqual(self.rows("SELECT state FROM local_attempts WHERE assignment_id = ?",
+                                       (abandoned_assignment,)), [("CANCELED",)])
+            self.receive(store, 0, b"abcdef")
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+
+    def test_batch_publish_precedes_atomic_availability_and_ack(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            assignment, staging = self.stage(store, 0, b"abcdef")
+            self.write_db("""CREATE TRIGGER abort_ack BEFORE INSERT ON outbox WHEN NEW.event_kind = 'ACK'
+                             BEGIN SELECT RAISE(ABORT, 'test ACK failure'); END""")
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "test ACK failure"):
+                store.commit_receive(assignment)
+            self.assertEqual(self.rows("SELECT state FROM local_batches"), [("MISSING",)])
+            self.assertEqual(self.rows("SELECT state FROM local_attempts"), [("VERIFIED",)])
+            self.assertEqual(self.outbox(store), [])
+            self.assertFalse(staging.exists())
+            self.assertEqual((staging.parent / "batch-0.bin").read_bytes(), b"abcdef")
+            with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                with store.tx_batch(self.job_id, 0):
+                    self.fail("TX opened before commit")
+            self.write_db("DROP TRIGGER abort_ack")
+            store.commit_receive(assignment)
+            self.assertEqual(self.rows("SELECT state FROM local_batches"), [("AVAILABLE",)])
+            self.assertEqual(self.rows("SELECT state FROM local_attempts"), [("FINISHED",)])
+            self.assertEqual(self.outbox(store), [("ACK", {"batch_sha256": self.manifest.batches[0].sha256})])
+
+    def test_same_boot_reconcile_does_not_adopt_batch_until_ack_commit_retries(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            assignment, staging = self.stage(store, 0, b"abcdef")
+            self.write_db("""CREATE TRIGGER abort_ack BEFORE INSERT ON outbox WHEN NEW.event_kind = 'ACK'
+                             BEGIN SELECT RAISE(ABORT, 'test ACK failure'); END""")
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "test ACK failure"):
+                store.commit_receive(assignment)
+            self.assertTrue((staging.parent / "batch-0.bin").is_file())
+
+            with patch.object(store_module, "verify_batch", side_effect=PermissionError):
+                self.assertEqual(store.reconcile(self.job_id), ())
+            self.assertEqual(store.reconcile(self.job_id), ())
+            self.assertEqual(self.outbox(store), [("RECONCILE", {
+                "boot_id": store.boot_id, "verified_batch_ids": [],
+            })])
+            with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                with store.tx_batch(self.job_id, 0):
+                    self.fail("TX opened after ACK rollback")
+
+            self.write_db("DROP TRIGGER abort_ack")
+            store.commit_receive(assignment)
+            self.assertEqual(store.inventory(self.job_id), (0,))
+            self.assertEqual(self.outbox(store)[-1], ("ACK", {"batch_sha256": self.manifest.batches[0].sha256}))
+            with store.tx_batch(self.job_id, 0) as path:
+                self.assertEqual(path.read_bytes(), b"abcdef")
+
+    def assert_crash_recovery(self, window, *, published, committed):
+        with NodeStore(self.data) as store:
+            self.register(store)
+        assignment = str(uuid4())
+        self.crash(window, assignment=assignment)
+        directory = self.data / "jobs" / self.job_id
+        self.assertEqual((directory / "batch-0.bin").is_file(), published)
+        self.assertEqual(self.rows("SELECT state FROM local_batches WHERE batch_id = 0"),
+                         [("AVAILABLE" if committed else "MISSING",)])
+        self.assertEqual(self.rows("SELECT count(*) FROM outbox WHERE event_kind = 'ACK'"), [(int(committed),)])
+        with NodeStore(self.data) as store:
+            self.assertEqual(store.inventory(self.job_id), (0,) if published else ())
+            self.assertFalse((directory / f"rx-{assignment}.part").exists())
+            self.assertEqual(self.rows("SELECT state FROM local_attempts"),
+                             [("FINISHED" if committed else "CANCELED",)])
+            events = self.outbox(store)
+            self.assertEqual(events[0], ("RECONCILE", {
+                "boot_id": store.boot_id, "verified_batch_ids": [0] if published else [],
+            }))
+            self.assertEqual([kind for kind, _ in events], ["RECONCILE", "ACK"] if committed else ["RECONCILE"])
+
+    def test_crash_before_batch_publish_discards_uncommitted_staging(self):
+        self.assert_crash_recovery("before-batch-publish", published=False, committed=False)
+
+    def test_crash_after_batch_publish_adopts_file_via_reconcile(self):
+        self.assert_crash_recovery("after-batch-publish", published=True, committed=False)
+        with NodeStore(self.data) as store:
+            self.receive(store, 1, b"ghij")
+            self.assertEqual(store.publish_delivery(self.job_id), self.output)
+            self.assertEqual(sha256(self.output.read_bytes()).hexdigest(), self.manifest.sha256)
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+
+    def test_crash_after_batch_commit_preserves_ack(self):
+        self.assert_crash_recovery("after-batch-commit", published=True, committed=True)
+
+    def test_startup_syncs_job_directory_before_adopting_batch_link(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+        assignment = str(uuid4())
+        self.crash("after-batch-link", assignment=assignment)
+        directory = self.data / "jobs" / self.job_id
+        staging = directory / f"rx-{assignment}.part"
+        self.assertTrue(os.path.samefile(staging, directory / "batch-0.bin"))
+        old_outbox = self.rows("SELECT request_key, payload_json FROM outbox ORDER BY event_id")
+        real_sync = store_module.sync_directory
+
+        def block_job_sync(path):
+            if path == directory:
+                self.assertFalse(staging.exists())
+                self.assertEqual(self.rows("SELECT state FROM local_batches WHERE batch_id = 0"), [("MISSING",)])
+                self.assertEqual(self.rows("SELECT request_key, payload_json FROM outbox ORDER BY event_id"),
+                                 old_outbox)
+                raise OSError("test directory sync failure")
+            real_sync(path)
+
+        with patch.object(store_module, "sync_directory", block_job_sync):
+            with self.assertRaisesRegex(OSError, "test directory sync failure"):
+                NodeStore(self.data)
+        self.assertEqual(self.rows("SELECT state FROM local_batches WHERE batch_id = 0"), [("MISSING",)])
+        with NodeStore(self.data) as store:
+            self.assertEqual(store.inventory(self.job_id), (0,))
+            self.assertEqual(self.outbox(store), [("RECONCILE", {
+                "boot_id": store.boot_id, "verified_batch_ids": [0],
+            })])
+
+    def test_reconcile_drops_acks_for_missing_and_corrupt_batches(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            missing = self.receive(store, 0, b"abcdef")
+            corrupt = self.receive(store, 1, b"ghij")
+        missing.unlink()
+        corrupt.write_bytes(b"xxxx")
+        with NodeStore(self.data) as store:
+            self.assertEqual(store.inventory(self.job_id), ())
+            self.assertEqual(self.rows("SELECT state FROM local_batches ORDER BY batch_id"),
+                             [("MISSING",), ("CORRUPT",)])
+            self.assertEqual([kind for kind, _ in self.outbox(store)], ["RECONCILE"])
+            self.receive(store, 1, b"ghij")
+            self.assertEqual(store.inventory(self.job_id), (1,))
+
+    def test_startup_isolates_unreadable_batch_and_reconcile_restores_it(self):
+        second_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            blocked = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            store.register_target(second_job, self.source_device, str(uuid4()), self.manifest,
+                                  self.root / "second.bin", consent_request_key=str(uuid4()),
+                                  allow_forward=True)
+            attempt = str(uuid4())
+            store.begin_receive(second_job, 0, attempt).write_bytes(b"abcdef")
+            store.commit_receive(attempt)
+
+        with self.block_read(blocked):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            self.assertEqual(store.inventory(second_job), (0,))
+            self.assertEqual(store.reconcile(self.job_id), (1,))
+            self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [1])
+
+        self.assertEqual(store.reconcile(self.job_id), (0, 1))
+        self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [0, 1])
+        with store.tx_batch(self.job_id, 0) as tx:
+            self.assertEqual(tx.read_bytes(), b"abcdef")
+
+    def test_startup_isolates_locked_source_snapshot_until_reconcile(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+        snapshot = self.data / "jobs" / source_job / "source.bin"
+
+        with self.block_read(snapshot):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.inventory(source_job), ())
+            self.assertEqual(store.reconcile(source_job), ())
+            self.assertEqual(store.inventory(self.job_id), (0,))
+            with store.tx_batch(self.job_id, 0) as tx:
+                self.assertEqual(tx.read_bytes(), b"abcdef")
+            with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                with store.tx_batch(source_job, 0):
+                    self.fail("TX opened before revalidating the snapshot")
+
+        self.assertEqual(store.reconcile(source_job), (0, 1))
+        snapshot_event, = store.pending_events(source_job)
+        self.assertEqual(json.loads(snapshot_event["payload_json"])["verified_batch_ids"], [0, 1])
+        with store.tx_batch(source_job, 1) as tx:
+            self.assertEqual(tx.read_bytes(), b"ghij")
+
+    def test_tx_withdraws_locked_source_snapshot_until_reconcile(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+            self.assertEqual(store.reconcile(source_job), (0, 1))
+            snapshot = self.data / "jobs" / source_job / "source.bin"
+
+            with self.block_read(snapshot):
+                with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                    with store.tx_batch(source_job, 0):
+                        self.fail("TX opened a locked snapshot")
+                self.assertEqual(store.inventory(source_job), ())
+                event, = store.pending_events(source_job)
+                self.assertEqual(json.loads(event["payload_json"])["verified_batch_ids"], [])
+                self.assertEqual(store.reconcile(source_job), ())
+                with store.tx_batch(self.job_id, 0) as tx:
+                    self.assertEqual(tx.read_bytes(), b"abcdef")
+
+            self.assertEqual(store.inventory(source_job), ())
+            self.assertEqual(store.reconcile(source_job), (0, 1))
+            event, = store.pending_events(source_job)
+            self.assertEqual(json.loads(event["payload_json"])["verified_batch_ids"], [0, 1])
+            with store.tx_batch(source_job, 1) as tx:
+                self.assertEqual(tx.read_bytes(), b"ghij")
+
+    def test_startup_defers_locked_delivery_receipt_until_reconcile(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            store.publish_delivery(self.job_id)
+            receipt = store.pending_events(self.job_id)[-1]
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+
+        with self.block_read(self.output):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.inventory(source_job), (0, 1))
+            with store.tx_batch(source_job, 0) as tx:
+                self.assertEqual(tx.read_bytes(), b"abcdef")
+            self.assertEqual(store.reconcile(self.job_id), (0, 1))
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+            self.assertEqual(self.rows("SELECT request_key FROM outbox WHERE event_kind = 'RECEIPT'"),
+                             [(receipt["request_key"],)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+
+        self.assertEqual(store.reconcile(self.job_id), (0, 1))
+        recovered = store.pending_events(self.job_id)[-1]
+        self.assertEqual(recovered["event_kind"], "RECEIPT")
+        self.assertEqual((recovered["request_key"], recovered["payload_json"]),
+                         (receipt["request_key"], receipt["payload_json"]))
+
+    def test_startup_keeps_delivery_proof_while_output_is_locked(self):
+        empty = self.root / "empty.bin"
+        empty.write_bytes(b"")
+        with NodeStore(self.data) as store:
+            self.register(store, build_manifest(empty))
+        self.crash("after-delivery-publish")
+
+        with self.block_read(self.output):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHING",)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+            with self.assertRaisesRegex(StoreError, "^DELIVERY_NOT_AVAILABLE$"):
+                store.publish_delivery(self.job_id)
+
+        self.assertEqual(store.reconcile(self.job_id), ())
+        self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+        self.assertEqual(self.outbox(store)[-1][0], "RECEIPT")
+
+    def test_startup_keeps_delivery_proof_while_stage_marker_is_locked(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+        self.crash("after-delivery-publish")
+        marker = self.data / "jobs" / self.job_id / "delivery-stage.json"
+        original_marker = marker.read_bytes()
+        stage, = self.root.glob(".ratatoss-*")
+
+        with self.block_read(marker):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.reconcile(self.job_id), (0, 1))
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHING",)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+            with self.assertRaisesRegex(StoreError, "^DELIVERY_NOT_AVAILABLE$"):
+                store.publish_delivery(self.job_id)
+            self.assertTrue((stage / "ready").is_file())
+            with store.tx_batch(source_job, 0) as tx:
+                self.assertEqual(tx.read_bytes(), b"abcdef")
+
+        self.assertEqual(marker.read_bytes(), original_marker)
+        self.assertEqual(store.reconcile(self.job_id), (0, 1))
+        self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+        self.assertEqual(store.publish_delivery(self.job_id).read_bytes(), b"abcdefghij")
+        self.assertEqual([kind for kind, _ in self.outbox(store)].count("RECEIPT"), 1)
+        self.assertFalse(marker.exists())
+        self.assertFalse(stage.exists())
+
+    def test_reconnect_replaces_inventory_after_replaying_inflight_snapshot(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            missing = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            self.assertEqual(store.reconcile(self.job_id), (0, 1))
+            snapshot, removed_ack, valid_ack = store.pending_events(self.job_id)
+            self.assertEqual(snapshot["event_kind"], "RECONCILE")
+            store.mark_event_sent(self.job_id, snapshot["request_key"])
+            missing.unlink()
+
+            self.assertEqual(store.reconcile(self.job_id), (1,))
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            replay, replacement, remaining_ack = store.pending_events(self.job_id)
+            self.assertEqual(replay["request_key"], snapshot["request_key"])
+            self.assertEqual(replay["payload_json"], snapshot["payload_json"])
+            self.assertEqual(replacement["event_kind"], "RECONCILE")
+            self.assertEqual(json.loads(replacement["payload_json"]), {
+                "boot_id": snapshot["boot_id"], "verified_batch_ids": [1],
+            })
+            self.assertEqual(replacement["boot_id"], store.boot_id)
+            self.assertEqual(remaining_ack["request_key"], valid_ack["request_key"])
+            self.assertNotIn(removed_ack["request_key"],
+                             {event["request_key"] for event in (replay, replacement, remaining_ack)})
+
+    def test_live_corruption_revokes_tx_and_queues_corrected_inventory(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            path = self.receive(store, 0, b"abcdef")
+            path.write_bytes(b"xxxxx!")
+            with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                with store.tx_batch(self.job_id, 0):
+                    self.fail("Corrupt batch was offered to TX")
+            self.assertEqual(self.outbox(store), [("RECONCILE", {
+                "boot_id": store.boot_id, "verified_batch_ids": [],
+            })])
+            self.assertEqual(store.inventory(self.job_id), ())
+
+    def test_live_corruption_replays_an_inflight_ack_before_reconcile(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            path = self.receive(store, 0, b"abcdef")
+            ack = store.pending_events(self.job_id)[0]
+            store.mark_event_sent(self.job_id, ack["request_key"])
+            path.unlink()
+            self.assertEqual(store.reconcile(self.job_id), ())
+            events = store.pending_events(self.job_id)
+            self.assertEqual([event["event_kind"] for event in events], ["ACK", "RECONCILE"])
+            self.assertEqual(events[0]["request_key"], ack["request_key"])
+        with NodeStore(self.data) as store:
+            self.assertEqual([kind for kind, _ in self.outbox(store)], ["RECONCILE"])
+
+    def test_ack_replayed_after_restart_uses_actual_sending_boot(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            batch = self.receive(store, 0, b"abcdef")
+            ack = store.pending_events(self.job_id)[0]
+            key = ack["request_key"]
+            store.mark_event_sent(self.job_id, key)
+            original = store.pending_events(self.job_id)[0]
+
+        with NodeStore(self.data) as store:
+            snapshot, ack = store.pending_events(self.job_id)
+            self.assertEqual(snapshot["event_kind"], "RECONCILE")
+            self.assertEqual(ack["request_key"], key)
+            with self.assertRaisesRegex(StoreError, "^OUTBOX_HEAD_CHANGED$"):
+                store.mark_event_sent(self.job_id, key)
+            store.mark_event_sent(self.job_id, snapshot["request_key"])
+            self.write_db("DELETE FROM outbox WHERE request_key = ?", (snapshot["request_key"],))
+            store.mark_event_sent(self.job_id, key)
+            self.assertEqual(store.reconcile(self.job_id), (0,))
+            self.assertEqual([event["event_kind"] for event in store.pending_events(self.job_id)],
+                             ["ACK", "RECONCILE"])
+
+            batch.write_bytes(b"xxxxxx")
+            self.assertEqual(store.reconcile(self.job_id), ())
+            replay, correction = store.pending_events(self.job_id)
+            self.assertEqual(replay["request_key"], key)
+            self.assertEqual(replay["payload_json"], original["payload_json"])
+            self.assertEqual(replay["first_sent_at_ms"], original["first_sent_at_ms"])
+            self.assertEqual(replay["sent_boot_id"], store.boot_id)
+            self.assertEqual(json.loads(correction["payload_json"])["verified_batch_ids"], [])
+
+    def test_startup_migrates_existing_outbox_without_changing_ack_identity(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            ack = store.pending_events(self.job_id)[0]
+            store.mark_event_sent(self.job_id, ack["request_key"])
+        with closing(sqlite3.connect(self.data / NODE_DATABASE_NAME)) as db, db:
+            db.execute("ALTER TABLE outbox DROP COLUMN sent_boot_id")
+            db.execute("PRAGMA user_version = 1")
+
+        with NodeStore(self.data) as store:
+            self.assertEqual(self.rows("PRAGMA user_version"), [(2,)])
+            snapshot, retained = store.pending_events(self.job_id)
+            self.assertEqual(snapshot["event_kind"], "RECONCILE")
+            self.assertEqual(retained["request_key"], ack["request_key"])
+            self.assertEqual(retained["payload_json"], ack["payload_json"])
+            self.assertIsNotNone(retained["first_sent_at_ms"])
+            self.assertIsNone(retained["sent_boot_id"])
+
+    def test_receive_replaces_wrong_type_canonical_batch_after_restart(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            batch = self.receive(store, 0, b"abcdef")
+            neighbor = self.receive(store, 1, b"ghij")
+        batch.unlink()
+        batch.mkdir()
+        (batch / "unexpected").write_bytes(b"invalid")
+
+        with NodeStore(self.data) as store:
+            self.assertEqual(store.inventory(self.job_id), (1,))
+            self.assertEqual(self.rows("SELECT state FROM local_batches WHERE batch_id = 0"), [("CORRUPT",)])
+            self.assertEqual(self.receive(store, 0, b"abcdef"), batch)
+            self.assertEqual(batch.read_bytes(), b"abcdef")
+            self.assertEqual(neighbor.read_bytes(), b"ghij")
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+
+    def test_tx_keeps_a_file_reference_without_locking_out_another_receive(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            with store.tx_batch(self.job_id, 0) as tx_path:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    received = pool.submit(self.receive, store, 1, b"ghij").result(timeout=5)
+                self.assertEqual(received.read_bytes(), b"ghij")
+                self.assertEqual(tx_path.read_bytes(), b"abcdef")
+            self.assertFalse(tx_path.exists())
+
+    def test_corruption_signals_active_tx_for_only_the_affected_batch(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            batch = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            cancel = Event()
+            unaffected = Event()
+            with (store.tx_batch(self.job_id, 0, cancel_event=cancel) as tx_path,
+                  store.tx_batch(self.job_id, 1, cancel_event=unaffected),
+                  ThreadPoolExecutor(max_workers=1) as pool):
+                worker = pool.submit(cancel.wait, 5)
+                batch.write_bytes(b"xxxxxx")
+                with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                    with store.tx_batch(self.job_id, 0):
+                        self.fail("Corrupt batch was offered to TX")
+                self.assertTrue(worker.result(timeout=5))
+                self.assertTrue(tx_path.exists())
+                self.assertFalse(unaffected.is_set())
+            self.assertFalse(tx_path.exists())
+            self.receive(store, 0, b"abcdef")
+            with store.tx_batch(self.job_id, 0, cancel_event=unaffected) as replacement:
+                self.assertFalse(unaffected.is_set())
+                self.assertEqual(replacement.read_bytes(), b"abcdef")
+
+    def test_delivery_keeps_batches_and_never_overwrites_an_occupied_path(self):
+        self.output.write_bytes(b"abcdefghij")
+        with NodeStore(self.data) as store:
+            self.register(store, forward=False)
+            self.receive(store, 1, b"ghij")
+            with self.assertRaisesRegex(StoreError, "^BATCHES_INCOMPLETE$"):
+                store.publish_delivery(self.job_id)
+            self.receive(store, 0, b"abcdef")
+            with self.assertRaisesRegex(StoreError, "^FORWARDING_NOT_ALLOWED$"):
+                with store.tx_batch(self.job_id, 0):
+                    self.fail("TX opened without consent to forward")
+            with self.assertRaisesRegex(StoreError, "^PATH_CONFLICT$"):
+                store.publish_delivery(self.job_id)
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+            alternate = self.output.with_name("alternate.bin")
+            original = self.output.stat()
+            self.assertEqual(store.publish_delivery(self.job_id, destination=alternate), alternate)
+            self.assertEqual(self.output.stat().st_ino, original.st_ino)
+            self.assertEqual(sha256(alternate.read_bytes()).hexdigest(), self.manifest.sha256)
+            self.assertEqual(store.publish_delivery(self.job_id), alternate)
+            self.assertEqual(self.outbox(store)[-1], ("RECEIPT", {
+                "manifest_sha256": self.manifest.manifest_sha256(),
+                "file_sha256": self.manifest.sha256, "size": 10,
+            }))
+
+    def test_tx_opens_committed_batch_during_final_assembly(self):
+        assembling = Event()
+        resume = Event()
+        real_assemble = store_module.assemble_batches
+
+        def pause_assembly(*args):
+            assembling.set()
+            if not resume.wait(10):
+                raise AssertionError("Timed out waiting to resume assembly")
+            return real_assemble(*args)
+
+        def read_for_tx(store):
+            with store.tx_batch(self.job_id, 0) as path:
+                return path.read_bytes()
+
+        with NodeStore(self.data) as store, ThreadPoolExecutor(max_workers=2) as pool:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            with patch.object(store_module, "assemble_batches", pause_assembly):
+                delivery = pool.submit(store.publish_delivery, self.job_id)
+                try:
+                    self.assertTrue(assembling.wait(5))
+                    tx = pool.submit(read_for_tx, store)
+                    self.assertEqual(tx.result(timeout=5), b"abcdef")
+                    self.assertFalse(delivery.done())
+                finally:
+                    resume.set()
+                self.assertEqual(delivery.result(timeout=5), self.output)
+            self.assertEqual(self.output.read_bytes(), b"abcdefghij")
+
+    def test_final_payload_digest_is_independent_of_batch_digests(self):
+        wrong_whole = replace(self.manifest, sha256=sha256(b"x").hexdigest())
+        with NodeStore(self.data) as store:
+            self.register(store, wrong_whole)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            with self.assertRaisesRegex(ValueError, "Assembled file SHA-256 mismatch"):
+                store.publish_delivery(self.job_id)
+            self.assertFalse(self.output.exists())
+            self.assertEqual(store.inventory(self.job_id), (0, 1))
+            self.assertEqual([kind for kind, _ in self.outbox(store)], ["ACK", "ACK"])
+
+    def test_assembly_batch_hash_failure_revokes_inventory_and_active_tx(self):
+        real_assemble = store_module.assemble_batches
+        with NodeStore(self.data) as store:
+            self.register(store)
+            batch = self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            canceled, unaffected = Event(), Event()
+
+            def corrupt_after_preflight(*args):
+                batch.write_bytes(b"xxxxxx")
+                return real_assemble(*args)
+
+            with (store.tx_batch(self.job_id, 0, cancel_event=canceled) as tx,
+                  store.tx_batch(self.job_id, 1, cancel_event=unaffected),
+                  patch.object(store_module, "assemble_batches", corrupt_after_preflight)):
+                with self.assertRaisesRegex(ValueError, "Batch SHA-256 digest mismatch at index 0"):
+                    store.publish_delivery(self.job_id)
+                self.assertTrue(canceled.is_set())
+                self.assertFalse(unaffected.is_set())
+                self.assertTrue(tx.exists())
+                self.assertEqual(store.inventory(self.job_id), (1,))
+                self.assertEqual(self.outbox(store)[0][1]["verified_batch_ids"], [1])
+                self.assertFalse(self.output.exists())
+
+            self.receive(store, 0, b"abcdef")
+            self.assertEqual(store.publish_delivery(self.job_id).read_bytes(), b"abcdefghij")
+
+    def test_delivery_does_not_overwrite_a_file_created_during_publication(self):
+        real_publish = store_module.publish
+
+        def race(source, destination):
+            if destination == self.output:
+                destination.write_bytes(b"user file")
+            return real_publish(source, destination)
+
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            with patch.object(store_module, "publish", race):
+                with self.assertRaisesRegex(StoreError, "^PATH_CONFLICT$"):
+                    store.publish_delivery(self.job_id)
+            self.assertEqual(self.output.read_bytes(), b"user file")
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PATH_CONFLICT",)])
+            self.assertEqual([kind for kind, _ in self.outbox(store)], ["ACK", "ACK"])
+
+    def test_crash_after_final_publish_recovers_empty_file_and_receipt(self):
+        self.source.write_bytes(b"")
+        manifest = build_manifest(self.source)
+        with NodeStore(self.data) as store:
+            self.register(store, manifest)
+        self.crash("after-delivery-publish")
+        self.assertEqual(self.output.read_bytes(), b"")
+        self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHING",)])
+        with NodeStore(self.data) as store:
+            self.assertEqual(store.publish_delivery(self.job_id), self.output)
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+            self.assertEqual([kind for kind, _ in self.outbox(store)], ["RECONCILE", "RECEIPT"])
+            self.assertFalse(list(self.root.glob(".ratatoss-*")))
+
+    def test_crash_before_final_publish_does_not_adopt_an_identical_user_file(self):
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+        self.crash("before-delivery-publish")
+        self.output.write_bytes(b"abcdefghij")
+        with NodeStore(self.data) as store:
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PATH_CONFLICT",)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+            self.assertEqual(self.output.read_bytes(), b"abcdefghij")
+
+    def test_restart_uses_canonical_digest_for_api_vector_and_separate_payload_hash(self):
+        payload_digest = "de541afdc888a29e740aa4fb394b67ff725f17279e083812fc61b85af73276ee"
+        metadata_digest = "166d130902115c21f249e2432f4cf605926cfdff345f38d573f13fea37e6b756"
+        segment = Segment(0, 0, 17, payload_digest)
+        manifest = Manifest("sample.txt", 17, 4 * 1024**2, 64 * 1024**2,
+                            payload_digest, (segment,), (segment,))
+        fields = json.loads(manifest.to_json())
+        alternate = json.dumps(dict(reversed(list(fields.items())))).encode()
+        with NodeStore(self.data) as store:
+            self.register(store, manifest.to_json())
+            self.assertEqual(self.rows("SELECT manifest_canonical, hex(manifest_sha256) FROM local_jobs"),
+                             [(manifest.canonical_bytes(), metadata_digest.upper())])
+        for raw in (manifest.to_json().encode(), alternate):
+            self.write_db("UPDATE local_jobs SET manifest_canonical = ?", (raw,))
+            with NodeStore(self.data) as store:
+                self.assertEqual(self.register(store, alternate).manifest_sha256(), metadata_digest)
+        with NodeStore(self.data) as store:
+            self.receive(store, 0, b"Hello, Ratatoss!\n")
+            self.assertEqual(store.publish_delivery(self.job_id), self.output)
+            self.assertEqual(self.outbox(store)[-1], ("RECEIPT", {
+                "manifest_sha256": metadata_digest, "file_sha256": payload_digest, "size": 17,
+            }))
+            self.assertEqual(sha256(self.output.read_bytes()).hexdigest(), payload_digest)
+        self.write_db("UPDATE local_jobs SET manifest_sha256 = ?", (bytes.fromhex(payload_digest),))
+        with self.assertRaisesRegex(StoreError, "^MANIFEST_DIGEST_MISMATCH$"):
+            NodeStore(self.data)
