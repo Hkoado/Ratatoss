@@ -94,7 +94,7 @@ class CooldownDecision:
 
 def decide(current: CurrentPlan, candidate: PlanOption | None, *,
            now_ms: int, config: CooldownConfig) -> CooldownDecision:
-    """Apply the cooldown rules to the current assignment and one candidate."""
+    """Apply the cooldown rules, treating an unavailable candidate route as absent."""
     elapsed_ms = now_ms - current.adopted_at_ms
     if elapsed_ms < 0:
         raise ValueError("now_ms must be at or after adopted_at_ms")
@@ -103,6 +103,8 @@ def decide(current: CurrentPlan, candidate: PlanOption | None, *,
     if current.session == RUNNING:
         return CooldownDecision(KEEP, KEEP_RUNNING, None, None, cooldown_left_ms)
 
+    if candidate is not None and not candidate.route_available:
+        candidate = None
     replacement_action = SWITCH if candidate is not None else RELEASE
     if current.session in _ENDED_SESSION_REASONS:
         return CooldownDecision(replacement_action, _ENDED_SESSION_REASONS[current.session],

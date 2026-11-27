@@ -76,6 +76,24 @@ class CooldownTests(unittest.TestCase):
                     CooldownDecision(KEEP, reason, None, None, 9_000),
                 )
 
+    def test_candidate_with_lost_route_cannot_replace_the_current_plan(self):
+        candidate = replace(CANDIDATE, route_available=False)
+        lost_route = replace(CURRENT.option, route_available=False)
+        cases = (
+            (CURRENT, NOW, KEEP, NO_CANDIDATE, 9_000),
+            (CURRENT, ADOPTED + CONFIG.cooldown_ms, KEEP, NO_CANDIDATE, 0),
+            (replace(CURRENT, option=lost_route), NOW, RELEASE, ROUTE_LOST, 9_000),
+            (replace(CURRENT, session=COMPLETED), NOW, RELEASE, SESSION_COMPLETED, 9_000),
+            (replace(CURRENT, session=FAILED), NOW, RELEASE, SESSION_FAILED, 9_000),
+            (replace(CURRENT, session=LEASE_EXPIRED), NOW, RELEASE, LEASE_EXPIRED, 9_000),
+        )
+        for current, now, action, reason, remaining in cases:
+            with self.subTest(session=current.session, route=current.option.route_available, now=now):
+                self.assertEqual(
+                    decide(current, candidate, now_ms=now, config=CONFIG),
+                    CooldownDecision(action, reason, None, None, remaining),
+                )
+
     def test_gain_thresholds_during_cooldown(self):
         cases = (
             (60_000, 57_000, KEEP, COOLDOWN_BELOW_RELATIVE, 3_000, 50),
