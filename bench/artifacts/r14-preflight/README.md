@@ -32,15 +32,22 @@ Vị trí chạy controller xác định theo cấu hình demo #11. Xác nhận 
 
 [Hồ sơ #40](../r02-preflight/README.md) dùng các tiến trình A/B/C trên một máy Windows qua IPv4 loopback. Dùng hồ sơ đó để tra pin và cách kiểm fixture. Phiên #60 cần bằng chứng mới từ LAN của lab.
 
-1. Xác nhận B và C là hai máy riêng trong LAN dự kiến. Ghi topology đã lược bí mật, vai trò relay, interface và quy tắc tuyến áp dụng. Trên B/C và máy relay được sử dụng, lưu OS/build, kết quả `croc --version` và SHA-256 của executable thực tế. Ghi commit, thời điểm kèm múi giờ, cỡ fixture, số lượt, slot RX/TX và tải nền.
-2. Chạy riêng B→C và C→B với cùng cỡ fixture, dùng thư mục nhận riêng. Sau đó chạy A→B đồng thời B→C bằng hai fixture độc lập cùng cỡ. Ghi mốc payload RX và TX trên cùng đồng hồ monotonic ở B để đo phần giao. So kích thước và SHA-256 ở hai đầu mỗi lần thử, ghi lỗi hoặc timeout và kết quả dọn phiên.
-3. Trong từng khoảng chạy, đối chiếu peer trên socket, số byte tăng ở interface liên quan và số byte tăng ở relay. Ghi `direct`, `relay` hoặc `unknown` theo dấu hiệu quan sát được. Nếu thiếu dữ liệu phân loại, ghi lý do. Lưu lệnh đã lược bí mật, mốc, cấu hình và log chọn lọc cùng hiện vật, theo [quy tắc thu thập bằng chứng](../../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng).
+1. Xác nhận B và C là hai máy riêng trong LAN dự kiến. Ghi topology đã lược bí mật, vai trò relay, interface và quy tắc tuyến áp dụng. Trên A, B, C và máy relay được sử dụng, lưu OS/build, kết quả `croc --version` và SHA-256 của đúng executable mà lệnh chạy sẽ gọi. Trước khi chạy, lưu lệnh đã lược bí mật và khóa cấu hình theo từng phiên, gồm giới hạn upload (`--throttleUpload`), chế độ nhiều luồng (`--no-multi` nếu dùng), nén và cờ chọn đường. Áp dụng cả cho TX trên A vì nó tạo tải RX tại B. Ghi commit, thời điểm kèm múi giờ, cỡ fixture, số lượt, slot RX/TX và tải nền.
+2. Chạy riêng B→C và C→B với cùng cỡ fixture, dùng thư mục nhận riêng. Sau đó chạy A→B đồng thời B→C bằng hai fixture độc lập cùng cỡ. So kích thước và SHA-256 ở hai đầu mỗi lần thử, ghi lỗi hoặc timeout và kết quả dọn phiên.
+3. Trước khi chạy, kiểm tra bộ quan sát trên đường thử thực tế. Dùng một bộ thu tại B, gắn timestamp monotonic tại lúc quan sát cả hai hướng và ghép socket dữ liệu theo phiên Croc. Với capture TCP thụ động, tái lắp byte stream theo sequence TCP, loại byte truyền lại và giữ mốc quan sát của từng đoạn chứa payload. Dùng quy tắc nhận diện vị trí payload trong khung đã xác minh cho đúng phiên bản và cấu hình Croc. [Observer R0.2](../../../scripts/croc_r02_tap.py) là tham chiếu cho Croc v11.6.5 với fixture không nén trên relay loopback. Xác minh riêng quy tắc trên đường LAN và chế độ direct hoặc relay thực tế trước khi dùng số đo. Ghi phương pháp, vị trí quan sát và độ phân giải. Hiện vật chỉ giữ mốc, số byte và metadata đã lược bí mật.
+4. Lấy `rx_first` và `rx_last` khi bộ thu thấy byte payload đầu và cuối của A→B tại B, và `tx_first` và `tx_last` từ B→C tại B. Loại bắt tay, header, nonce, thẻ xác thực, ping và byte điều khiển. Chỉ dùng mốc khi cả hai stream quan sát được đầy đủ, số byte payload đối chiếu được với fixture theo cấu hình đã khóa, và đích xác minh SHA-256. Tính `overlap = max(0, min(rx_last, tx_last) - max(rx_first, tx_first))` trên cùng đồng hồ ở B. Nếu thiếu mốc tin cậy, để trống overlap và ghi lý do. Thời gian sống của tiến trình không dùng để suy ra overlap payload.
+5. Phân loại từng luồng payload bằng peer trên socket dữ liệu, interface và phần tăng bộ đếm relay gắn được với phiên đó. Ghi `direct` khi quan sát socket dữ liệu giữa hai đầu mút qua interface dự kiến, `relay` khi xác nhận socket dữ liệu đi qua relay, hoặc `unknown` khi không đủ bằng chứng. Bộ đếm relay tổng của ca đồng thời chỉ cung cấp bối cảnh. Lưu riêng bằng chứng socket đã lược bí mật cho A→B và B→C, cùng mốc, cấu hình và log chọn lọc. [Quy tắc thu thập bằng chứng](../../../docs/experiments.md#thu-thập-và-lưu-bằng-chứng)
 
-| Ca | Trạng thái | Loại đường | Byte nhận / SHA-256 | Thời gian / overlap | Bằng chứng hoặc lý do |
-| --- | --- | --- | --- | --- | --- |
-| B→C riêng | `blocked` | | | | Chưa xác nhận B/C, quyền và lịch lab |
-| C→B riêng | `blocked` | | | | Chưa xác nhận B/C, quyền và lịch lab |
-| A→B đồng thời B→C | `blocked` | | | | Chưa xác nhận A/B/C, quyền và lịch lab |
+| Ca | Luồng payload | Trạng thái | Loại đường | Bằng chứng socket / interface / relay | Byte nhận / SHA-256 | Mốc đầu/cuối tại B | Lý do |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B→C riêng | B→C (TX tại B) | `blocked` | | | | | Chưa xác nhận B/C, quyền và lịch lab |
+| C→B riêng | C→B (RX tại B) | `blocked` | | | | | Chưa xác nhận B/C, quyền và lịch lab |
+| Đồng thời | A→B (RX tại B) | `blocked` | | | | | Chưa xác nhận A/B/C, quyền và lịch lab |
+| Đồng thời | B→C (TX tại B) | `blocked` | | | | | Chưa xác nhận A/B/C, quyền và lịch lab |
+
+| Ca | Overlap tại B | Lý do khi thiếu số đo |
+| --- | --- | --- |
+| A→B đồng thời B→C | | Chưa chạy trên lab |
 
 ## Bàn giao
 
