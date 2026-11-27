@@ -1,0 +1,14 @@
+{
+  "host": "127.0.0.1",
+  "ports": [
+    19009,
+    19010
+  ],
+  "listeners_verified": [
+    "127.0.0.1:19009",
+    "127.0.0.1:19010"
+  ],
+  "transport": "relay",
+  "authentication": "random per run",
+  "children_after_stop": 0
+}
