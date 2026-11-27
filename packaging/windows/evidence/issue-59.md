@@ -67,4 +67,20 @@ Build từ commit `d6f5e91` trên Windows 11 Pro x64 23H2, build `22631.6199`, b
 | Kiểm tra ACL | Dùng lại DB riêng thành công. Launcher từ chối thư mục hoặc DB cấp quyền cho Everyone, giữ nguyên nội dung DB và hiển thị hướng dẫn bằng tiếng Việt. |
 | Croc và giấy phép | Croc đã cài báo `croc version 11.6.5`. SHA-256 của binary và đủ 46 tệp giấy phép khớp với manifest. |
 | Hồi quy và dọn dẹp | 208 kiểm thử repo đạt. 9 tệp gốc, schema Node/controller, bản dựng UI Kit và điểm vào CLI controller đã được kiểm tra. Sau khi gỡ bản thử, không còn shortcut, đăng ký gỡ cài đặt hay tiến trình Node của ca thử. |
-| Cài offline trên VM sạch với installer mới | Chưa chạy. Hai ca VM ở trên ghi nhận installer trước khi sửa review, theo manifest riêng của bản đó. |
+| Cài offline trên VM sạch với installer mới | Xem ca ngày 2026-11-27 bên dưới. |
+
+## Cài và mở offline bằng đúng bộ cài đính kèm · 2026-11-27
+
+Dùng VM QEMU 11.1.0 (TCG) cài mới Windows 11 Enterprise LTSC Evaluation x64 24H2, build `26100.1742`, trên đĩa ảo trống. VM không có card mạng ảo. `ipconfig` không liệt kê adapter và `route print` chỉ có interface loopback, không có route mặc định IPv4/IPv6. Tài khoản thử không thuộc nhóm Administrators. Trước khi chạy Setup, không có bản cài Ratatoss và `where` không tìm thấy Python hoặc Croc. `where docker` cũng không tìm thấy Docker trong VM.
+
+Chép [bộ cài đính kèm PR #62](https://github.com/user-attachments/files/35451794/Ratatoss-Starter-PR62-d6f5e91-win-x64.zip) vào VM qua đĩa ảo chỉ đọc. `certutil -hashfile <file> SHA256` trong VM trả `95fa1dff9c86c3e11b97a5df7c11f2ae922b0fa815e80673a75f428b3f67667f`, khớp [manifest](issue-59.review.manifest.json). Bộ cài build từ `d6f5e91`. Các thay đổi sau mốc build tới `55bc34c` thuộc báo cáo, manifest và kiểm thử.
+
+| Ca | Kết quả quan sát |
+| --- | --- |
+| Cài qua giao diện Setup | Chạy bộ cài không có tham số silent, giữ thư mục cài mặc định theo tài khoản. Wizard hoàn tất và Setup trả mã 0. |
+| Mở từ màn hình cuối của Setup | Bấm **Finish** khi **Mở Ratatoss** được đánh dấu. Launcher báo lỗi khởi động và hiển thị nút **Retry** ở lần mở đầu. Node sau đó lắng nghe tại `127.0.0.1:8765`, HTML, CSS và health trả 200. Bấm **Retry** đã mở địa chỉ loopback trong Edge. Tiếp tục qua màn hình chào Edge bằng tùy chọn không đăng nhập. |
+| Mở hai shortcut Start Menu và mở lại web | Mở hai tệp `.lnk` liên tiếp từ thư mục nhóm Start Menu. Cả hai dùng cùng Node tại `127.0.0.1:8765`. Listener duy nhất giữ PID `5224` từ lần mở của Setup. Edge hiển thị trang Ratatoss có định kiểu. Terminal mục **2** báo đúng URL cùng trạng thái **Starter · Chưa kết nối điều phối**. Mục **1** mở lại trang Ratatoss trong Edge. |
+| Host, Origin và dữ liệu local | Health trả 200 với Origin loopback của Node, trả 403 với Host sai và Origin ngoài loopback. Có tệp `node.sqlite3` trong thư mục dữ liệu của tài khoản thử. |
+| Croc đóng gói | Croc đi kèm trả `croc version 11.6.5` và SHA-256 `1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e`, khớp manifest. |
+
+Cài đặt và chạy starter offline đã được xác nhận. Lần mở tự động đầu tiên trong VM cần **Retry**. Chưa xác định nguyên nhân của hộp thoại khởi động trong lần thử này.
