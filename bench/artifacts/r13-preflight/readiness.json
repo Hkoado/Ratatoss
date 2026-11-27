@@ -1,0 +1,18 @@
+{
+  "checks": {
+    "test-nodes": {
+      "status": "blocked",
+      "evidence": {
+        "test-nodes.json": "63ba7eaba075d26a4b71a219922b708c4c7ac42381f21013e21ddb85a74c2d3e"
+      },
+      "reason": "Đã đối chiếu hồ sơ đầu mút A/B/C/D từ #60 (OS/build, kiến trúc, vị trí fixture). Còn chờ @Hkoado và người phụ trách máy xác nhận: danh sách máy và vai trò nguồn/đích dùng cho ca smoke #9, quyền cài/chạy ứng viên tích hợp và khung thời gian kèm múi giờ UTC+07:00."
+    },
+    "integration-config": {
+      "status": "blocked",
+      "evidence": {
+        "integration-config.json": "85a5994683e63ff5f01c5d0f3d409f1e9f504d1f1c1c4d2e2bb1ff9c66f28594"
+      },
+      "reason": "Đã đối chiếu pin Croc v11.6.5 (A, B/C), 6 fixture đã xác minh SHA-256 và ngân sách tham chiếu R0.2 từ #6/#60. Còn chờ @Hkoado chốt: vị trí chạy controller và cổng, profile mạng/relay cùng cờ Croc khóa cho ca smoke, fixture chọn dùng, giới hạn slot RX/TX, và SHA-256 executable Croc tại D nếu D tham gia."
+    }
+  }
+}

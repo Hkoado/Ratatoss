@@ -1,0 +1,126 @@
+{
+  "issue": 69,
+  "parent_issue": 60,
+  "recipient_issue": 9,
+  "status": "blocked",
+  "prepared_at": "2026-11-28T03:40:00+07:00",
+  "source_commit": "28bdfce260f77ab469014bb292a8ecfdc4a37905",
+  "sources": [
+    "bench/artifacts/r14-preflight/README.md",
+    "bench/artifacts/r22-preflight/fixture-hashes.json",
+    "bench/artifacts/r02/batch-profiles.json",
+    "spec/governance/adr/0002-plars-integration-order.md"
+  ],
+  "controller": {
+    "host_node": null,
+    "ui_api_bind": "127.0.0.1 (loopback bắt buộc theo #9)",
+    "listen_port": null,
+    "confirmation_status": "pending"
+  },
+  "croc": {
+    "version": "11.6.5",
+    "verified_executables": {
+      "windows_x64_node_a": {
+        "sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+        "archive_sha256": "ae5b9d249099ff159f6a4b91824a2bf7d2b32f0dd77342aef51b34154aa4fffb"
+      },
+      "macos_arm64_nodes_bc_native": {
+        "sha256": "56d4c1845f2638217c6e8fe2464e3db19db518a0772b570aafbe61af0125a54b",
+        "archive_sha256": "b6a6da6c6a21bd5a3723003295cf232da281d3767687f5731725c6c4360e1015"
+      },
+      "linux_arm64_nodes_bc_container": {
+        "sha256": "93648f374ef5dcdb9e64d78ca9729f13af3e723312db44278970695be877f2d2",
+        "archive_sha256": "095526c841d989ef231ce87634e9d4e1410d390d1fa7e825be9d17170286d5ef"
+      },
+      "windows_x64_node_d": {
+        "sha256": null,
+        "status": "pending_if_d_selected",
+        "note": "D đã chạy Croc v11.6.5 nhận a-32mib.bin ở #60 nhưng chưa ghi SHA-256 executable tại D."
+      }
+    }
+  },
+  "fixtures": {
+    "verified_manifest_fixtures": [
+      {
+        "file": "fixture/a-32mib.bin",
+        "bytes": 33554432,
+        "sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+      },
+      {
+        "file": "fixture/a-64mib.bin",
+        "bytes": 67108864,
+        "sha256": "545a0e718c1a1584c397c853018a16581a31cd66377209041f0984778a4a6a67"
+      },
+      {
+        "file": "fixture/a-128mib.bin",
+        "bytes": 134217728,
+        "sha256": "cdf2287f633d6558a33bcdbbfd6428708c8f869b3fc4ffb3cca88366703a353c"
+      },
+      {
+        "file": "fixture/b-to-c-32mib.bin",
+        "bytes": 33554432,
+        "sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+      },
+      {
+        "file": "fixture/b-to-c-64mib.bin",
+        "bytes": 67108864,
+        "sha256": "69befdfa85c9f9d3283797ebe5869630fd52bd685afa52f651246357930d6c84"
+      },
+      {
+        "file": "fixture/b-to-c-128mib.bin",
+        "bytes": 134217728,
+        "sha256": "f9205ac9406aed59a117658ac37648e3c85a49a9b2a37a2a349a55101750b5f8"
+      }
+    ],
+    "selected_for_r13_smoke": null
+  },
+  "network_and_relay": {
+    "selected_profile": null,
+    "confirmation_status": "pending",
+    "available_profiles_from_r14_preflight": {
+      "windows-ipv4-loopback": {
+        "topology": "A->relay->B; B->relay->C (127.0.0.1:19009-19010)",
+        "physical_hosts": 1,
+        "transport": "relay",
+        "evidence": "bench/artifacts/r14-preflight/windows-loopback/network.json"
+      },
+      "wan-public-relay-and-docker-bridge": {
+        "topology": "A->1.getcroc.com:9009->B; B->Docker relay (19009-19010)->C",
+        "physical_hosts": 2,
+        "transport": "relay",
+        "evidence": "bench/artifacts/r14-preflight/2026-11-28-0046-wan.json"
+      },
+      "tailcat-direct-ipv6-and-local-relay": {
+        "topology": "A->Tailcat UDP/IPv6 (kênh ghép 1.getcroc.com:9009)->B; B->native relay (::1)->C",
+        "physical_hosts": 2,
+        "transport": "derp/direct + relay",
+        "evidence": "bench/artifacts/r14-preflight/tailcat/README.md"
+      }
+    },
+    "secret_handling": "Truyền mã phiên qua CROC_SECRET riêng của child process; lược token, mã Croc, --pass relay và dữ liệu người dùng khỏi mọi log và hiện vật."
+  },
+  "rx_tx_limits_and_budget": {
+    "selected_rx_slots": null,
+    "selected_tx_slots": null,
+    "confirmation_status": "pending",
+    "r02_reference_budget": {
+      "selected_batch_mib": 64,
+      "min_goodput_bps": 100000000,
+      "lease_ms": 75000,
+      "adapter_timeout_ms": 75000,
+      "setup_budget_ms_by_batch_mib": {
+        "32": 1400,
+        "64": 2200,
+        "128": 4700
+      },
+      "verify_commit_ms": 200,
+      "margin_ms": 200
+    }
+  },
+  "missing_confirmations": [
+    "Chốt vị trí chạy controller và cấu hình kết nối/cổng cho ca smoke #9.",
+    "Chốt profile mạng và relay/tuyến áp dụng cho ca smoke (loopback, relay nội bộ/công cộng, hay Tailcat IPv6) cùng cờ Croc khóa.",
+    "Chốt fixture sử dụng và giới hạn slot RX/TX cho ca smoke lịch cố định.",
+    "Bổ sung SHA-256 executable Croc tại D (và đối chiếu thêm fixture nếu cần) trong trường hợp D tham gia ca smoke."
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "issue": 69,
+  "parent_issue": 60,
+  "recipient_issue": 9,
+  "status": "blocked",
+  "prepared_at": "2026-11-28T03:40:00+07:00",
+  "source_commit": "28bdfce260f77ab469014bb292a8ecfdc4a37905",
+  "sources": [
+    "bench/artifacts/r14-preflight/README.md",
+    "bench/artifacts/r14-preflight/lab-session.md",
+    "https://github.com/Hkoado/Ratatoss/issues/60"
+  ],
+  "candidate_nodes": [
+    {
+      "node": "A",
+      "owner_alias": "Khoa",
+      "os_build": "Windows 11 Pro 23H2, build 22631.6199",
+      "arch": "x64",
+      "fixture_location": "fixture/ cục bộ trong workspace (đã đối chiếu 6/6 fixture)",
+      "r13_smoke_role": null,
+      "install_run_permission_for_r13": "pending",
+      "schedule_window_tz": null,
+      "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532"
+    },
+    {
+      "node": "B",
+      "owner_alias": "Huy",
+      "os_build": "macOS 27.0.1 (26A434) / container Linux 7.0.14-linuxkit",
+      "arch": "arm64 / aarch64",
+      "same_physical_host_as": "C",
+      "fixture_location": "Thư mục cache cục bộ ngoài repo trên Mac (đã đối chiếu 6/6 fixture)",
+      "r13_smoke_role": null,
+      "install_run_permission_for_r13": "pending",
+      "schedule_window_tz": null,
+      "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155"
+    },
+    {
+      "node": "C",
+      "owner_alias": "Huy",
+      "os_build": "Cùng Mac của Huy (macOS 27.0.1 / container Linux aarch64, thư mục nhận riêng)",
+      "arch": "arm64 / aarch64",
+      "same_physical_host_as": "B",
+      "fixture_location": "Thư mục nhận/cache riêng trên Mac (đã đối chiếu 6/6 fixture)",
+      "r13_smoke_role": null,
+      "install_run_permission_for_r13": "pending",
+      "schedule_window_tz": null,
+      "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155"
+    },
+    {
+      "node": "D",
+      "owner_alias": "Bảo",
+      "os_build": "Windows 11 Pro 25H2, build 26200.9974",
+      "arch": "x64",
+      "fixture_location": "Chỉ mới xác minh a-32mib.bin nhận từ B; các fixture khác chưa tạo/kiểm trên D",
+      "r13_smoke_role": null,
+      "install_run_permission_for_r13": "pending",
+      "schedule_window_tz": null,
+      "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577"
+    }
+  ],
+  "missing_confirmations": [
+    "Chốt danh sách và số lượng máy dùng cho ca smoke lịch cố định của #9 cùng vai trò nguồn/đích với @Hkoado.",
+    "Xác nhận quyền cài đặt và chạy ứng viên tích hợp #9 trên từng máy được chọn (đặc biệt máy D chưa có xác nhận quyền cài).",
+    "Chốt lịch hoặc khung thời gian chạy smoke kèm múi giờ (UTC+07:00) với người phụ trách từng máy."
+  ]
+}
