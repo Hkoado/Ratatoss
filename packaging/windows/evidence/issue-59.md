@@ -85,6 +85,21 @@ Chép [bộ cài đính kèm PR #62](https://github.com/user-attachments/files/3
 
 Cài đặt và chạy starter offline đã được xác nhận. Lần mở tự động đầu tiên trong VM cần **Retry**. Chưa xác định nguyên nhân của hộp thoại khởi động trong lần thử này.
 
+## Kiểm tra lại bước Finish trên VirtualBox · 2026-11-27
+
+**Đạt ngay lần mở đầu.** Dùng lại VM VirtualBox 7.2.6 chạy Windows 11 Enterprise LTSC Evaluation x64 24H2, build `26100.1742`. Log VirtualBox xác nhận dùng Windows Hypervisor Platform qua NEM. Tất cả card mạng ảo đều ngắt. Trong guest có 0 adapter hoạt động và 0 route mặc định. Tài khoản thử là tài khoản chuẩn, không có Python hoặc Croc cài riêng. Bản cài, dữ liệu và shortcut Ratatoss từ lần thử trước được cất riêng trước khi bắt đầu. Hồ sơ Windows và Edge đã được dùng trong lần thử trước.
+
+Chạy Setup từ [ZIP đính kèm PR #62](https://github.com/user-attachments/files/35451794/Ratatoss-Starter-PR62-d6f5e91-win-x64.zip). SHA-256 của installer đo trong guest là `95fa1dff9c86c3e11b97a5df7c11f2ae922b0fa815e80673a75f428b3f67667f`, khớp [manifest](issue-59.review.manifest.json). Giữ đường dẫn mặc định theo tài khoản. Bấm **Finish** khi **Mở Ratatoss** được đánh dấu. Setup trả mã 0 và Edge tự hiển thị trang Ratatoss có định kiểu tại `http://127.0.0.1:8765/`. Không thấy hộp thoại lỗi và không dùng **Retry**.
+
+| Mốc quan sát trong guest | Kết quả |
+| --- | --- |
+| Setup chạy mục mở Ratatoss sau khi bấm **Finish** | `23:31:19.234` theo đồng hồ guest. Tiến trình launcher bắt đầu lúc `23:31:19.601`. |
+| Health trả HTTP 200 | Sau 3,889 giây tính từ lúc launcher bắt đầu. |
+| Client thử nhận cổng `8765` qua named pipe của tài khoản | Sau 4,666 giây tính từ lúc launcher bắt đầu và khoảng 5,0 giây tính từ mục mở Ratatoss trong log Setup. Client chỉ kết nối sau khi Edge bắt đầu để tránh tranh kết nối IPC với launcher. Đây là cận trên của thời gian sẵn sàng qua IPC. |
+| Tài nguyên loopback | HTML trả 200 (`text/html`, 963 byte). CSS trả 200 (`text/css`, 848 byte). Health trả 200 (`application/json`). |
+
+Lỗi mở lần đầu ở ca QEMU phía trên không tái hiện trong ca VirtualBox này. Nguyên nhân của lỗi ở ca QEMU vẫn chưa được xác định.
+
 ## Kiểm tra bản sửa thời gian chờ khi mở từ Setup · 2026-11-27
 
 Lượt kiểm tra đầu dùng bản sửa ở `f46ec71`. Theo [hợp đồng launcher](../../../spec/operations/windows-installer.md#hợp-đồng-launcher), Setup truyền `--from-setup` để launcher đợi tối đa 60 giây cho IPC báo Node sẵn sàng. Shortcut và Terminal dùng giới hạn 20 giây. Khi hết hạn, hộp thoại ghi rõ Node chưa báo sẵn sàng và số giây đã chờ.
