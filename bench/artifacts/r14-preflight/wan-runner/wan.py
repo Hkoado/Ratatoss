@@ -1,14 +1,34 @@
 from pathlib import Path
 from datetime import datetime
-import hashlib,json,os,secrets,subprocess as s,time,sys
+import hashlib,json,os,re,secrets,subprocess as s,threading,time,sys
 os.umask(0o077)
 root=Path(__file__).resolve().parent
 base=(root/'wan-lab-id').read_text()
 b,c,r=[base+'-'+role for role in ('b','c','relay')]
 def run(*args):
     return s.check_output(['docker',*args],text=True,timeout=15).strip()
+# Croc prints the receive instructions, including the session code and the
+# relay --pass, on stderr. Only allowlisted milestone/error lines reach the log.
+ALLOWED=re.compile(r'\d+%|error|fail|timeout|refused|reset|EOF|panic|finished|connected to|banner|Tailcat|path=|transport|pake',re.I)
+SECRET_VARS=('CROC_SECRET','CROC_PASS')
+def pump(stream,path,hidden):
+    with open(path,'ab') as out:
+        buf=b''
+        for chunk in iter(lambda: stream.read1(65536),b''):
+            *lines,buf=re.split(rb'[\r\n]',buf+chunk)
+            for raw in lines:
+                line=raw.decode(errors='replace')
+                for value in hidden:
+                    line=line.replace(value,'<redacted>')
+                if '--pass' in line or 'CROC_SECRET' in line or not ALLOWED.search(line):
+                    continue
+                out.write((line+'\n').encode()); out.flush()
 def start(node,cmd,folder,variables):
-    return s.Popen(['docker','exec','-w',folder,*[arg for name in variables for arg in ('-e',name)],node,'/croc',*cmd],env={**os.environ,**variables},stderr=s.STDOUT,stdout=open(root/(node+folder.replace("/", "-")+".log"),"ab"))
+    hidden=[value for name,value in variables.items() if name in SECRET_VARS and value]
+    proc=s.Popen(['docker','exec','-w',folder,*[arg for name in variables for arg in ('-e',name)],node,'/croc',*cmd],env={**os.environ,**variables},stderr=s.STDOUT,stdout=s.PIPE)
+    proc.pump=threading.Thread(target=pump,args=(proc.stdout,root/(node+folder.replace("/", "-")+".log"),hidden),daemon=True)
+    proc.pump.start()
+    return proc
 def wait_file(node,path,sec,proc=None):
     deadline=time.monotonic()+sec
     while time.monotonic()<deadline:
@@ -53,7 +73,8 @@ try:
             wait_file(b,'/lab/started-rx',180,brx)
             break
         except RuntimeError:
-            message=(root/(b+'-lab-rx.log')).read_text(errors='replace').strip().splitlines()[-1]
+            brx.pump.join(timeout=2)
+            message=((root/(b+'-lab-rx.log')).read_text(errors='replace').strip().splitlines() or [''])[-1]
             print('Relay wait timed out' if 'timeout' in message else 'Receiver exited without captured data',stamp(),flush=True)
             time.sleep(5)
     else:
@@ -61,7 +82,9 @@ try:
     btx=start(b,['--throttleUpload','8M',*flags,'--relay','127.0.0.3:19009','send','--no-local','--transport','relay','--no-multi','/fixtures/b-to-c-32mib.bin'],'/lab/tx',{**local_env,'CROC_CONFIG_DIR':'/lab/tx'})
     crx=start(c,flags+['--relay','relay:19009','--yes'],'/lab/rx',local_env)
     for proc in (brx,btx,crx):
-        if proc.wait(timeout=180):
+        code_=proc.wait(timeout=180)
+        proc.pump.join(timeout=2)
+        if code_:
             raise RuntimeError('Croc transfer failed')
     run('exec',b,'touch','/lab/stop')
     wait_file(b,'/lab/intervals',5)
