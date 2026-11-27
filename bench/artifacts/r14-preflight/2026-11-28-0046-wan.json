@@ -1,0 +1,127 @@
+{
+  "started_at": "2026-11-28T00:46:01+07:00",
+  "completed_at": "2026-11-28T00:47:09+07:00",
+  "clock": "B và C theo đồng hồ Mac của Huy (UTC+07:00)",
+  "scope": "Windows A gửi sang Mac B qua relay công cộng, đồng thời B gửi sang C trên cùng Mac",
+  "nodes": {
+    "A": "Khoa · Windows 11 Pro 23H2, build 22631.6199, x64",
+    "B": "Huy · Mac ARM64, macOS 27.0.1 (26A434), container Linux aarch64",
+    "C": "Cùng Mac của Huy, container và thư mục nhận riêng"
+  },
+  "physical_hosts": 2,
+  "container_os": "Linux 7.0.14-linuxkit aarch64",
+  "image": "python:3.11-alpine@sha256:7fbad8e4652eae0186429a6f26cf5b23e27e8c6fd7ac4d0cfd7a6988cdeea1e1",
+  "croc_version_b_c": "croc version 11.6.5",
+  "croc_sha256_b_c": "93648f374ef5dcdb9e64d78ca9729f13af3e723312db44278970695be877f2d2",
+  "common_flags_b_c": [
+    "--disable-clipboard",
+    "--no-update-check",
+    "--no-compress"
+  ],
+  "receiver_a_b_flags": [
+    "--debug",
+    "--ip",
+    "127.0.0.2:9009",
+    "--yes"
+  ],
+  "sender_b_c_flags": [
+    "--throttleUpload",
+    "8M",
+    "send",
+    "--no-local",
+    "--transport",
+    "relay",
+    "--no-multi"
+  ],
+  "sender_a_flags": null,
+  "sender_a_note": "Lệnh và cờ của sender trên A chưa được ghi lại tại B",
+  "secret_handling": "Mã Croc của A→B được chuyển riêng và không lưu trong hiện vật",
+  "routes": {
+    "A-B": {
+      "route": "relay",
+      "relay": "1.getcroc.com",
+      "evidence": "Socket dữ liệu tại B đi qua bộ quan sát tới relay công cộng. Toàn bộ payload đi trên cổng 9010."
+    },
+    "B-C": {
+      "route": "relay",
+      "relay": "Relay Docker nội bộ trên Mac, cổng 19009 và 19010",
+      "evidence": "Socket dữ liệu tại B đi qua bộ quan sát tới relay nội bộ, cổng 19010"
+    }
+  },
+  "observer": "RelayTap trong container B, time.monotonic_ns(). Cổng 9010-9017 tới relay công cộng và cổng 19009-19010 tới relay nội bộ.",
+  "observer_tap_sha256": "ddac10f8626bf17673cc18f4f7656d7a8af42b8e057a26b2900f4e6673ded3ba",
+  "observer_wrapper_sha256": "5258f17df635291139ab0d719e594a65d150a36feecbe38b4dddc6c22d5f07be",
+  "runner_sha256": "55881fb8dca6130f574853e7ab4c36ba9b00558451af40a501683dfd208b877b",
+  "runner_note": "Script chạy và lớp bọc bộ quan sát nằm trong thư mục phiên trên máy B, chưa đưa vào repo",
+  "receiver_attempts_at_b": [
+    {
+      "at": "2026-11-28T00:46:01+07:00",
+      "result": "Croc thoát trước khi có payload"
+    },
+    {
+      "at": "2026-11-28T00:46:07+07:00",
+      "result": "Ghép được phiên với A và nhận đủ fixture"
+    }
+  ],
+  "transfers": {
+    "A-B": {
+      "file": "a-32mib.bin",
+      "bytes": 33554432,
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+    },
+    "B-C": {
+      "file": "b-to-c-32mib.bin",
+      "bytes": 33554432,
+      "received_sha256": "7488ef0ec60bc1027479ca06cdce256d9465d14368e99fd005b3c6797fe62679"
+    }
+  },
+  "observed_intervals_at_b": {
+    "rx": {
+      "first_ns": 43695193680900,
+      "last_ns": 43716524171951,
+      "payload_bytes": 33554432,
+      "frames": 1024,
+      "streams": [
+        {
+          "port": 9010,
+          "first_ns": 43695193680900,
+          "last_ns": 43716524171951,
+          "payload_bytes": 33554432,
+          "frames": 1024,
+          "wire_bytes": 33600369
+        }
+      ]
+    },
+    "tx": {
+      "first_ns": 43695439317525,
+      "last_ns": 43698434345901,
+      "payload_bytes": 33554432,
+      "frames": 1024,
+      "streams": [
+        {
+          "port": 19010,
+          "first_ns": 43695439317525,
+          "last_ns": 43698434345901,
+          "payload_bytes": 33554432,
+          "frames": 1024,
+          "wire_bytes": 33599851
+        }
+      ]
+    }
+  },
+  "payload_overlap_at_b_ns": 2995028376,
+  "derived": {
+    "rx_payload_span_s": 21.330491051,
+    "tx_payload_span_s": 2.995028376,
+    "tx_first_after_rx_first_s": 0.245636625,
+    "rx_last_after_tx_last_s": 18.08982605,
+    "overlap_note": "B→C bắt đầu sau byte payload đầu tiên của A→B 0,246 giây và xong trước A→B 18,09 giây. Vì vậy overlap bằng toàn bộ khoảng payload của B→C."
+  },
+  "sender_a_report": {
+    "source": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224788222",
+    "reported_open": "00:47:23 (UTC+07:00)",
+    "reported_exit": "00:47:47 (UTC+07:00), mã 0",
+    "discrepancy": "B đã nhận xong lúc 00:47:09 theo đồng hồ Mac. Bình luận của Khoa đăng lúc 00:47:23 theo GitHub, nhưng ghi giờ thoát 00:47:47. Mốc giờ phía A chưa đối chiếu được với B. Cần kiểm độ lệch đồng hồ trên máy A."
+  },
+  "temporary_containers_and_network_removed": true
+}

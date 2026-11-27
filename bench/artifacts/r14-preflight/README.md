@@ -1,6 +1,6 @@
 # Hồ sơ chuẩn bị lab A/B/C/D · Issue #60
 
-Ngày kiểm fixture 2026-11-26 (UTC+07:00), trên Windows, theo hồ sơ tại `49a225c`. Đã xác minh sáu fixture tại workspace. Phiên 00:30 ngày 28/11/2026 dùng bốn vai trò trên ba máy theo bố trí đã chốt. B và C đã chạy hai chiều trên cùng Mac. [Phiếu chạy lab](https://github.com/Hkoado/Ratatoss/blob/e62dfe2/bench/artifacts/r14-preflight/lab-session.md) · [Số đo phiên 00:30](2026-11-28-0030-bc.json) [Issue #60](https://github.com/Hkoado/Ratatoss/issues/60) · [Runbook thử nghiệm](../../../docs/experiments.md)
+Ngày kiểm fixture 2026-11-26 (UTC+07:00), trên Windows, theo hồ sơ tại `49a225c`. Đã xác minh sáu fixture tại workspace. Phiên 00:30 ngày 28/11/2026 dùng bốn vai trò trên ba máy theo bố trí đã chốt. B và C đã chạy hai chiều trên cùng Mac. Lúc 00:46, A gửi sang B qua relay công cộng trong khi B gửi sang C. [Phiếu chạy lab](https://github.com/Hkoado/Ratatoss/blob/e62dfe2/bench/artifacts/r14-preflight/lab-session.md) · [Số đo phiên 00:30](2026-11-28-0030-bc.json) · [Số đo A→B đồng thời B→C](2026-11-28-0046-wan.json) · [Issue #60](https://github.com/Hkoado/Ratatoss/issues/60) · [Runbook thử nghiệm](../../../docs/experiments.md)
 
 ## Kiểm kê đầu mút
 
@@ -8,8 +8,8 @@ Vai trò dưới đây theo kịch bản demo. Chốt định danh lab, hệ đi
 
 | Node | Vai trò dự kiến | Định danh lab / OS và build | Quyền / lịch (kèm múi giờ) | Trạng thái và lý do |
 | --- | --- | --- | --- | --- |
-| A | Gửi fixture 32 MiB sang B | Khoa · Windows 11 Pro 23H2, build 22631.6199, x64 | Khoa xác nhận sẵn sàng trong phiên 00:30 UTC+7 | Đã kiểm hash fixture và TCP tới relay WAN. Khoa ghi nhận sender thoát mã 0 lúc 00:36:47. Đầu B dùng để đo vẫn chưa nhận tệp cho lượt này. [Trạng thái sender](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224601607) · [Đối chiếu tại B/C](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224620294) · [Xác nhận A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532) |
-| B | Nhận từ A, gửi sang C, thu mốc RX/TX | Huy · Mac ARM64, macOS 27.0.1 (26A434), container Linux aarch64 | Huy vận hành phiên 00:30 UTC+7 | Đã gửi/nhận với C. Đã kiểm TCP từ B tới relay WAN cổng 9009 và 9010. [Kiểm tra tại B](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155) |
+| A | Gửi fixture 32 MiB sang B | Khoa · Windows 11 Pro 23H2, build 22631.6199, x64 | Khoa xác nhận sẵn sàng trong phiên 00:30 UTC+7 | Đã kiểm hash fixture và TCP tới relay WAN. B nhận đủ `a-32mib.bin` từ A qua relay công cộng lúc 00:47:09 theo đồng hồ B, SHA-256 khớp. Giờ mở và thoát sender mà Khoa báo chưa khớp đồng hồ B. Còn thiếu lệnh sender đã lược mã trên A. [Báo cáo sender](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224788222) · [Số đo tại B](2026-11-28-0046-wan.json) · [Xác nhận A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532) |
+| B | Nhận từ A, gửi sang C, thu mốc RX/TX | Huy · Mac ARM64, macOS 27.0.1 (26A434), container Linux aarch64 | Huy vận hành phiên 00:30 UTC+7 | Đã gửi/nhận với C. Đã nhận từ A qua relay WAN trong lúc gửi sang C, với overlap payload 2,995 giây. [Kiểm tra tại B](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155) |
 | C | Nhận từ B và gửi chiều ngược | Cùng Mac của Huy, container và thư mục nhận riêng | Huy vận hành phiên 00:30 UTC+7 | Hai chiều đã khớp fixture qua relay trên Docker bridge. |
 | D | Đích cho ca bốn node | Bảo · Windows 11 Pro 25H2, build 26200.9974, x64 | Bảo đã kiểm OS/build. Giờ chạy ca bốn node và quyền cài ứng viên chờ xác nhận. | Bảo đã nhận `a-32mib.bin` bằng Croc v11.6.5 và kiểm đủ 33.554.432 byte, SHA-256 khớp manifest #3. Còn chờ cài và chạy thử ứng viên #9/#10 theo sơ đồ demo. [Kết quả tại D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577) · [Xác nhận D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224510940) |
 
@@ -44,16 +44,18 @@ Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fix
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B→C riêng | B→C (TX tại B) | Đã chạy | relay | Docker bridge cùng Mac | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0030-bc.json) | |
 | C→B riêng | C→B (RX tại B) | Đã chạy | relay | Docker bridge cùng Mac | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0030-bc.json) | |
-| Đồng thời | A→B (RX tại B) | `blocked` | | | | | Đã kiểm TCP tới relay WAN từ A và B, chờ ghép phiên Croc |
-| Đồng thời | B→C (TX tại B) | `blocked` | | | | | Đã kiểm TCP tới relay WAN từ A và B, chờ ghép phiên Croc |
+| Đồng thời | A→B (RX tại B) | Đã chạy | relay | Relay công cộng `1.getcroc.com`, payload trên cổng 9010 | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0046-wan.json), 21,330 giây | Chưa có lệnh sender đã lược mã trên A |
+| Đồng thời | B→C (TX tại B) | Đã chạy | relay | Relay Docker nội bộ trên Mac, cổng 19010 | 32 MiB, SHA-256 khớp | [Mốc tại B](2026-11-28-0046-wan.json), 2,995 giây | |
 
 | Ca | Overlap tại B | Lý do khi thiếu số đo |
 | --- | --- | --- |
-| A→B đồng thời B→C | | Chưa chạy trên lab |
+| A→B đồng thời B→C | 2,995 giây (2.995.028.376 ns) | |
+
+Trong ca đồng thời, B→C bắt đầu sau byte payload đầu tiên của A→B 0,246 giây. B→C xong trước A→B 18,09 giây, nên overlap bằng toàn bộ khoảng payload của B→C. A→B đạt khoảng 1,50 MiB/s qua relay công cộng. B→C chạy với `--throttleUpload 8M` và đạt khoảng 10,68 MiB/s. Hai số này không dùng để so tốc độ giữa hai tuyến.
 
 ## Chạy thử bộ đo trên Docker
 
-Ba container A/B/C và một relay chạy trên cùng một máy Mac arm64. Mạng Docker chỉ dùng nội bộ và không publish port ra máy chủ. Đã chạy B→C, C→B và A→B đồng thời B→C. Cả bốn lượt nhận đều khớp 32 MiB và SHA-256 với fixture. Bộ quan sát tại B ghi đầu/cuối payload theo cùng đồng hồ monotonic và đếm đủ byte từng hướng. Kết quả này xác nhận quy trình thu số đo qua relay trong môi trường thử cục bộ. Ca Windows A→Mac B đồng thời B→C cần số đo riêng trên hai máy. [Kết quả Docker](docker-rehearsal.json) · [Mã chạy thử](../../../scripts/croc_r14_rehearsal.py)
+Ba container A/B/C và một relay chạy trên cùng một máy Mac arm64. Mạng Docker chỉ dùng nội bộ và không publish port ra máy chủ. Đã chạy B→C, C→B và A→B đồng thời B→C. Cả bốn lượt nhận đều khớp 32 MiB và SHA-256 với fixture. Bộ quan sát tại B ghi đầu/cuối payload theo cùng đồng hồ monotonic và đếm đủ byte từng hướng. Kết quả này xác nhận quy trình thu số đo qua relay trong môi trường thử cục bộ. Số đo trên hai máy thật cho ca Windows A→Mac B đồng thời B→C nằm ở bảng phía trên. [Kết quả Docker](docker-rehearsal.json) · [Mã chạy thử](../../../scripts/croc_r14_rehearsal.py)
 
 Để chạy lại trên Docker Linux ARM64, dùng bản Croc Linux ARM64 v11.6.5 và bộ fixture đã tạo bằng script của repo. SHA-256 của tệp nén là `095526c841d989ef231ce87634e9d4e1410d390d1fa7e825be9d17170286d5ef`. Script xác minh SHA-256 executable và hai fixture 32 MiB trước khi chạy. [Bản Croc v11.6.5](https://github.com/schollz/croc/releases/tag/v11.6.5)
 
