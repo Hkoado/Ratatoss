@@ -1,0 +1,14 @@
+{
+  "checks": {
+    "fixture-hash": {
+      "status": "pass",
+      "evidence": {
+        "fixture-hashes.json": "8e56e9abac9659ea681e528534438165ed2e5ffe275d162bca34986f1de0c7a0"
+      }
+    },
+    "locked-croc-network-slots": {
+      "status": "blocked",
+      "reason": "Chờ máy lab, quyền chạy và phiên đo để xác nhận binary Croc, topology, relay và slot RX/TX."
+    }
+  }
+}

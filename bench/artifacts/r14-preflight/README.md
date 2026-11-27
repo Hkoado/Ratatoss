@@ -28,6 +28,8 @@ Vị trí chạy controller xác định theo cấu hình demo #11. Xác nhận 
 | `fixture/b-to-c-64mib.bin` | 67108864 | `69befdfa85c9f9d3283797ebe5869630fd52bd685afa52f651246357930d6c84` |
 | `fixture/b-to-c-128mib.bin` | 134217728 | `f9205ac9406aed59a117658ac37648e3c85a49a9b2a37a2a349a55101750b5f8` |
 
+Trên macOS arm64, lượt kiểm ở commit `98edb71` đã tạo lại sáu fixture rồi mở lại từng file để đo số byte và SHA-256. Hồ sơ R2.2 lưu số đo theo tên tương đối dưới `fixture/`. Vị trí cấp phát trên từng máy lab sẽ được ghi khi bàn giao. [Số đo sáu fixture](../r22-preflight/fixture-hashes.json) · [Trạng thái đầu vào #12](../r22-preflight/readiness.json)
+
 ## Phiên đo B↔C
 
 [Hồ sơ #40](../r02-preflight/README.md) dùng các tiến trình A/B/C trên một máy Windows qua IPv4 loopback. Dùng hồ sơ đó để tra pin và cách kiểm fixture. Phiên #60 cần bằng chứng mới từ LAN của lab.
