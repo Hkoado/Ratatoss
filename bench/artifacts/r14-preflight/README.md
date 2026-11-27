@@ -8,10 +8,10 @@ Vai trò dưới đây theo kịch bản demo. Chốt định danh lab, hệ đi
 
 | Node | Vai trò dự kiến | Định danh lab / OS và build | Quyền / lịch (kèm múi giờ) | Trạng thái và lý do |
 | --- | --- | --- | --- | --- |
-| A | Gửi fixture 32 MiB sang B | Khoa · Windows 11 Pro 23H2, build 22631.6199, x64 | Khoa xác nhận sẵn sàng trong phiên 00:30 UTC+7 | Đã kiểm hash fixture và TCP tới relay WAN. Chờ ghép mã phiên riêng với B. [Xác nhận A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532) |
+| A | Gửi fixture 32 MiB sang B | Khoa · Windows 11 Pro 23H2, build 22631.6199, x64 | Khoa xác nhận sẵn sàng trong phiên 00:30 UTC+7 | Đã kiểm hash fixture và TCP tới relay WAN. Khoa ghi nhận sender thoát mã 0 lúc 00:36:47. Đầu B dùng để đo vẫn chưa nhận tệp cho lượt này. [Trạng thái sender](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224601607) · [Đối chiếu tại B/C](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224620294) · [Xác nhận A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532) |
 | B | Nhận từ A, gửi sang C, thu mốc RX/TX | Huy · Mac ARM64, macOS 27.0.1 (26A434), container Linux aarch64 | Huy vận hành phiên 00:30 UTC+7 | Đã gửi/nhận với C. Đã kiểm TCP từ B tới relay WAN cổng 9009 và 9010. [Kiểm tra tại B](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155) |
 | C | Nhận từ B và gửi chiều ngược | Cùng Mac của Huy, container và thư mục nhận riêng | Huy vận hành phiên 00:30 UTC+7 | Hai chiều đã khớp fixture qua relay trên Docker bridge. |
-| D | Đích cho ca bốn node | Bảo · Windows 11 Pro 25H2, build 26200.9974, x64 | Bảo đã kiểm OS/build. Giờ chạy ca bốn node và quyền cài ứng viên chờ xác nhận. | Chờ ứng viên #9/#10 và kiểm tra kết nối, fixture trên D. [Xác nhận D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224510940) |
+| D | Đích cho ca bốn node | Bảo · Windows 11 Pro 25H2, build 26200.9974, x64 | Bảo đã kiểm OS/build. Giờ chạy ca bốn node và quyền cài ứng viên chờ xác nhận. | Bảo đã nhận `a-32mib.bin` bằng Croc v11.6.5 và kiểm đủ 33.554.432 byte, SHA-256 khớp manifest #3. Còn chờ cài và chạy thử ứng viên #9/#10 theo sơ đồ demo. [Kết quả tại D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577) · [Xác nhận D](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224510940) |
 
 Vị trí chạy controller xác định theo cấu hình demo #11. Xác nhận riêng quyền dùng relay và quyền xem số đếm mạng với người quản lý lab. Ghi vị trí truy cập fixture tại mỗi đầu mút khi cấp phát xong.
 
