@@ -11,6 +11,7 @@ Mốc và goodput đo theo đồng hồ B. Byte và SHA-256 kiểm tại đích.
 | 01:14 · chỉ A→B | Chưa có IPv6 | `derp` suốt lượt | 0,67–0,69 MiB/s | 32 MiB, SHA-256 khớp | [Kết quả](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7225308766) |
 | 01:38 · chỉ A→B | Có IPv6 | `direct`, UDP/IPv6 | 2,43–2,65 MiB/s | 32 MiB, SHA-256 khớp | [Kết quả](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7225722367) · [Đối chiếu A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7225744627) |
 | 01:55 · A→B đồng thời B→C | Có IPv6 | `direct`, UDP/IPv6 | 3,22 MiB/s | 32 MiB, SHA-256 khớp tại B và C | [Số đo](2026-11-28-0155-concurrent.json) · [Đối chiếu A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7226038404) |
+| 02:11 · A→B đồng thời B→C, A đổi vị trí Wi-Fi | Có IPv6, tín hiệu 90% | Payload vào B qua UDP/IPv6. Chiều B→A qua DERP trong 4,15 s đầu | 5,47 MiB/s | 32 MiB, SHA-256 khớp tại B và C | [Số đo](2026-11-28-0211-concurrent.json) · [Đối chiếu A](https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7226303986) |
 
 Để so sánh, lượt relay Croc lúc 00:46 đạt 1,50 MiB/s. [Số đo relay](../2026-11-28-0046-wan.json)
 
@@ -52,6 +53,13 @@ Kết quả:
 | `udp4` | 64 | 328 |
 
 Không có socket `tcp6` (DERP) nào mang dữ liệu. Bộ đếm socket chỉ dùng để xác định họ địa chỉ của luồng dữ liệu, không dùng để tính goodput.
+
+**Lượt lặp lại 02:11.** Lượt này dùng cùng runner và profile, sau khi A đổi vị trí Wi-Fi. A→B đạt 5,47 MiB/s trên 5,855 s, overlap 2,995239208 s, B→C bắt đầu sau `rx_first` 147,5 ms.
+- **Telemetry tại B:** chuyển từ `derp` sang `direct` ở `rx_first` + 4,148 s.
+- **Bộ đếm socket:** payload vào B nằm trên `udp6` suốt khoảng payload. Chiều B→A, chủ yếu ACK, đi qua DERP `tcp6` trong khoảng 4,15 s đầu.
+- **Tóm tắt Tailcat:** hai đầu báo `path=direct`, với `sent` và `received` cùng bằng 33.599.488.
+
+[Số đo](2026-11-28-0211-concurrent.json) · [Kết quả thô](2026-11-28-0211-concurrent-result.json) · [Bộ đếm socket](2026-11-28-0211-b-rx-sockets.csv)
 
 ## Sai số của mốc RX
 
