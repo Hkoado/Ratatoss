@@ -87,7 +87,7 @@ Cài đặt và chạy starter offline đã được xác nhận. Lần mở t�
 
 ## Kiểm tra bản sửa thời gian chờ khi mở từ Setup · 2026-11-27
 
-Lượt kiểm tra đầu dùng bản sửa ở `c9a4e31`. Theo [hợp đồng launcher](../../../spec/operations/windows-installer.md#hợp-đồng-launcher), Setup truyền `--from-setup` để launcher đợi tối đa 60 giây cho IPC báo Node sẵn sàng. Shortcut và Terminal dùng giới hạn 20 giây. Khi hết hạn, hộp thoại ghi rõ Node chưa báo sẵn sàng và số giây đã chờ.
+Lượt kiểm tra đầu dùng bản sửa ở `f46ec71`. Theo [hợp đồng launcher](../../../spec/operations/windows-installer.md#hợp-đồng-launcher), Setup truyền `--from-setup` để launcher đợi tối đa 60 giây cho IPC báo Node sẵn sàng. Shortcut và Terminal dùng giới hạn 20 giây. Khi hết hạn, hộp thoại ghi rõ Node chưa báo sẵn sàng và số giây đã chờ.
 
 Chạy trên Windows 11 Pro x64 23H2, build `22631.6199`, với Python 3.14.2 có sẵn trên máy. Mỗi lượt cài silent vào thư mục thử riêng, rồi chạy trực tiếp executable đã cài với thư mục làm việc là LocalAppData như mục `[Run]` của Setup. Thời gian đo từ lúc gọi launcher tới lúc named pipe trả cổng loopback. Ca này kiểm tra IPC và HTTP trên máy build. Ca **Finish → Edge → HTML/CSS** trên Windows sạch được theo dõi riêng.
 
@@ -113,4 +113,8 @@ Bản sửa tiếp theo dùng giới hạn 120 giây cho **Finish** để có th
 
 Trên máy build Windows 11 Pro x64 `22631.6199`, giữ mutex Node 78 giây rồi nhả và chạy Node. Launcher ở bản đã cài nhận cổng qua IPC sau **79,406 giây** và trả mã 0. HTML, CSS và health trả HTTP 200. Chạy lại `python -m unittest discover -s packaging/windows -v` với bản đã cài, cả 9 ca đạt. `python -m unittest discover -s tests` có 208 ca đạt. Bản thử gỡ với mã 0, mục Start Menu và đăng ký gỡ cài đặt được dọn.
 
-Ca **Finish → Edge → HTML/CSS** với installer 120 giây trên VM sạch chưa chạy.
+### Mở từ Finish trên bản sao Windows sạch
+
+Bản sao QEMU TCG lấy từ đĩa Windows đã thiết lập trước khi cài Ratatoss. Kiểm tra ghi nhận build `26100.1742` x64, tài khoản chuẩn, không có card ngoài loopback đang hoạt động hoặc route mặc định, chưa cài Ratatoss, Python, Croc hay Docker riêng. SHA-256 trong VM khớp `0477031b612a0dd7ad6781e8c8e50e1c4c2052769e9b007c112719360b37d7fc`.
+
+Setup trả mã 0. Sau **Finish** với **Mở Ratatoss** được chọn, IPC báo cổng `8765` sau **68,658 giây** tính từ lúc tiến trình launcher bắt đầu. Bộ đo ghi HTML 963 byte, CSS 848 byte và health 58 byte, tất cả HTTP 200. Edge tự mở `127.0.0.1:8765` ngay trong lượt đầu và không cần **Retry**. Nội dung tab tại thời điểm quan sát còn trống. Chưa xác nhận render HTML/CSS trong Edge.
