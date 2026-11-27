@@ -217,7 +217,8 @@ class NodeStore:
                 with source.open("rb") as incoming, temporary.open("xb") as outgoing:
                     if not os.path.samestat(before, os.fstat(incoming.fileno())):
                         raise StoreError("SOURCE_CHANGED")
-                    self._copy_bytes(incoming, outgoing, before.st_size)
+                    for block in self._read_blocks(incoming, before.st_size):
+                        outgoing.write(block)
                     after = os.fstat(incoming.fileno())
                     if incoming.read(1) or after.st_mtime_ns != before.st_mtime_ns:
                         raise StoreError("SOURCE_CHANGED")
@@ -252,12 +253,12 @@ class NodeStore:
                 temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _copy_bytes(incoming, outgoing, size):
+    def _read_blocks(incoming, size):
         while size:
             block = incoming.read(min(size, READ_SIZE))
             if not block:
                 raise StoreError("UNEXPECTED_EOF")
-            outgoing.write(block)
+            yield block
             size -= len(block)
 
     def begin_receive(self, job_id: str, batch_id: int, assignment_id: str) -> Path:
@@ -491,22 +492,32 @@ class NodeStore:
             os.link(batch, path)
             return
         snapshot = self._directory(job_id) / "source.bin"
-        try:
-            check_path(snapshot)
-            with snapshot.open("rb") as incoming, path.open("xb") as outgoing:
-                incoming.seek(segment.offset)
-                self._copy_bytes(incoming, outgoing, segment.size)
-        except (FileNotFoundError, ValueError, StoreError) as exc:
-            state = "MISSING" if isinstance(exc, FileNotFoundError) else "CORRUPT"
-            with self._db(write=True) as db:
-                for index in self._inventory(db, job_id):
-                    self._record_unavailable(db, job_id, index, state)
-                self._snapshot(db, job_id)
-            raise StoreError("BATCH_NOT_AVAILABLE") from exc
+        with closing(self._read_source_batch(job_id, snapshot, segment)) as blocks, path.open("xb") as outgoing:
+            for block in blocks:
+                outgoing.write(block)
         if self._batch_state(path, manifest, batch_id) != "AVAILABLE":
             with self._db(write=True) as db:
                 self._invalidate(db, job_id, batch_id, "CORRUPT")
             raise StoreError("BATCH_NOT_AVAILABLE")
+
+    def _read_source_batch(self, job_id, snapshot, segment):
+        try:
+            check_path(snapshot)
+            with snapshot.open("rb") as incoming:
+                incoming.seek(segment.offset)
+                yield from self._read_blocks(incoming, segment.size)
+        except (OSError, ValueError, StoreError) as exc:
+            if isinstance(exc, FileNotFoundError):
+                state = "MISSING"
+            elif isinstance(exc, OSError):
+                state = "UNREADABLE"
+            else:
+                state = "CORRUPT"
+            with self._db(write=True) as db:
+                for index in self._inventory(db, job_id):
+                    self._record_unavailable(db, job_id, index, state, read_retry_path=snapshot)
+                self._snapshot(db, job_id)
+            raise StoreError("BATCH_NOT_AVAILABLE") from exc
 
     @staticmethod
     def _destination(path):
@@ -648,23 +659,27 @@ class NodeStore:
         marker.unlink(missing_ok=True)
         sync_directory(marker.parent)
 
+    @staticmethod
+    def _owns_delivery_output(stage, path):
+        if stage is None or stage.parent != path.parent:
+            return False
+        try:
+            check_path(stage / "ready")
+            check_path(path)
+            proof = stage / "verified.tmp"
+            if not os.path.lexists(proof):
+                return True
+            check_path(proof)
+            return proof.samefile(path)
+        except (ValueError, FileNotFoundError):
+            return False
+
     def _recover_delivery(self, job_id, manifest, delivery):
         path = Path(delivery["intended_path"])
         if delivery["state"] == "PUBLISHING":
-            stage = self._delivery_stage(job_id)
             try:
-                owns_output = False
-                if stage is not None and stage.parent == path.parent:
-                    check_path(stage / "ready")
-                    proof = stage / "verified.tmp"
-                    check_path(path)
-                    if os.path.lexists(proof):
-                        check_path(proof)
-                        owns_output = proof.samefile(path)
-                    else:
-                        owns_output = True
-            except (ValueError, FileNotFoundError):
-                owns_output = False
+                stage = self._delivery_stage(job_id)
+                owns_output = self._owns_delivery_output(stage, path)
             except OSError:
                 self._deferred_deliveries.add(job_id)
                 return delivery
@@ -694,8 +709,12 @@ class NodeStore:
                 with self._db(write=True) as db:
                     db.execute("DELETE FROM outbox WHERE job_id = ? AND event_kind = 'RECEIPT'", (job_id,))
                     self._set_delivery(db, job_id, path, state)
-        self._clear_stage(job_id)
-        self._deferred_deliveries.discard(job_id)
+        try:
+            self._clear_stage(job_id)
+        except OSError:
+            self._deferred_deliveries.add(job_id)
+        else:
+            self._deferred_deliveries.discard(job_id)
         with self._db() as db:
             return self._delivery(db, job_id)
 

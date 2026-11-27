@@ -402,6 +402,34 @@ class NodeStoreTests(unittest.TestCase):
         with store.tx_batch(source_job, 1) as tx:
             self.assertEqual(tx.read_bytes(), b"ghij")
 
+    def test_tx_withdraws_locked_source_snapshot_until_reconcile(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+            self.assertEqual(store.reconcile(source_job), (0, 1))
+            snapshot = self.data / "jobs" / source_job / "source.bin"
+
+            with self.block_read(snapshot):
+                with self.assertRaisesRegex(StoreError, "^BATCH_NOT_AVAILABLE$"):
+                    with store.tx_batch(source_job, 0):
+                        self.fail("TX opened a locked snapshot")
+                self.assertEqual(store.inventory(source_job), ())
+                event, = store.pending_events(source_job)
+                self.assertEqual(json.loads(event["payload_json"])["verified_batch_ids"], [])
+                self.assertEqual(store.reconcile(source_job), ())
+                with store.tx_batch(self.job_id, 0) as tx:
+                    self.assertEqual(tx.read_bytes(), b"abcdef")
+
+            self.assertEqual(store.inventory(source_job), ())
+            self.assertEqual(store.reconcile(source_job), (0, 1))
+            event, = store.pending_events(source_job)
+            self.assertEqual(json.loads(event["payload_json"])["verified_batch_ids"], [0, 1])
+            with store.tx_batch(source_job, 1) as tx:
+                self.assertEqual(tx.read_bytes(), b"ghij")
+
     def test_startup_defers_locked_delivery_receipt_until_reconcile(self):
         source_job = str(uuid4())
         with NodeStore(self.data) as store:
@@ -447,6 +475,38 @@ class NodeStoreTests(unittest.TestCase):
         self.assertEqual(store.reconcile(self.job_id), ())
         self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
         self.assertEqual(self.outbox(store)[-1][0], "RECEIPT")
+
+    def test_startup_keeps_delivery_proof_while_stage_marker_is_locked(self):
+        source_job = str(uuid4())
+        with NodeStore(self.data) as store:
+            self.register(store)
+            self.receive(store, 0, b"abcdef")
+            self.receive(store, 1, b"ghij")
+            store.import_source(source_job, self.source_device, self.source,
+                                max_bytes=10, piece_size=3, batch_size=6)
+        self.crash("after-delivery-publish")
+        marker = self.data / "jobs" / self.job_id / "delivery-stage.json"
+        original_marker = marker.read_bytes()
+        stage, = self.root.glob(".ratatoss-*")
+
+        with self.block_read(marker):
+            store = self.enterContext(NodeStore(self.data))
+            self.assertEqual(store.reconcile(self.job_id), (0, 1))
+            self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHING",)])
+            self.assertNotIn("RECEIPT", [kind for kind, _ in self.outbox(store)])
+            with self.assertRaisesRegex(StoreError, "^DELIVERY_NOT_AVAILABLE$"):
+                store.publish_delivery(self.job_id)
+            self.assertTrue((stage / "ready").is_file())
+            with store.tx_batch(source_job, 0) as tx:
+                self.assertEqual(tx.read_bytes(), b"abcdef")
+
+        self.assertEqual(marker.read_bytes(), original_marker)
+        self.assertEqual(store.reconcile(self.job_id), (0, 1))
+        self.assertEqual(self.rows("SELECT state FROM delivery"), [("PUBLISHED",)])
+        self.assertEqual(store.publish_delivery(self.job_id).read_bytes(), b"abcdefghij")
+        self.assertEqual([kind for kind, _ in self.outbox(store)].count("RECEIPT"), 1)
+        self.assertFalse(marker.exists())
+        self.assertFalse(stage.exists())
 
     def test_reconnect_replaces_inventory_after_replaying_inflight_snapshot(self):
         with NodeStore(self.data) as store:
