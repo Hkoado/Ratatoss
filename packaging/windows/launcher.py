@@ -21,6 +21,8 @@ from ratatoss.database import NODE_DATABASE_NAME
 from ratatoss.settings import LOOPBACK, NodeSettings
 
 START_TIMEOUT = 20
+# The first launch from Setup can contend with fresh install files and a cold runtime.
+SETUP_START_TIMEOUT = 60
 START_ERROR = (
     "Không khởi động được Ratatoss. Hãy kiểm tra quyền ghi thư mục dữ liệu "
     "và dung lượng đĩa, rồi thử lại."
@@ -31,6 +33,10 @@ DATA_PERMISSION_ERROR = (
 )
 EXIT_DATA_PERMISSION = 3
 EXECUTABLE = "Ratatoss.exe"
+
+
+class NodeStartupTimeout(TimeoutError):
+    """The launcher did not receive a ready port before its deadline."""
 
 
 def bind_loopback(listener, port):
@@ -101,7 +107,7 @@ def run_node(ipc):
             return 0 if server.started else 2
 
 
-def get_node_port(ipc):
+def get_node_port(ipc, *, timeout=START_TIMEOUT):
     port = ipc.read_port(0.25)
     if port is not None:
         return port
@@ -114,15 +120,15 @@ def get_node_port(ipc):
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         env={**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"},
     )
-    deadline = time.monotonic() + START_TIMEOUT
-    while time.monotonic() < deadline:
-        port = ipc.read_port(min(0.25, deadline - time.monotonic()))
+    deadline = time.monotonic() + timeout
+    while (remaining := deadline - time.monotonic()) > 0:
+        port = ipc.read_port(min(0.25, remaining))
         if port is not None:
             return port
         if process.poll() == EXIT_DATA_PERMISSION:
             raise NodeDataPermissionError()
         time.sleep(0.05)
-    raise TimeoutError
+    raise NodeStartupTimeout(f"Ratatoss chưa báo sẵn sàng sau {timeout} giây. Hãy thử lại.")
 
 
 def message_box(message, flags):
@@ -130,6 +136,8 @@ def message_box(message, flags):
 
 
 def startup_error(exc):
+    if isinstance(exc, NodeStartupTimeout):
+        return str(exc)
     return DATA_PERMISSION_ERROR if isinstance(exc, NodeDataPermissionError) else START_ERROR
 
 
@@ -198,9 +206,10 @@ def main():
             print(startup_error(exc), flush=True)
         return terminal_menu(ipc)
 
+    timeout = SETUP_START_TIMEOUT if sys.argv[1:] == ["--from-setup"] else START_TIMEOUT
     while True:
         try:
-            return 0 if open_web(get_node_port(ipc), terminal=False) else 1
+            return 0 if open_web(get_node_port(ipc, timeout=timeout), terminal=False) else 1
         except (OSError, pywintypes.error) as exc:
             if message_box(startup_error(exc), 0x15) != 4:
                 return 2

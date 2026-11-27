@@ -84,3 +84,17 @@ Chép [bộ cài đính kèm PR #62](https://github.com/user-attachments/files/3
 | Croc đóng gói | Croc đi kèm trả `croc version 11.6.5` và SHA-256 `1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e`, khớp manifest. |
 
 Cài đặt và chạy starter offline đã được xác nhận. Lần mở tự động đầu tiên trong VM cần **Retry**. Chưa xác định nguyên nhân của hộp thoại khởi động trong lần thử này.
+
+## Kiểm tra bản sửa thời gian chờ khi mở từ Setup · 2026-11-27
+
+Theo [hợp đồng launcher](../../../spec/operations/windows-installer.md#hợp-đồng-launcher), Setup truyền `--from-setup` để launcher đợi tối đa 60 giây cho IPC báo Node sẵn sàng. Shortcut và Terminal vẫn dùng giới hạn 20 giây. Khi hết hạn, hộp thoại ghi rõ Node chưa báo sẵn sàng và số giây đã chờ.
+
+Chạy trên Windows 11 Pro x64 23H2, build `22631.6199`, với Python 3.14.2 có sẵn trên máy. Mỗi lượt cài silent vào thư mục thử riêng, rồi chạy trực tiếp executable đã cài với thư mục làm việc là LocalAppData như mục `[Run]` của Setup. Thời gian đo từ lúc gọi launcher tới lúc named pipe trả cổng loopback. Ca này kiểm tra IPC và HTTP trên máy build. Ca **Finish → Edge → HTML/CSS** trên Windows sạch được theo dõi riêng.
+
+| Ca | Kết quả quan sát |
+| --- | --- |
+| Installer đính kèm `95fa1dff…`, dữ liệu thử mới | Setup và launcher trả mã 0. IPC sẵn sàng sau 2,492 giây. HTML, CSS và health trả HTTP 200. Lỗi VM chưa tái hiện trong lượt này. |
+| Bản sửa, cố ý trì hoãn Node 25 giây | Chạy launcher đã cài với `--from-setup` trong khi tiến trình thử giữ mutex Node. Nhả mutex sau 25 giây và khởi chạy Node. IPC sẵn sàng sau 26,095 giây, launcher trả mã 0. HTML (963 byte), CSS (848 byte) và health đều trả HTTP 200. |
+| Hồi quy | `python -m unittest discover -s packaging/windows -v` có 9 ca đạt, gồm smoke với `RATATOSS_TEST_WINDOWS_APP` trỏ tới bản đã cài. `python -m unittest discover -s tests` có 208 ca đạt. Cả hai bản thử gỡ với mã 0, mục Start Menu và đăng ký gỡ cài đặt đều được dọn. |
+
+Build bản sửa bằng Python 3.14.2, PyInstaller 6.22.3, Inno Setup 6.7.4 và Croc v11.6.5 đã ghim. SHA-256 bộ cài đo được là `acd440c99a97fd512e6e349c347fbe94346edc4423f8afb6f8c6eeb1bc23a912`, khớp manifest do build sinh. Authenticode báo `NotSigned`.

@@ -16,6 +16,7 @@ import time
 import traceback
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -153,6 +154,42 @@ class LauncherTests(unittest.TestCase):
             launch.return_value.poll.return_value = EXIT_DATA_PERMISSION
             self.assertEqual(main(), 2)
             display.assert_called_once_with(DATA_PERMISSION_ERROR, 0x15)
+
+    def test_setup_launch_waits_for_slow_node_and_reports_timeout(self):
+        for args, ready_after, expected_code in ((["--from-setup"], 25, 0), ([], 25, 2),
+                                                 (["--from-setup"], None, 2)):
+            with self.subTest(args=args, ready_after=ready_after):
+                elapsed = 0.0
+
+                def advance(seconds):
+                    nonlocal elapsed
+                    elapsed += seconds
+
+                def read_port(timeout):
+                    return 45678 if ready_after is not None and elapsed >= ready_after else None
+
+                with (
+                    patch("launcher.sys.argv", ["Ratatoss.exe", *args]),
+                    patch("launcher.sys.executable", "Ratatoss.exe"),
+                    patch("launcher.time", SimpleNamespace(monotonic=lambda: elapsed, sleep=advance)),
+                    patch("launcher.NodeIPC") as ipc,
+                    patch("launcher.subprocess.Popen") as launch,
+                    patch("launcher.message_box", return_value=2) as display,
+                    patch("launcher.open_web", return_value=True) as browser,
+                ):
+                    ipc.return_value.read_port.side_effect = read_port
+                    launch.return_value.poll.return_value = None
+                    self.assertEqual(main(), expected_code)
+                    launch.assert_called_once()
+                    if expected_code == 0:
+                        browser.assert_called_once_with(45678, terminal=False)
+                        display.assert_not_called()
+                    else:
+                        browser.assert_not_called()
+                        seconds = 60 if args else 20
+                        self.assertAlmostEqual(elapsed, seconds, delta=0.05)
+                        display.assert_called_once()
+                        self.assertIn(f"{seconds} giây", display.call_args.args[0])
 
     def test_mutex_allows_one_node_per_account(self):
         ipc = NodeIPC()

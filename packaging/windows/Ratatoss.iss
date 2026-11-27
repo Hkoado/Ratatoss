@@ -39,4 +39,4 @@ Name: "{userprograms}\Ratatoss\Ratatoss Terminal"; Filename: "{app}\Ratatoss-Ter
 Name: "{userdesktop}\Ratatoss"; Filename: "{app}\Ratatoss.exe"; WorkingDir: "{localappdata}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Ratatoss.exe"; WorkingDir: "{localappdata}"; Description: "{cm:LaunchRatatoss}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Ratatoss.exe"; Parameters: "--from-setup"; WorkingDir: "{localappdata}"; Description: "{cm:LaunchRatatoss}"; Flags: nowait postinstall skipifsilent
