@@ -56,6 +56,29 @@ Node dùng `Manifest.from_json(raw)` để đọc manifest độc lập. Với m
 
 Dùng `Manifest.canonical_bytes()` để lưu metadata canonical và `Manifest.manifest_sha256()` để tính digest của metadata. `Manifest.sha256` là digest của toàn bộ payload. CLI `verify` đọc được các tệp manifest v1 dạng thụt lề của CLI `manifest` và dạng canonical.
 
+### Kiểm manifest của offer phía Node
+
+Trước khi hiển thị nút xác nhận hoặc gửi quyết định nhận offer (#9), Node gọi `verify_offer_manifest(offer)` từ [`ratatoss/node_offer_manifest.py`](../../ratatoss/node_offer_manifest.py). Nên truyền thẳng `bytes` hoặc `str` UTF-8 gốc của response `GET /v1/offers/{offer_id}` để phát hiện khóa JSON lặp ở cả vỏ offer lẫn bên trong `manifest` trước khi tầng JSON gộp khóa; hàm cũng chấp nhận `Mapping` đã giải mã nếu cần.
+
+- **Đầu ra `VerifiedOfferManifest`:**
+  - `manifest`: đối tượng `Manifest` v1 đã kiểm tra hợp lệ.
+  - `manifest_sha256`: SHA-256 hex thường của canonical metadata (`manifest.manifest_sha256()`), dùng cho `POST /v1/offers/{offer_id}/decision` và `local_jobs.manifest_sha256`. Phân biệt với `file_sha256`.
+  - `file_sha256`: SHA-256 toàn tệp (`manifest.sha256`).
+  - `canonical_bytes`: byte JSON canonical của manifest (`manifest.canonical_bytes()`).
+- **Chặn xác nhận khi lỗi (`OfferManifestError`):** Nếu `verify_offer_manifest` ném `OfferManifestError`, #9 phải **chặn xác nhận trên UI**, không gọi `NodeStore.register_target(...)` và không gửi `POST /v1/offers/{offer_id}/decision` (`ACCEPT`). Các mã `OfferManifestError.code`:
+
+| Mã lỗi (`code`) | Ý nghĩa |
+| --- | --- |
+| `DUPLICATE_JSON_KEY` | Payload JSON gốc có khóa lặp ở vỏ offer, `manifest`, `pieces` hoặc `batches`. |
+| `INVALID_OFFER_JSON` | JSON gốc lỗi cú pháp, sai UTF-8, có BOM, chứa `NaN`/`Infinity` hoặc không phải JSON object. |
+| `INVALID_OFFER_PAYLOAD` | Đầu vào không phải `str`, `bytes` hoặc `Mapping`. |
+| `MISSING_MANIFEST_DIGEST` | Thiếu trường `manifest_sha256` hoặc giá trị là `None`. |
+| `INVALID_MANIFEST_DIGEST` | `manifest_sha256` không phải chuỗi 64 ký tự hex thường. |
+| `MISSING_MANIFEST` | Thiếu trường `manifest` hoặc giá trị là `None`. |
+| `INVALID_MANIFEST` | `manifest` sai kiểu hoặc không đạt kiểm tra schema/segment của `Manifest.from_dict`. |
+| `MANIFEST_DIGEST_MISMATCH` | Digest tính từ `manifest` không khớp `offer["manifest_sha256"]` (kể cả khi metadata bị sửa hoặc nhầm với `manifest.sha256`). |
+| `OFFER_METADATA_MISMATCH` | Trường tóm tắt `file_name` hoặc `size` trên vỏ offer lệch kiểu hoặc khác `manifest.name` / `manifest.size`. |
+
 ## Mô-đun ghi danh và ghép cặp của controller
 
 [`ratatoss/controller/`](../../ratatoss/controller/__init__.py) hiện thực `POST /v1/devices/enroll`, `GET /v1/devices/me`, `POST /v1/pairs`, `POST /v1/pairs/claim`, `GET /v1/pairs` và `POST /v1/pairs/{pair_id}/decision`. Route hủy cặp và mọi route job, offer, lease thuộc phần tích hợp control plane.
