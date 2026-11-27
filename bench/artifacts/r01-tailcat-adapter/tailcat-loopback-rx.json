@@ -1,0 +1,154 @@
+{
+  "status": "fail",
+  "os": "Windows",
+  "os_version": "10.0.22631",
+  "architecture": "AMD64",
+  "python": "3.14.2",
+  "commit": "375ad58cb0e6cbe5a23e49073293bcc0f766fa42",
+  "tree_clean": true,
+  "fixture": {
+    "bytes": 33554432,
+    "expected_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+  },
+  "expected_croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "cases": [
+    {
+      "name": "rx-first",
+      "status": "fail",
+      "attempt_id": "0bc44932-860a-4f1f-8581-45fefeac5449",
+      "retry_of": null,
+      "timeout_s": 45,
+      "lease_deadline_monotonic": 22578.5300297,
+      "roles": {
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--no-compress",
+            "--debug",
+            "--relay",
+            "127.0.0.1:19009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 950,
+          "status": "CROC_EXIT_NONZERO",
+          "process": {
+            "pid": 26248,
+            "started_at": "2026-11-27T19:59:40.600361+00:00",
+            "stopped_at": "2026-11-27T19:59:53.345673+00:00",
+            "started_monotonic": 22533.5417994,
+            "stopped_monotonic": 22546.2871254,
+            "deadline_monotonic": 22578.5300297,
+            "exit_code": 1,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 1
+            },
+            "staging_cleanup_pending": false,
+            "first_byte_monotonic": null,
+            "last_byte_monotonic": null,
+            "sha256_done_monotonic": null,
+            "first_progress_percent": null,
+            "tailcat_summary": null
+          },
+          "partial_isolated": false,
+          "staging_cleanup_pending": false
+        },
+        "tx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--no-compress",
+            "--debug",
+            "--relay",
+            "127.0.0.1:19009",
+            "send",
+            "--no-local",
+            "--transport",
+            "derp",
+            "batch-0bc44932860a4f1f858145fefeac5449.bin"
+          ],
+          "remaining_setup_ms": 200,
+          "status": "CROC_EXIT_NONZERO",
+          "process": {
+            "pid": 16080,
+            "started_at": "2026-11-27T19:59:41.440733+00:00",
+            "stopped_at": "2026-11-27T19:59:53.338401+00:00",
+            "started_monotonic": 22534.3821711,
+            "stopped_monotonic": 22546.2798619,
+            "deadline_monotonic": 22578.5300297,
+            "exit_code": 1,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 1
+            },
+            "staging_cleanup_pending": false,
+            "first_byte_monotonic": null,
+            "last_byte_monotonic": null,
+            "sha256_done_monotonic": null,
+            "first_progress_percent": null,
+            "tailcat_summary": null
+          },
+          "partial_isolated": false,
+          "staging_cleanup_pending": false
+        }
+      },
+      "destination_exists": false
+    }
+  ],
+  "profile": {
+    "name": "lab-windows-loopback",
+    "endpoint": "127.0.0.1:19009",
+    "ports": [
+      19009,
+      19010
+    ],
+    "min_goodput_bps": 100000000,
+    "setup_ms": 950,
+    "verify_commit_ms": 200,
+    "margin_ms": 200,
+    "route": "unknown",
+    "transport": "derp",
+    "start_gap_s": 0.75
+  },
+  "croc": {
+    "version": "11.6.5",
+    "sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "probes_passed": [
+      "--version",
+      "--help",
+      "send --help",
+      "relay --help"
+    ]
+  },
+  "relay": {
+    "argv": [
+      "CROC",
+      "--disable-clipboard",
+      "--no-update-check",
+      "relay",
+      "--host",
+      "127.0.0.1",
+      "--ports",
+      "19009,19010"
+    ],
+    "listeners": [
+      "127.0.0.1:19009",
+      "127.0.0.1:19010"
+    ],
+    "cleanup": {
+      "active_before_stop": 2,
+      "active_after_stop": 0,
+      "total_processes": 2,
+      "exit_code": 1
+    }
+  },
+  "clipboard_sequence_unchanged": true,
+  "error": "LAB_CHILD_FAILED"
+}
