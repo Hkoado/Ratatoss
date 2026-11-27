@@ -133,3 +133,16 @@ Trên máy build Windows 11 Pro x64 `22631.6199`, giữ mutex Node 78 giây rồ
 Bản sao QEMU TCG lấy từ đĩa Windows đã thiết lập trước khi cài Ratatoss. Kiểm tra ghi nhận build `26100.1742` x64, tài khoản chuẩn, không có card ngoài loopback đang hoạt động hoặc route mặc định, chưa cài Ratatoss, Python, Croc hay Docker riêng. SHA-256 trong VM khớp `0477031b612a0dd7ad6781e8c8e50e1c4c2052769e9b007c112719360b37d7fc`.
 
 Setup trả mã 0. Sau **Finish** với **Mở Ratatoss** được chọn, IPC báo cổng `8765` sau **68,658 giây** tính từ lúc tiến trình launcher bắt đầu. Bộ đo ghi HTML 963 byte, CSS 848 byte và health 58 byte, tất cả HTTP 200. Edge tự mở `127.0.0.1:8765` ngay trong lượt đầu và không cần **Retry**. Nội dung tab tại thời điểm quan sát còn trống. Chưa xác nhận render HTML/CSS trong Edge.
+
+## Xác nhận Edge hiển thị trang từ Finish trên VirtualBox · 2026-11-27
+
+**Đạt.** Build từ commit `922865d1e0c5388e8bb1da83be4230e75c6b484c`. SHA-256 của installer trên máy build và trong VM cùng là `3ff4074cee85d81f501c73cdae03634090b73613175c1d5332be995cd1c41595`, khớp [manifest của bản đem thử](issue-59.finish-922865d.manifest.json). Authenticode báo `NotSigned`.
+
+Dùng lại VM VirtualBox 7.2.6 với Windows Hypervisor Platform qua NEM, Windows 11 Enterprise LTSC Evaluation x64 24H2 build `26100.1742`. Tài khoản thử là tài khoản chuẩn. Tất cả card mạng ảo đều ngắt, guest có 0 adapter đang hoạt động và 0 route mặc định. Không phát hiện Python, Croc hoặc Docker cài riêng. Trước khi cài, dừng các tiến trình của ca trước và cất riêng bản cài, dữ liệu Ratatoss, shortcut, mục đăng ký gỡ cài đặt và hồ sơ Edge. Ca thử dùng lại hệ điều hành và tài khoản Windows với trạng thái Ratatoss và hồ sơ Edge mới.
+
+| Mốc | Kết quả quan sát |
+| --- | --- |
+| Cài qua Setup | Giữ thư mục mặc định theo tài khoản, không nâng quyền. Setup trả mã 0 và log xác nhận chạy launcher với `--from-setup`. |
+| Bấm **Finish** một lần với **Mở Ratatoss** đang chọn | Edge tự mở tab `http://127.0.0.1:8765/`. Cửa sổ ban đầu trắng trong lúc tải, sau đó tab hiển thị tiêu đề Ratatoss, thanh điều hướng nền xanh đậm và ba khối nội dung **Gửi**, **Hoạt động**, **Thiết bị**. Không có hộp thoại lỗi, không dùng **Retry**, không tải lại tab và không chuyển tab để mở trang. |
+| Node sẵn sàng và tài nguyên loopback | Named pipe trả cổng `8765` sau 7,830 giây tính từ lúc launcher bắt đầu. Bộ đo kết nối sau khi Edge bắt đầu nên đây là cận trên. HTML (963 byte), CSS (848 byte) và health (58 byte) đều trả HTTP 200. |
+| Kiểm tra mã nguồn | Bộ test repo đạt 208 ca. Bộ test launcher đạt 8 ca, bỏ qua 1 ca dành cho bản đã cài trên máy build. Trình kiểm tra tài liệu gốc xác minh 9 tệp. |
