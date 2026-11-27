@@ -31,11 +31,20 @@ Mỗi lần gọi hiển thị lại từ snapshot. #9 giữ view model, xử l�
 truyền trạng thái mới từ Node. Script thường cho phép cùng bộ render chạy
 khi trình duyệt chặn ES module trên `file://`.
 
+Mỗi vùng Nhận giữ thao tác đang dở trong DOM của chính nó. Khi làm mới cùng
+`offer_id` và thao tác vẫn hợp lệ, checkbox giữ lựa chọn người dùng đã chỉnh,
+còn hộp thoại rút giữ bước xác nhận và tiêu điểm. Giá trị `allow_forward` từ
+snapshot cập nhật mặc định đến khi người dùng chỉnh checkbox. Đổi offer, đổi
+loại thao tác, gửi xác nhận hoặc mất quyền thao tác sẽ xóa phần chỉnh đang dở
+và đóng hộp thoại. Khi thử lại sau khi gửi, #9 truyền `allow_forward` đã chọn
+trong snapshot mới nếu muốn khôi phục lựa chọn đó.
+
 | View | Trường | Ý nghĩa |
 | --- | --- | --- |
 | `OfferView` | `offer_id`, `source_name`, `file_name`, `size_bytes`, `expires_at` | ID offer, tên nguồn công bố, tên tệp, số byte và thời hạn ISO. Hiển thị thời hạn theo múi giờ của trình duyệt. |
 | `OfferView` | `save_location`, `reason` | Vị trí lưu do Node quản lý và lý do hiển thị đã lọc bí mật. Chưa có giá trị thì truyền `null`. |
-| `OfferView` | `state`, `ui`, `allow_forward` | Trạng thái offer `PENDING\|ACCEPTED\|DECLINED\|EXPIRED\|REVOKED`, trạng thái UI `idle\|sending\|error` và tùy chọn chuyển tiếp mặc định `false`. Dùng thẻ `ACCEPTED` khi còn có thể rút. |
+| `OfferView` | `state`, `ui`, `allow_forward` | Trạng thái offer `PENDING\|ACCEPTED\|DECLINED\|EXPIRED\|REVOKED`, trạng thái UI `idle\|sending\|error` và tùy chọn chuyển tiếp mặc định `false`. |
+| `OfferView` | `can_act` (tùy chọn) | Mặc định `true`. Truyền `false` khi Node xác định offer `PENDING` đã mất quyền quyết định hoặc offer `ACCEPTED` đã mất quyền rút. |
 | `ProgressView` | `job_id`, `total_bytes`, `verified_bytes` | ID job, tổng byte và byte đã xác minh. Sau đối chiếu, snapshot có thể trả ít byte đã xác minh hơn snapshot trước. |
 | `ProgressView` | `activity`, `connection`, `rechecking` | Danh sách hoạt động từ `downloading\|verifying\|forwarding\|assembling`, trạng thái kết nối `ok\|peer_offline\|controller_offline\|waiting_source` và cờ đang kiểm tra lại dữ liệu. |
 | `ProgressView` | `receipt`, `file_verified`, `location` | `pending\|sent`, cờ Node đã xác minh và công bố tệp cuối, vị trí tệp hoặc `null`. Trạng thái xác minh và vị trí phụ thuộc vào `file_verified`. |

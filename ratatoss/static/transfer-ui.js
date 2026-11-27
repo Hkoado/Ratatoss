@@ -64,13 +64,22 @@
     return content;
   }
 
-  function replaceView(root, content, announcement) {
+  function replaceView(root, content, announcement, retainedControls = null) {
     const active = document.activeElement;
     const hadFocus = root.contains(active);
     const focusKey = active?.dataset.transferFocus;
+    const previous = root.firstElementChild;
+    const sameItem = previous?.dataset.offerId === content.dataset.offerId;
     let live = root.querySelector(":scope > .rt-transfer-live");
-    if (live) {
-      root.firstElementChild.replaceWith(content);
+    if (retainedControls) {
+      // Keep the controls mounted so a native modal and its focus stay intact.
+      for (const child of [...previous.children]) {
+        if (child !== retainedControls) child.remove();
+      }
+      retainedControls.before(...content.children);
+    } else if (live) {
+      previous.querySelector("dialog[open]")?.close();
+      previous.replaceWith(content);
     } else {
       live = element("div", "rt-transfer-live");
       live.setAttribute("aria-live", "polite");
@@ -78,10 +87,10 @@
       root.replaceChildren(content, live);
     }
     if (live.textContent !== announcement) live.textContent = announcement;
-    if (hadFocus) {
-      const controls = [...content.querySelectorAll("[data-transfer-focus]")];
-      const target = controls.find((control) => control.dataset.transferFocus === focusKey
-        && !control.closest("dialog:not([open])"));
+    if (hadFocus && !root.contains(active)) {
+      const controls = [...root.firstElementChild.querySelectorAll("[data-transfer-focus]")];
+      const target = sameItem ? controls.find((control) => control.dataset.transferFocus === focusKey
+        && !control.closest("dialog:not([open])")) : null;
       (target ?? controls[0]).focus({ preventScroll: true });
     }
   }
@@ -97,18 +106,17 @@
     return time;
   }
 
-  function consentControls(root, view) {
+  function consentControls(root, offerId) {
     const group = element("div", "rt-transfer-consent");
     const label = element("label", "rt-transfer-forward");
     const forward = element("input", "rt-transfer-checkbox");
     forward.type = "checkbox";
-    forward.checked = view.allow_forward === true;
     forward.dataset.transferFocus = "forward";
     label.append(forward, "Cho phép chuyển tiếp trong lượt gửi này");
 
     const actions = element("div", "rt-transfer-actions");
     const decide = (decision) => emit(root, "ratatoss:offer-decision", {
-      offer_id: view.offer_id, decision, allow_forward: decision === "ACCEPT" && forward.checked,
+      offer_id: offerId, decision, allow_forward: decision === "ACCEPT" && forward.checked,
     });
     actions.append(
       button("Chấp nhận", "accept", () => decide("ACCEPT"), true),
@@ -122,7 +130,10 @@
     const actions = element("div", "rt-transfer-actions");
     const dialog = element("dialog", "rt-transfer-dialog");
     dialog.setAttribute("aria-label", "Rút khỏi lượt gửi");
-    const trigger = button("Rút khỏi lượt gửi", "withdraw", () => dialog.showModal());
+    const trigger = button("Rút khỏi lượt gửi", "withdraw", () => {
+      trigger.focus({ preventScroll: true });
+      dialog.showModal();
+    });
     const cancel = button("Quay lại", "cancel-withdraw", () => dialog.close());
     cancel.autofocus = true;
     const confirm = button("Xác nhận rút", "confirm-withdraw", () => {
@@ -146,6 +157,7 @@
     const tone = error || view.state === "REVOKED" ? "danger"
       : view.state === "EXPIRED" ? "warning" : "neutral";
     const content = card("Nhận", status, tone);
+    content.dataset.offerId = view.offer_id;
     const details = element("dl", "rt-transfer-details");
     field(details, "Tệp", view.file_name);
     field(details, "Người gửi", view.source_name);
@@ -155,11 +167,26 @@
     content.append(details);
 
     if (view.reason) content.append(element("p", "rt-transfer-note", view.reason));
-    if (!sending && view.state === "PENDING") content.append(consentControls(root, view));
-    if (!sending && view.state === "ACCEPTED") {
-      content.append(withdrawControls(root, view.offer_id));
+    let retainedControls = null;
+    if (actionable && !sending && view.can_act !== false) {
+      const previous = root.firstElementChild;
+      const existing = previous?.lastElementChild;
+      if (previous?.dataset.offerId === view.offer_id
+          && existing?.dataset.offerAction === view.state) {
+        retainedControls = existing;
+      }
+      const controls = retainedControls ?? (view.state === "PENDING"
+        ? consentControls(root, view.offer_id) : withdrawControls(root, view.offer_id));
+      if (view.state === "PENDING") {
+        // The default follows the snapshot. Native checkbox edits keep their value.
+        controls.querySelector(".rt-transfer-checkbox").defaultChecked = view.allow_forward === true;
+      }
+      if (!retainedControls) {
+        controls.dataset.offerAction = view.state;
+        content.append(controls);
+      }
     }
-    replaceView(root, content, [status, view.reason].filter(Boolean).join(". "));
+    replaceView(root, content, [status, view.reason].filter(Boolean).join(". "), retainedControls);
   }
 
   function etaText(eta) {
