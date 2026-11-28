@@ -3,22 +3,127 @@
   "parent_issue": 60,
   "recipient_issue": 9,
   "status": "blocked",
-  "prepared_at": "2026-11-28T03:40:00+07:00",
-  "source_commit": "28bdfce260f77ab469014bb292a8ecfdc4a37905",
+  "prepared_at": "2026-11-28T23:08:00+07:00",
+  "source_commit": "09c1056020a1b60774b1d8c7f8cddb85fa6af206",
   "sources": [
     "bench/artifacts/r14-preflight/README.md",
+    "bench/artifacts/r14-preflight/windows-loopback/relay.json",
+    "bench/artifacts/r14-preflight/windows-loopback/network.json",
     "bench/artifacts/r22-preflight/fixture-hashes.json",
     "bench/artifacts/r02/batch-profiles.json",
-    "spec/governance/adr/0002-plars-integration-order.md"
+    "spec/governance/adr/0002-plars-integration-order.md",
+    "ratatoss/controller/config.py",
+    "ratatoss/controller/schedule.py",
+    "ratatoss/transport.py"
   ],
   "controller": {
-    "host_node": null,
-    "ui_api_bind": "127.0.0.1 (loopback bắt buộc theo #9)",
-    "listen_port": null,
-    "confirmation_status": "pending"
+    "host_node": "A",
+    "listen_host": "127.0.0.1",
+    "listen_port": 9443,
+    "protocol": "https",
+    "tls_trust_model": "Chứng thư cục bộ có SAN IP:127.0.0.1 và CA riêng tin cậy bởi 3 Node; --ssl-certfile, --ssl-keyfile và --pair-key-file (64 hex) sinh ngoài repo và lược khỏi mọi hiện vật.",
+    "ui_api_bind": "127.0.0.1 (loopback bắt buộc theo #9; cổng gợi ý Node A=8765, Node B=8766, Node C=8767 với --data-dir riêng)",
+    "separate_listener_and_storage_from_nodes": true,
+    "schedule_policy": "fixed_schedule với lan_peers = [B, C], link loopback (max_sessions = 2), routes A->B, A->C, B->C, fallbacks = {} (origin A là fallback mặc định trong FixedSchedule.sources)",
+    "controller_config_toml_spec": {
+      "max_sessions": 2,
+      "lan_peers": [
+        "B",
+        "C"
+      ],
+      "links": {
+        "loopback": {
+          "max_sessions": 2,
+          "benchmark": {
+            "path": "../r02/batch-profiles.json",
+            "profile": "64"
+          }
+        }
+      },
+      "routes": [
+        {
+          "source": "A",
+          "target": "B",
+          "link": "loopback"
+        },
+        {
+          "source": "A",
+          "target": "C",
+          "link": "loopback",
+          "note": "Bắt buộc khai để fallback từ A ở batch 0 và nhận trực tiếp batch 1 không bị _usable_route trả None"
+        },
+        {
+          "source": "B",
+          "target": "C",
+          "link": "loopback"
+        }
+      ],
+      "fallbacks": {},
+      "fallbacks_note": "FixedSchedule.sources() tự thêm origin (A) ở cuối danh sách nguồn; giữ fallbacks rỗng và khai rõ route A->C để fallback hoạt động.",
+      "consent_and_reconcile_order": "Để ca chính quan sát được assignment đầu tiên A->B rồi chặng chuyển tiếp B->C cho batch 0 của C, B phải đồng ý nhận (ACCEPT), bật allow_forward = true và reconcile trước C. Nếu C đồng ý và reconcile trong khi B còn chờ đồng ý hoặc chưa reconcile, _wait_for_forwarder() trả False nên assignment đầu tiên là A->C (hành vi fallback hợp lệ khi B chưa sẵn sàng).",
+      "expected_sources_for_a_128mib": {
+        "target_B": {
+          "batch_0": {
+            "sources": [
+              "A"
+            ],
+            "expected_transfer": "A->B"
+          },
+          "batch_1": {
+            "sources": [
+              "C",
+              "A"
+            ],
+            "expected_transfer": "A->B (bỏ qua C vì không có route C->B và C có allow_forward = false)"
+          }
+        },
+        "target_C": {
+          "batch_0": {
+            "sources": [
+              "B",
+              "A"
+            ],
+            "expected_transfer": "Khi B đã ACCEPT (allow_forward = true) và reconcile trước C: assignment đầu tiên là A->B (_wait_for_forwarder trả True), sau khi B xác minh và ACK batch 0 mới cấp B->C. Nếu B chưa sẵn sàng (chưa đồng ý/chưa reconcile) hoặc lỗi/offline, A->C là hành vi fallback hợp lệ."
+          },
+          "batch_1": {
+            "sources": [
+              "A"
+            ],
+            "expected_transfer": "A->C trực tiếp"
+          }
+        }
+      },
+      "expected_sources_for_a_64mib": {
+        "target_B": {
+          "batch_0": {
+            "sources": [
+              "A"
+            ],
+            "expected_transfer": "A->B"
+          }
+        },
+        "target_C": {
+          "batch_0": {
+            "sources": [
+              "B",
+              "A"
+            ],
+            "expected_transfer": "Khi B đã ACCEPT (allow_forward = true) và reconcile trước C: cấp A->B trước rồi B->C; nếu B chưa sẵn sàng hoặc lỗi/offline, A->C là hành vi fallback hợp lệ."
+          }
+        }
+      }
+    },
+    "confirmation_status": "pending",
+    "confirmation_ref": null
   },
   "croc": {
     "version": "11.6.5",
+    "selected_executable_key": "windows_x64_node_a",
+    "selected_executable_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "locked_flags": [
+      "--disable-clipboard",
+      "--no-update-check"
+    ],
     "verified_executables": {
       "windows_x64_node_a": {
         "sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
@@ -34,8 +139,8 @@
       },
       "windows_x64_node_d": {
         "sha256": null,
-        "status": "pending_if_d_selected",
-        "note": "D đã chạy Croc v11.6.5 nhận a-32mib.bin ở #60 nhưng chưa ghi SHA-256 executable tại D."
+        "status": "not_selected_for_r13_smoke",
+        "note": "D đã chạy Croc v11.6.5 nhận a-32mib.bin ở #60 nhưng không tham gia ca smoke loopback của R1.3; giữ kiểm chứng thêm cho ca bốn Node ở #11."
       }
     }
   },
@@ -72,11 +177,42 @@
         "sha256": "f9205ac9406aed59a117658ac37648e3c85a49a9b2a37a2a349a55101750b5f8"
       }
     ],
-    "selected_for_r13_smoke": null
+    "selected_for_r13_smoke": {
+      "primary_multi_batch": {
+        "file": "fixture/a-128mib.bin",
+        "bytes": 134217728,
+        "sha256": "cdf2287f633d6558a33bcdbbfd6428708c8f869b3fc4ffb3cca88366703a353c",
+        "batch_size_bytes": 67108864,
+        "piece_size_bytes": 4194304,
+        "batch_count": 2,
+        "purpose": "Ca smoke chính 2 batch x 64 MiB kiểm tra consent, lịch cố định với chặng B->C (batch 0) và A->C (batch 1), ACK, lease và lưu bền"
+      },
+      "secondary_reverse_or_single_batch": {
+        "file": "fixture/a-64mib.bin",
+        "bytes": 67108864,
+        "sha256": "545a0e718c1a1584c397c853018a16581a31cd66377209041f0984778a4a6a67",
+        "batch_size_bytes": 67108864,
+        "piece_size_bytes": 4194304,
+        "batch_count": 1,
+        "purpose": "Ca phụ 1 batch 64 MiB cho kiểm chứng nhanh hoặc job chiều ngược"
+      }
+    }
   },
   "network_and_relay": {
-    "selected_profile": null,
+    "selected_profile": "windows-ipv4-loopback",
     "confirmation_status": "pending",
+    "confirmation_ref": null,
+    "locked_relay_config": {
+      "host": "127.0.0.1",
+      "ports": [
+        19009,
+        19010
+      ],
+      "transport": "relay",
+      "authentication": "random per run (truyền qua môi trường/cờ cục bộ, lược khỏi mọi log và hiện vật)",
+      "reference": "bench/artifacts/r14-preflight/windows-loopback/relay.json"
+    },
+    "adapter_compatibility_note": "Tương thích trực tiếp với ratatoss/transport.py trên main (RelayProfile IPv4 và WINDOWS_X64_SHA256); không phụ thuộc PR #80 (Tailcat) hay máy D.",
     "available_profiles_from_r14_preflight": {
       "windows-ipv4-loopback": {
         "topology": "A->relay->B; B->relay->C (127.0.0.1:19009-19010)",
@@ -100,9 +236,17 @@
     "secret_handling": "Truyền mã phiên qua CROC_SECRET riêng của child process; lược token, mã Croc, --pass relay và dữ liệu người dùng khỏi mọi log và hiện vật."
   },
   "rx_tx_limits_and_budget": {
-    "selected_rx_slots": null,
-    "selected_tx_slots": null,
+    "selected_rx_slots": 1,
+    "selected_tx_slots": 1,
+    "controller_max_sessions": 2,
+    "link_name": "loopback",
+    "link_max_sessions": 2,
+    "selected_benchmark_reference": {
+      "path": "../r02/batch-profiles.json",
+      "profile": "64"
+    },
     "confirmation_status": "pending",
+    "confirmation_ref": null,
     "r02_reference_budget": {
       "selected_batch_mib": 64,
       "min_goodput_bps": 100000000,
@@ -118,9 +262,7 @@
     }
   },
   "missing_confirmations": [
-    "Chốt vị trí chạy controller và cấu hình kết nối/cổng cho ca smoke #9.",
-    "Chốt profile mạng và relay/tuyến áp dụng cho ca smoke (loopback, relay nội bộ/công cộng, hay Tailcat IPv6) cùng cờ Croc khóa.",
-    "Chốt fixture sử dụng và giới hạn slot RX/TX cho ca smoke lịch cố định.",
-    "Bổ sung SHA-256 executable Croc tại D (và đối chiếu thêm fixture nếu cần) trong trường hợp D tham gia ca smoke."
+    "Chờ @Hkoado xác nhận trên #69 phương án controller/lịch FixedSchedule (routes A->B, A->C, B->C; lan_peers = [B, C]; fallbacks = {}), profile windows-ipv4-loopback, fixture a-128mib.bin/a-64mib.bin và giới hạn 1 RX / 1 TX.",
+    "Gắn link comment xác nhận của @Hkoado trên #69 vào confirmation_ref của ba khối controller, network_and_relay và rx_tx_limits_and_budget trước khi chuyển readiness sang pass."
   ]
 }

@@ -3,16 +3,16 @@
     "test-nodes": {
       "status": "blocked",
       "evidence": {
-        "test-nodes.json": "63ba7eaba075d26a4b71a219922b708c4c7ac42381f21013e21ddb85a74c2d3e"
+        "test-nodes.json": "ac3af378cea0da59c0cdeb43961bf40e3207d8520161a8ae5fd1d78bb45b848f"
       },
-      "reason": "Đã đối chiếu hồ sơ đầu mút A/B/C/D từ #60 (OS/build, kiến trúc, vị trí fixture). Còn chờ @Hkoado và người phụ trách máy xác nhận: danh sách máy và vai trò nguồn/đích dùng cho ca smoke #9, quyền cài/chạy ứng viên tích hợp và khung thời gian kèm múi giờ UTC+07:00."
+      "reason": "Đã soạn phương án đề xuất cho ca smoke R1.3 (máy A Windows 11 Pro 23H2 x64 chạy controller và 3 Node loopback tách biệt). Còn chờ @Hkoado xác nhận trực tiếp trên #69 về máy, quyền cài/chạy 4 tiến trình và khung giờ UTC+07:00 để gắn vào evidence_ref trước khi chuyển sang pass."
     },
     "integration-config": {
       "status": "blocked",
       "evidence": {
-        "integration-config.json": "85a5994683e63ff5f01c5d0f3d409f1e9f504d1f1c1c4d2e2bb1ff9c66f28594"
+        "integration-config.json": "6ec913e37ac4296dd0324f638ab56856a28b762267b937815cad4483f127a674"
       },
-      "reason": "Đã đối chiếu pin Croc v11.6.5 (A, B/C), 6 fixture đã xác minh SHA-256 và ngân sách tham chiếu R0.2 từ #6/#60. Còn chờ @Hkoado chốt: vị trí chạy controller và cổng, profile mạng/relay cùng cờ Croc khóa cho ca smoke, fixture chọn dùng, giới hạn slot RX/TX, và SHA-256 executable Croc tại D nếu D tham gia."
+      "reason": "Đã bổ sung đặc tả ControllerConfig/FixedSchedule (routes A->B, A->C, B->C; lan_peers = [B, C]; fallbacks = {}; link loopback; thứ tự B ACCEPT allow_forward + reconcile trước C để kiểm chặng B->C), Croc v11.6.5 Windows x64, relay 127.0.0.1:19009-19010, fixture a-128mib.bin/a-64mib.bin, giới hạn 1 RX / 1 TX và ngân sách R0.2 64 MiB. Còn chờ @Hkoado xác nhận trên #69 và gắn confirmation_ref trước khi chuyển sang pass."
     }
   }
 }
