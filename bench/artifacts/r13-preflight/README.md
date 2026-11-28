@@ -26,7 +26,9 @@ Tệp tổng hợp trạng thái: [`readiness.json`](readiness.json).
 | Đích | Batch 0 (chẵn) | Batch 1 (lẻ) | Hành vi mong đợi khi `issue_assignments` chạy |
 | --- | --- | --- | --- |
 | **B** | `('A',)` | `('C', 'A')` | Cả 2 batch nhận từ **A** (`A->B`); batch 1 bỏ qua C vì không có route `C->B` và C không cho chuyển tiếp. |
-| **C** | `('B', 'A')` | `('A',)` | Batch 0 chờ `A->B` rồi nhận forward **B->C** (fallback **A->C** nếu B lỗi/offline vì đã khai route `A->C`); Batch 1 nhận thẳng **A->C**. |
+| **C** | `('B', 'A')` | `('A',)` | **Điều kiện quan sát `B->C`:** B phải đồng ý nhận (`ACCEPT`), bật `allow_forward = true` và `reconcile` **trước C** → assignment đầu tiên là `A->B`, sau khi B ACK batch 0 mới cấp `B->C`. Nếu C đồng ý và `reconcile` khi B còn chờ đồng ý/chưa `reconcile` (hoặc B lỗi/offline), `A->C` là hành vi fallback hợp lệ. Batch 1 nhận thẳng `A->C`. |
+
+> **Điều kiện thứ tự cho ca chính (`#9`):** Để kiểm chứng được chặng chuyển tiếp `B->C` với `FixedSchedule` và SQLite registry, thực hiện `ACCEPT` (`allow_forward = true`) và `reconcile` cho **B trước C**; khi B chưa sẵn sàng, controller cấp `A->C` theo đúng fallback hợp lệ.
 
 ## Các đầu mục chờ `@Hkoado` xác nhận trên `#69` để chuyển sang `pass`
 

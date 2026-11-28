@@ -10,9 +10,9 @@
     "integration-config": {
       "status": "blocked",
       "evidence": {
-        "integration-config.json": "5b9a5285b16ec4efdf15f2212479772ab4b4ab42376fdae8f1466c37ee37132f"
+        "integration-config.json": "6ec913e37ac4296dd0324f638ab56856a28b762267b937815cad4483f127a674"
       },
-      "reason": "Đã bổ sung đặc tả ControllerConfig/FixedSchedule (routes A->B, A->C, B->C; lan_peers = [B, C]; fallbacks = {}; link loopback), Croc v11.6.5 Windows x64, relay 127.0.0.1:19009-19010, fixture a-128mib.bin/a-64mib.bin, giới hạn 1 RX / 1 TX và ngân sách R0.2 64 MiB. Còn chờ @Hkoado xác nhận trên #69 và gắn confirmation_ref trước khi chuyển sang pass."
+      "reason": "Đã bổ sung đặc tả ControllerConfig/FixedSchedule (routes A->B, A->C, B->C; lan_peers = [B, C]; fallbacks = {}; link loopback; thứ tự B ACCEPT allow_forward + reconcile trước C để kiểm chặng B->C), Croc v11.6.5 Windows x64, relay 127.0.0.1:19009-19010, fixture a-128mib.bin/a-64mib.bin, giới hạn 1 RX / 1 TX và ngân sách R0.2 64 MiB. Còn chờ @Hkoado xác nhận trên #69 và gắn confirmation_ref trước khi chuyển sang pass."
     }
   }
 }

@@ -3,7 +3,7 @@
   "parent_issue": 60,
   "recipient_issue": 9,
   "status": "blocked",
-  "prepared_at": "2026-11-28T21:51:00+07:00",
+  "prepared_at": "2026-11-28T23:08:00+07:00",
   "source_commit": "09c1056020a1b60774b1d8c7f8cddb85fa6af206",
   "sources": [
     "bench/artifacts/r14-preflight/README.md",
@@ -60,6 +60,7 @@
       ],
       "fallbacks": {},
       "fallbacks_note": "FixedSchedule.sources() tự thêm origin (A) ở cuối danh sách nguồn; giữ fallbacks rỗng và khai rõ route A->C để fallback hoạt động.",
+      "consent_and_reconcile_order": "Để ca chính quan sát được assignment đầu tiên A->B rồi chặng chuyển tiếp B->C cho batch 0 của C, B phải đồng ý nhận (ACCEPT), bật allow_forward = true và reconcile trước C. Nếu C đồng ý và reconcile trong khi B còn chờ đồng ý hoặc chưa reconcile, _wait_for_forwarder() trả False nên assignment đầu tiên là A->C (hành vi fallback hợp lệ khi B chưa sẵn sàng).",
       "expected_sources_for_a_128mib": {
         "target_B": {
           "batch_0": {
@@ -82,7 +83,7 @@
               "B",
               "A"
             ],
-            "expected_transfer": "B->C sau khi A->B hoàn tất (_wait_for_forwarder chờ hop đầu); fallback A->C nếu B lỗi/offline"
+            "expected_transfer": "Khi B đã ACCEPT (allow_forward = true) và reconcile trước C: assignment đầu tiên là A->B (_wait_for_forwarder trả True), sau khi B xác minh và ACK batch 0 mới cấp B->C. Nếu B chưa sẵn sàng (chưa đồng ý/chưa reconcile) hoặc lỗi/offline, A->C là hành vi fallback hợp lệ."
           },
           "batch_1": {
             "sources": [
@@ -107,7 +108,7 @@
               "B",
               "A"
             ],
-            "expected_transfer": "B->C sau A->B; fallback A->C nếu B lỗi/offline"
+            "expected_transfer": "Khi B đã ACCEPT (allow_forward = true) và reconcile trước C: cấp A->B trước rồi B->C; nếu B chưa sẵn sàng hoặc lỗi/offline, A->C là hành vi fallback hợp lệ."
           }
         }
       }
