@@ -46,6 +46,7 @@ class TestSummarizeR22(unittest.TestCase):
             "gate": "gate2",
             "scenario": "shared-wan",
             "baseline": baseline,
+            "repeat": "1",
             "status": status,
             "makespan_ms": makespan,
             "source_payload_bytes": "100",
@@ -137,6 +138,9 @@ class TestSummarizeR22(unittest.TestCase):
             self.run_row("plars-b", makespan="140"),
             self.run_row("static", baseline="plars_static", makespan="90"),
             self.run_row("direct", baseline="direct", makespan="1"),
+            *[self.run_row(f"plars-fail-{index}", status="fail", makespan="999") for index in range(3)],
+            *[self.run_row(f"static-timeout-{index}", baseline="plars_static", status="timeout", makespan="")
+              for index in range(4)],
         ]
         configurations = {
             "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
@@ -146,24 +150,88 @@ class TestSummarizeR22(unittest.TestCase):
         self.assertEqual(comparison, {
             "scenario": "shared-wan", "configuration": "wan", "control": "plars_static",
             "status": "compared", "plars_count": 2, "control_count": 1,
+            "plars_performed": 5, "control_performed": 5,
             "plars_median_ms": 120, "control_median_ms": 90, "plars_slower": True,
         })
 
     def test_skips_heterogeneous_and_insufficient_comparisons(self):
-        configurations = {"wan": {"run_ids": ["p", "s"], "matched_controls": ["plars_static"]}}
         for overrides, expected in (
             ({"rx_slots": "8"}, "unmatched_csv_conditions"),
             ({"file_bytes": ""}, "unmatched_csv_conditions"),
             ({"makespan_ms": ""}, "insufficient_makespan"),
         ):
             with self.subTest(overrides=overrides):
-                report = self.summarize([
-                    self.run_row("p"),
-                    self.run_row("s", baseline="plars_static", **overrides),
-                ], configurations)
+                rows = [
+                    *[self.run_row(f"p-{index}") for index in range(5)],
+                    *[self.run_row(f"s-{index}", baseline="plars_static", **overrides) for index in range(5)],
+                ]
+                report = self.summarize(rows, {
+                    "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
+                })
                 comparison, = report["comparisons"]
                 self.assertEqual(comparison["status"], expected)
                 self.assertNotIn("plars_slower", comparison)
+
+    def test_wan_bytes_are_partitioned_by_scope(self):
+        rows = [
+            self.run_row("uplink-first", wan_wire_bytes="100", wan_measurement_scope="source uplink"),
+            self.run_row("uplink-second", wan_wire_bytes="140", wan_measurement_scope="source uplink"),
+            self.run_row("relay", wan_wire_bytes="900", wan_measurement_scope="relay legs"),
+            self.run_row("unknown-scope", wan_wire_bytes="350"),
+            self.run_row("failed", status="fail", wan_wire_bytes="99", wan_measurement_scope="source uplink"),
+            self.run_row("missing-value", wan_measurement_scope="relay legs"),
+        ]
+        group, = self.summarize(rows, {"wan": {"run_ids": [row["run_id"] for row in rows]}})["groups"]
+        self.assertNotIn("wan_wire_bytes", group["passing_measurement_stats"])
+        self.assertEqual(group["passing_wan_wire_bytes_by_scope"], {
+            "source uplink": {"count": 2, "median": 120, "min": 100, "max": 140},
+            "relay legs": {"count": 1, "median": 900, "min": 900, "max": 900},
+        })
+        self.assertEqual(group["unscoped_passing_wan_wire_bytes_count"], 1)
+        self.assertEqual(group["runs"][0]["wan_measurement_scope"], "source uplink")
+        self.assertEqual(group["runs"][3]["measurements"]["wan_wire_bytes"], 350)
+        self.assertIsNone(group["runs"][5]["measurements"]["wan_wire_bytes"])
+
+    def test_warmups_and_unperformed_runs_cannot_satisfy_minimum(self):
+        rows = [
+            self.run_row("p", makespan="140"),
+            self.run_row("s", baseline="plars_static", makespan="90"),
+            self.run_row("warmup", makespan="999", repeat="0", rx_slots="8"),
+            *[self.run_row(f"not-run-{index}", status="not_run", makespan="") for index in range(4)],
+            *[self.run_row(f"blocked-{index}", baseline="plars_static", status="blocked", makespan="")
+              for index in range(4)],
+        ]
+        report = self.summarize(rows, {
+            "wan": {"run_ids": [row["run_id"] for row in rows if row["run_id"] != "warmup"],
+                    "matched_controls": ["plars_static"]},
+        })
+        comparison, = report["comparisons"]
+        self.assertEqual(comparison["status"], "insufficient_performed_runs")
+        self.assertEqual((comparison["plars_performed"], comparison["control_performed"]), (1, 1))
+        self.assertNotIn("plars_slower", comparison)
+        plars = report["groups"][0]
+        self.assertEqual((plars["passed"], plars["total"]), (1, 5))
+        self.assertEqual(plars["passing_measurement_stats"]["makespan_ms"]["median"], 140)
+        warmup, = report["excluded_warmups"]
+        self.assertEqual(warmup["run_id"], "warmup")
+        self.assertEqual(warmup["repeat"], 0)
+
+    def test_failed_run_with_conflicting_conditions_invalidates_comparison(self):
+        rows = [
+            *[self.run_row(f"p-{index}") for index in range(4)],
+            self.run_row("timeout", status="timeout", makespan="", rx_slots="8"),
+            *[self.run_row(f"s-{index}", baseline="plars_static") for index in range(5)],
+        ]
+        report = self.summarize(rows, {
+            "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
+        })
+        comparison, = report["comparisons"]
+        self.assertEqual(comparison["status"], "unmatched_csv_conditions")
+        self.assertNotIn("plars_slower", comparison)
+        self.assertEqual(comparison["condition_conflicts"]["rx_slots"]["8"], ["timeout"])
+        plars = report["groups"][0]
+        self.assertEqual(plars["condition_conflicts"]["rx_slots"]["8"], ["timeout"])
+        self.assertEqual(plars["runs"][-1]["evidence_ref"], "evidence/timeout.json")
 
     def test_reuses_csv_validator_for_transfer_references_and_missing_notes(self):
         self.write_csv(self.transfers, self.headers["transfers"], [{
