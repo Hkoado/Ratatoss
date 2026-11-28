@@ -1,0 +1,190 @@
+import csv
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+class TestSummarizeR22(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        roots = [Path(__file__).resolve().parent.parent]
+        if "GITHUB_WORKSPACE" in os.environ:
+            roots.append(Path(os.environ["GITHUB_WORKSPACE"]))
+        for root in roots:
+            script = root / "scripts" / "summarize_r22.py"
+            if script.is_file():
+                cls.script = script
+                cls.headers = {}
+                for name in ("runs", "transfers"):
+                    with (root / "bench" / f"{name}.csv").open(encoding="utf-8-sig", newline="") as source:
+                        cls.headers[name] = next(csv.reader(source))
+                return
+        raise unittest.SkipTest("scripts/summarize_r22.py not found outside repository")
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.runs = root / "runs.csv"
+        self.transfers = root / "transfers.csv"
+        self.configurations = root / "configurations.json"
+        self.write_csv(self.transfers, self.headers["transfers"], [])
+
+    def write_csv(self, path, fields, rows):
+        with path.open("w", encoding="utf-8-sig", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def run_row(self, run_id, baseline="plars", status="pass", makespan="20", **overrides):
+        return {
+            "run_id": run_id,
+            "gate": "gate2",
+            "scenario": "shared-wan",
+            "baseline": baseline,
+            "status": status,
+            "makespan_ms": makespan,
+            "source_payload_bytes": "100",
+            "commit": "synthetic-revision",
+            "os": "synthetic-os",
+            "croc_version": "synthetic-version",
+            "croc_sha256": "a" * 64,
+            "relay_config": "synthetic-relay",
+            "network_profile": "synthetic-network",
+            "fixture_sha256": "b" * 64,
+            "file_bytes": "100",
+            "batch_mib": "64",
+            "rx_slots": "2",
+            "tx_slots": "1",
+            "evidence_ref": f"evidence/{run_id}.json",
+            "notes": "Synthetic fixture. Unused fields were not measured.",
+            **overrides,
+        }
+
+    def invoke(self, rows, configurations):
+        self.write_csv(self.runs, self.headers["runs"], rows)
+        self.configurations.write_text(json.dumps(configurations), encoding="utf-8")
+        paths = [self.runs, self.transfers, self.configurations]
+        before = [path.read_bytes() for path in paths]
+        result = subprocess.run(
+            [sys.executable, str(self.script), *map(str, paths)], capture_output=True, text=True,
+        )
+        self.assertEqual([path.read_bytes() for path in paths], before)
+        return result
+
+    def summarize(self, rows, configurations):
+        result = self.invoke(rows, configurations)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_header_only_csvs_return_an_empty_report(self):
+        report = self.summarize([], {})
+        self.assertEqual(report["groups"], [])
+        self.assertEqual(report["comparisons"], [])
+
+    def test_status_counts_raw_references_and_stats_from_passing_runs(self):
+        rows = [
+            self.run_row("first", makespan="10.5"),
+            self.run_row("second", makespan="20.5"),
+            self.run_row("unknown", makespan="", notes="Final receipt missing."),
+            self.run_row("failed", "plars", "fail", "999"),
+            self.run_row("timed-out", "plars", "timeout", "", notes="Timed out."),
+        ]
+        report = self.summarize(rows, {"wan": {"run_ids": [row["run_id"] for row in rows]}})
+        group, = report["groups"]
+        self.assertEqual((group["passed"], group["total"]), (3, 5))
+        self.assertEqual(group["status_counts"], {"pass": 3, "fail": 1, "timeout": 1})
+        self.assertEqual(group["passing_measurement_stats"]["makespan_ms"], {
+            "count": 2, "median": 15.5, "min": 10.5, "max": 20.5,
+        })
+        self.assertEqual(group["passing_measurement_stats"]["source_payload_bytes"]["count"], 3)
+        self.assertEqual(group["passing_measurement_stats"]["recovery_ms"], {
+            "count": 0, "median": None, "min": None, "max": None,
+        })
+        run = group["runs"][2]
+        self.assertEqual(run["evidence_ref"], "evidence/unknown.json")
+        self.assertEqual(run["source_csv_line"], 4)
+        self.assertIsNone(run["measurements"]["makespan_ms"])
+        self.assertEqual(run["notes"], "Final receipt missing.")
+
+    def test_groups_by_scenario_configuration_and_baseline(self):
+        rows = [
+            self.run_row("one"),
+            self.run_row("two", baseline="direct"),
+            self.run_row("three"),
+            self.run_row("four", scenario="c-offline"),
+        ]
+        report = self.summarize(rows, {
+            "small": {"run_ids": ["one", "two", "four"]},
+            "large": {"run_ids": ["three"]},
+        })
+        self.assertCountEqual(
+            [(group["scenario"], group["configuration"], group["baseline"]) for group in report["groups"]],
+            [
+                ("shared-wan", "small", "plars"), ("shared-wan", "small", "direct"),
+                ("shared-wan", "large", "plars"), ("c-offline", "small", "plars"),
+            ],
+        )
+        self.assertEqual(report["comparisons"], [])
+
+    def test_flags_plars_loss_only_for_confirmed_matching_control(self):
+        rows = [
+            self.run_row("plars-a", makespan="100"),
+            self.run_row("plars-b", makespan="140"),
+            self.run_row("static", baseline="plars_static", makespan="90"),
+            self.run_row("direct", baseline="direct", makespan="1"),
+        ]
+        configurations = {
+            "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
+        }
+        report = self.summarize(rows, configurations)
+        comparison, = report["comparisons"]
+        self.assertEqual(comparison, {
+            "scenario": "shared-wan", "configuration": "wan", "control": "plars_static",
+            "status": "compared", "plars_count": 2, "control_count": 1,
+            "plars_median_ms": 120, "control_median_ms": 90, "plars_slower": True,
+        })
+
+    def test_skips_heterogeneous_and_insufficient_comparisons(self):
+        configurations = {"wan": {"run_ids": ["p", "s"], "matched_controls": ["plars_static"]}}
+        for overrides, expected in (
+            ({"rx_slots": "8"}, "unmatched_csv_conditions"),
+            ({"file_bytes": ""}, "unmatched_csv_conditions"),
+            ({"makespan_ms": ""}, "insufficient_makespan"),
+        ):
+            with self.subTest(overrides=overrides):
+                report = self.summarize([
+                    self.run_row("p"),
+                    self.run_row("s", baseline="plars_static", **overrides),
+                ], configurations)
+                comparison, = report["comparisons"]
+                self.assertEqual(comparison["status"], expected)
+                self.assertNotIn("plars_slower", comparison)
+
+    def test_reuses_csv_validator_for_transfer_references_and_missing_notes(self):
+        self.write_csv(self.transfers, self.headers["transfers"], [{
+            "run_id": "unknown", "status": "pass", "notes": "Synthetic fixture.",
+        }])
+        configurations = {"wan": {"run_ids": ["known"]}}
+        result = self.invoke([self.run_row("known", notes="")], configurations)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("measurement fields are empty without notes justification", result.stderr)
+        self.assertIn("run_id not found in runs.csv", result.stderr)
+
+    def test_rejects_invalid_measurements_and_ambiguous_assignments(self):
+        result = self.invoke([self.run_row("one", makespan="NaN")], {"wan": {"run_ids": ["one"]}})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("makespan_ms must be a finite nonnegative number", result.stderr)
+        for configurations, expected in (
+            ({"wan": {"run_ids": ["two"]}}, "Missing run assignments"),
+            ({"wan": {"run_ids": ["one"]}, "alt": {"run_ids": ["one"]}}, "assigned more than once"),
+        ):
+            with self.subTest(configurations=configurations):
+                result = self.invoke([self.run_row("one")], configurations)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
