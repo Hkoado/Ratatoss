@@ -2,8 +2,8 @@
   "issue": 69,
   "parent_issue": 60,
   "recipient_issue": 9,
-  "status": "pass",
-  "prepared_at": "2026-11-28T21:06:00+07:00",
+  "status": "blocked",
+  "prepared_at": "2026-11-28T21:51:00+07:00",
   "source_commit": "09c1056020a1b60774b1d8c7f8cddb85fa6af206",
   "sources": [
     "bench/artifacts/r14-preflight/README.md",
@@ -13,6 +13,7 @@
     "bench/artifacts/r02/batch-profiles.json",
     "spec/governance/adr/0002-plars-integration-order.md",
     "ratatoss/controller/config.py",
+    "ratatoss/controller/schedule.py",
     "ratatoss/transport.py"
   ],
   "controller": {
@@ -23,8 +24,96 @@
     "tls_trust_model": "Chứng thư cục bộ có SAN IP:127.0.0.1 và CA riêng tin cậy bởi 3 Node; --ssl-certfile, --ssl-keyfile và --pair-key-file (64 hex) sinh ngoài repo và lược khỏi mọi hiện vật.",
     "ui_api_bind": "127.0.0.1 (loopback bắt buộc theo #9; cổng gợi ý Node A=8765, Node B=8766, Node C=8767 với --data-dir riêng)",
     "separate_listener_and_storage_from_nodes": true,
-    "schedule_policy": "fixed_schedule (A->B, B->C, fallback C<-A; khớp ratatoss/controller/config.py)",
-    "confirmation_status": "confirmed"
+    "schedule_policy": "fixed_schedule với lan_peers = [B, C], link loopback (max_sessions = 2), routes A->B, A->C, B->C, fallbacks = {} (origin A là fallback mặc định trong FixedSchedule.sources)",
+    "controller_config_toml_spec": {
+      "max_sessions": 2,
+      "lan_peers": [
+        "B",
+        "C"
+      ],
+      "links": {
+        "loopback": {
+          "max_sessions": 2,
+          "benchmark": {
+            "path": "../r02/batch-profiles.json",
+            "profile": "64"
+          }
+        }
+      },
+      "routes": [
+        {
+          "source": "A",
+          "target": "B",
+          "link": "loopback"
+        },
+        {
+          "source": "A",
+          "target": "C",
+          "link": "loopback",
+          "note": "Bắt buộc khai để fallback từ A ở batch 0 và nhận trực tiếp batch 1 không bị _usable_route trả None"
+        },
+        {
+          "source": "B",
+          "target": "C",
+          "link": "loopback"
+        }
+      ],
+      "fallbacks": {},
+      "fallbacks_note": "FixedSchedule.sources() tự thêm origin (A) ở cuối danh sách nguồn; giữ fallbacks rỗng và khai rõ route A->C để fallback hoạt động.",
+      "expected_sources_for_a_128mib": {
+        "target_B": {
+          "batch_0": {
+            "sources": [
+              "A"
+            ],
+            "expected_transfer": "A->B"
+          },
+          "batch_1": {
+            "sources": [
+              "C",
+              "A"
+            ],
+            "expected_transfer": "A->B (bỏ qua C vì không có route C->B và C có allow_forward = false)"
+          }
+        },
+        "target_C": {
+          "batch_0": {
+            "sources": [
+              "B",
+              "A"
+            ],
+            "expected_transfer": "B->C sau khi A->B hoàn tất (_wait_for_forwarder chờ hop đầu); fallback A->C nếu B lỗi/offline"
+          },
+          "batch_1": {
+            "sources": [
+              "A"
+            ],
+            "expected_transfer": "A->C trực tiếp"
+          }
+        }
+      },
+      "expected_sources_for_a_64mib": {
+        "target_B": {
+          "batch_0": {
+            "sources": [
+              "A"
+            ],
+            "expected_transfer": "A->B"
+          }
+        },
+        "target_C": {
+          "batch_0": {
+            "sources": [
+              "B",
+              "A"
+            ],
+            "expected_transfer": "B->C sau A->B; fallback A->C nếu B lỗi/offline"
+          }
+        }
+      }
+    },
+    "confirmation_status": "pending",
+    "confirmation_ref": null
   },
   "croc": {
     "version": "11.6.5",
@@ -95,7 +184,7 @@
         "batch_size_bytes": 67108864,
         "piece_size_bytes": 4194304,
         "batch_count": 2,
-        "purpose": "Ca smoke chính 2 batch x 64 MiB kiểm tra consent, lịch cố định A->B->C, ACK, lease và lưu bền"
+        "purpose": "Ca smoke chính 2 batch x 64 MiB kiểm tra consent, lịch cố định với chặng B->C (batch 0) và A->C (batch 1), ACK, lease và lưu bền"
       },
       "secondary_reverse_or_single_batch": {
         "file": "fixture/a-64mib.bin",
@@ -110,7 +199,8 @@
   },
   "network_and_relay": {
     "selected_profile": "windows-ipv4-loopback",
-    "confirmation_status": "confirmed",
+    "confirmation_status": "pending",
+    "confirmation_ref": null,
     "locked_relay_config": {
       "host": "127.0.0.1",
       "ports": [
@@ -154,7 +244,8 @@
       "path": "../r02/batch-profiles.json",
       "profile": "64"
     },
-    "confirmation_status": "confirmed",
+    "confirmation_status": "pending",
+    "confirmation_ref": null,
     "r02_reference_budget": {
       "selected_batch_mib": 64,
       "min_goodput_bps": 100000000,
@@ -169,5 +260,8 @@
       "margin_ms": 200
     }
   },
-  "missing_confirmations": []
+  "missing_confirmations": [
+    "Chờ @Hkoado xác nhận trên #69 phương án controller/lịch FixedSchedule (routes A->B, A->C, B->C; lan_peers = [B, C]; fallbacks = {}), profile windows-ipv4-loopback, fixture a-128mib.bin/a-64mib.bin và giới hạn 1 RX / 1 TX.",
+    "Gắn link comment xác nhận của @Hkoado trên #69 vào confirmation_ref của ba khối controller, network_and_relay và rx_tx_limits_and_budget trước khi chuyển readiness sang pass."
+  ]
 }

@@ -1,18 +1,18 @@
 {
   "checks": {
     "test-nodes": {
-      "status": "pass",
+      "status": "blocked",
       "evidence": {
-        "test-nodes.json": "b526836f8d61dffb2f654d4f912892034a6649f445f3e5c3a8abc02acc901f8e"
+        "test-nodes.json": "ac3af378cea0da59c0cdeb43961bf40e3207d8520161a8ae5fd1d78bb45b848f"
       },
-      "reason": "Đã chốt máy thử smoke phát triển R1.3 (máy A Windows 11 Pro 23H2 x64 của @Hkoado chạy 3 workspace Node A/B/C và 1 controller tách biệt theo profile windows-ipv4-loopback đã xác minh từ #40/#60) cùng khung thời gian UTC+07:00."
+      "reason": "Đã soạn phương án đề xuất cho ca smoke R1.3 (máy A Windows 11 Pro 23H2 x64 chạy controller và 3 Node loopback tách biệt). Còn chờ @Hkoado xác nhận trực tiếp trên #69 về máy, quyền cài/chạy 4 tiến trình và khung giờ UTC+07:00 để gắn vào evidence_ref trước khi chuyển sang pass."
     },
     "integration-config": {
-      "status": "pass",
+      "status": "blocked",
       "evidence": {
-        "integration-config.json": "b2f6c43b4a21504753f15bc6a8e39f4353dc5a8aaf96dc60353f3d5764b8effe"
+        "integration-config.json": "5b9a5285b16ec4efdf15f2212479772ab4b4ab42376fdae8f1466c37ee37132f"
       },
-      "reason": "Đã chốt cấu hình controller HTTPS 127.0.0.1:9443, UI/API Node loopback 127.0.0.1, Croc v11.6.5 Windows x64 đã pin SHA-256, relay IPv4 loopback 127.0.0.1:19009-19010, fixture a-128mib.bin/a-64mib.bin đã kiểm SHA-256, giới hạn 1 RX / 1 TX mỗi node và ngân sách R0.2 64 MiB."
+      "reason": "Đã bổ sung đặc tả ControllerConfig/FixedSchedule (routes A->B, A->C, B->C; lan_peers = [B, C]; fallbacks = {}; link loopback), Croc v11.6.5 Windows x64, relay 127.0.0.1:19009-19010, fixture a-128mib.bin/a-64mib.bin, giới hạn 1 RX / 1 TX và ngân sách R0.2 64 MiB. Còn chờ @Hkoado xác nhận trên #69 và gắn confirmation_ref trước khi chuyển sang pass."
     }
   }
 }
