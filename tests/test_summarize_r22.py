@@ -47,6 +47,7 @@ class TestSummarizeR22(unittest.TestCase):
             "scenario": "shared-wan",
             "baseline": baseline,
             "repeat": "1",
+            "seed": "75",
             "status": status,
             "makespan_ms": makespan,
             "source_payload_bytes": "100",
@@ -232,6 +233,67 @@ class TestSummarizeR22(unittest.TestCase):
         plars = report["groups"][0]
         self.assertEqual(plars["condition_conflicts"]["rx_slots"]["8"], ["timeout"])
         self.assertEqual(plars["runs"][-1]["evidence_ref"], "evidence/timeout.json")
+
+    def test_missing_repeat_is_excluded_from_statistics_and_minimum(self):
+        rows = [
+            *[self.run_row(f"p-{index}", repeat=str(index), makespan=str(value))
+              for index, value in enumerate((80, 80, 130, 130), 1)],
+            self.run_row("unknown", repeat="", makespan="40"),
+            *[self.run_row(f"s-{index}", baseline="plars_static", repeat=str(index), makespan="90")
+              for index in range(1, 6)],
+        ]
+        report = self.summarize(rows, {
+            "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
+        })
+        comparison, = report["comparisons"]
+        self.assertEqual(comparison["status"], "insufficient_performed_runs")
+        self.assertEqual((comparison["plars_performed"], comparison["control_performed"]), (4, 5))
+        self.assertNotIn("plars_slower", comparison)
+        plars = report["groups"][0]
+        self.assertEqual(plars["passing_measurement_stats"]["makespan_ms"]["median"], 105)
+        self.assertEqual(plars["runs"][-1]["measurement_identity"], "missing_identity")
+        self.assertEqual(plars["runs"][-1]["evidence_ref"], "evidence/unknown.json")
+        self.assertEqual(plars["runs"][-1]["source_csv_line"], 6)
+
+    def test_copies_with_distinct_run_ids_do_not_count_as_distinct_measurements(self):
+        rows = [
+            *[self.run_row(f"copy-{index}", evidence_ref="evidence/same.json")
+              for index in range(5)],
+            *[self.run_row(f"s-{index}", baseline="plars_static", repeat=str(index))
+              for index in range(1, 6)],
+        ]
+        report = self.summarize(rows, {
+            "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
+        })
+        comparison, = report["comparisons"]
+        self.assertEqual(comparison["status"], "insufficient_performed_runs")
+        self.assertEqual((comparison["plars_performed"], comparison["control_performed"]), (0, 5))
+        plars = report["groups"][0]
+        self.assertEqual(plars["total"], 5)
+        self.assertEqual(plars["passing_measurement_stats"]["makespan_ms"]["count"], 0)
+        self.assertEqual([run["measurement_identity"] for run in plars["runs"]], ["duplicate_evidence"] * 5)
+        self.assertEqual([run["source_csv_line"] for run in plars["runs"]], [2, 3, 4, 5, 6])
+
+    def test_conflicting_passing_runs_have_no_pooled_statistics(self):
+        rows = [
+            self.run_row("p-one", makespan="140", rx_slots="2",
+                         wan_wire_bytes="100", wan_measurement_scope="source uplink"),
+            self.run_row("p-two", makespan="40", rx_slots="8",
+                         wan_wire_bytes="900", wan_measurement_scope="source uplink"),
+            self.run_row("static", baseline="plars_static", makespan="90"),
+        ]
+        report = self.summarize(rows, {
+            "wan": {"run_ids": [row["run_id"] for row in rows], "matched_controls": ["plars_static"]},
+        })
+        plars = report["groups"][0]
+        self.assertEqual(plars["statistics_status"], "conflicting_conditions")
+        self.assertEqual(plars["condition_conflicts"]["rx_slots"], {"2": ["p-one"], "8": ["p-two"]})
+        self.assertEqual(plars["passing_measurement_stats"], {})
+        self.assertEqual(plars["passing_wan_wire_bytes_by_scope"], {})
+        self.assertEqual([run["measurements"]["makespan_ms"] for run in plars["runs"]], [140, 40])
+        comparison, = report["comparisons"]
+        self.assertEqual(comparison["status"], "unmatched_csv_conditions")
+        self.assertNotIn("plars_slower", comparison)
 
     def test_reuses_csv_validator_for_transfer_references_and_missing_notes(self):
         self.write_csv(self.transfers, self.headers["transfers"], [{

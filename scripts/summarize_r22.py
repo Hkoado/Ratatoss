@@ -12,14 +12,21 @@ each scenario in this configuration, including conditions outside the CSV
 such as topology, allowed routes, bottlenecks, and resource budgets. Use
 separate configurations when the comparison conditions differ.
 
-Warmups (repeat=0) are listed separately and excluded from every statistic.
+Warmups (repeat=0) are listed separately and excluded from the statistics.
+An identifiable measurement needs a positive repeat, an integer seed, and
+an evidence reference. Duplicate identities within a scenario and baseline
+are excluded as a set. The original rows and their CSV references remain
+in the report, and status totals include them.
+
 WAN byte statistics are split by measurement scope. Unscoped values remain
-in the run records, with a count but without aggregate statistics.
+in the run records, with a count but without aggregate statistics. Groups
+with conflicting locked conditions retain their rows and status totals.
+Their aggregate measurement statistics are suppressed.
 
 Comparisons check CSV conditions across both groups, including failed and
-timed-out runs. Each side needs at least five performed runs with complete
-conditions, and at least one passing run with makespan. Blocked and not_run
-entries do not count as performed. The report retains source references.
+timed-out runs. Each side needs at least five identifiable, distinct
+performed runs with complete conditions and at least one passing run with
+makespan. Blocked and not_run entries do not count as performed.
 """
 
 import argparse
@@ -126,6 +133,7 @@ def read_runs(path):
                 "scenario": scenario,
                 "baseline": baseline,
                 "repeat": repeat,
+                "seed": row["seed"].strip(),
                 "status": row["status"],
                 "evidence_ref": row["evidence_ref"].strip(),
                 "source_csv_line": reader.line_num,
@@ -135,6 +143,31 @@ def read_runs(path):
                 "conditions": {key: row[key].strip() for key in CONDITION_FIELDS},
             })
     return runs
+
+
+def measurement_key(run):
+    if run["repeat"] is None or not run["evidence_ref"]:
+        return None
+    try:
+        seed = int(run["seed"])
+    except ValueError:
+        return None
+    return run["scenario"], run["baseline"], run["repeat"], seed, run["evidence_ref"]
+
+
+def classify_measurements(runs):
+    by_identity = defaultdict(list)
+    for run in runs:
+        if run["status"] not in PERFORMED_STATUSES:
+            run["measurement_identity"] = "not_performed"
+        elif (key := measurement_key(run)) is None:
+            run["measurement_identity"] = "missing_identity"
+        else:
+            by_identity[key].append(run)
+    for matches in by_identity.values():
+        identity = "identified" if len(matches) == 1 else "duplicate_evidence"
+        for run in matches:
+            run["measurement_identity"] = identity
 
 
 def measurement_stats(values):
@@ -161,45 +194,52 @@ def condition_conflicts(runs):
 
 def summarize_group(runs):
     status_counts = Counter(run["status"] for run in runs)
-    passing = [run for run in runs if run["status"] == "pass"]
+    conflicts = condition_conflicts(runs)
+    passing = [run for run in runs if run["status"] == "pass" and run["measurement_identity"] == "identified"]
     stats = {}
-    for field in MEASUREMENTS:
-        if field == "wan_wire_bytes":
-            continue
-        stats[field] = measurement_stats([
-            run["measurements"][field] for run in passing
-            if run["measurements"][field] is not None
-        ])
     wan_by_scope = defaultdict(list)
-    for run in passing:
-        value = run["measurements"]["wan_wire_bytes"]
-        if value is not None:
-            wan_by_scope[run["wan_measurement_scope"]].append(value)
+    if not conflicts:
+        for field in MEASUREMENTS:
+            if field == "wan_wire_bytes":
+                continue
+            stats[field] = measurement_stats([
+                run["measurements"][field] for run in passing
+                if run["measurements"][field] is not None
+            ])
+        for run in passing:
+            value = run["measurements"]["wan_wire_bytes"]
+            if value is not None:
+                wan_by_scope[run["wan_measurement_scope"]].append(value)
     return {
         "passed": status_counts["pass"],
         "total": len(runs),
         "status_counts": dict(status_counts),
+        "statistics_status": "conflicting_conditions" if conflicts else "available",
         "passing_measurement_stats": stats,
         "passing_wan_wire_bytes_by_scope": {
             scope: measurement_stats(values) for scope, values in wan_by_scope.items() if scope
         },
-        "unscoped_passing_wan_wire_bytes_count": len(wan_by_scope.get("", [])),
-        "condition_conflicts": condition_conflicts(runs),
+        "unscoped_passing_wan_wire_bytes_count": None if conflicts else len(wan_by_scope.get("", [])),
+        "condition_conflicts": conflicts,
         "runs": runs,
     }
 
 
 def compare_makespan(plars, control):
+    performed = [
+        [run for run in runs if run["measurement_identity"] == "identified"]
+        for runs in (plars, control)
+    ]
     samples = [
         [run for run in runs if run["status"] == "pass" and run["measurements"]["makespan_ms"] is not None]
-        for runs in (plars, control)
+        for runs in performed
     ]
     plars_samples, control_samples = samples
     counts = {
         "plars_count": len(plars_samples),
         "control_count": len(control_samples),
-        "plars_performed": sum(run["status"] in PERFORMED_STATUSES for run in plars),
-        "control_performed": sum(run["status"] in PERFORMED_STATUSES for run in control),
+        "plars_performed": len(performed[0]),
+        "control_performed": len(performed[1]),
     }
     conflicts = condition_conflicts(plars + control)
     incomplete = [
@@ -239,6 +279,7 @@ def summarize_runs(runs_path, transfers_path, configurations):
     by_run, controls = index_configurations(
         configurations, {run["run_id"] for run in measured}, {run["run_id"] for run in warmups},
     )
+    classify_measurements(measured)
     grouped = defaultdict(list)
     for run in measured:
         key = (run["scenario"], by_run[run["run_id"]], run["baseline"])
