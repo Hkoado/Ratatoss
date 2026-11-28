@@ -1,0 +1,135 @@
+{
+  "status": "pass",
+  "os": "Windows",
+  "os_version": "10.0.22631",
+  "architecture": "AMD64",
+  "python": "3.14.2",
+  "commit": "27ef69e50bc3e3d88cf5eb58591242d9b13ccbbb",
+  "tree_clean": true,
+  "fixture": {
+    "bytes": 33554432,
+    "expected_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a"
+  },
+  "expected_croc_sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+  "cases": [
+    {
+      "name": "rx-first",
+      "status": "pass",
+      "attempt_id": "944a4236-5fb7-4831-91e1-7d7a9001c293",
+      "retry_of": null,
+      "timeout_s": 45,
+      "lease_deadline_monotonic": 22702.3795358,
+      "roles": {
+        "rx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--no-compress",
+            "--debug",
+            "--relay",
+            "1.getcroc.com:9009",
+            "--yes"
+          ],
+          "remaining_setup_ms": 950,
+          "process": {
+            "pid": 11156,
+            "started_at": "2026-11-27T20:01:44.440689+00:00",
+            "stopped_at": "2026-11-27T20:01:49.490154+00:00",
+            "started_monotonic": 22657.3821272,
+            "stopped_monotonic": 22662.4316091,
+            "deadline_monotonic": 22702.3795358,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false,
+            "first_byte_monotonic": 22661.1485195,
+            "last_byte_monotonic": 22661.5886831,
+            "sha256_done_monotonic": 22662.8753457,
+            "first_progress_percent": 19,
+            "tailcat_summary": {
+              "path": "direct",
+              "streams": 8,
+              "sent": 0,
+              "received": 33599488
+            }
+          },
+          "status": "ok"
+        },
+        "tx": {
+          "argv": [
+            "CROC",
+            "--disable-clipboard",
+            "--no-update-check",
+            "--no-compress",
+            "--debug",
+            "--relay",
+            "1.getcroc.com:9009",
+            "send",
+            "--no-local",
+            "--transport",
+            "derp",
+            "batch-944a42365fb7483191e17d7a9001c293.bin"
+          ],
+          "remaining_setup_ms": 200,
+          "process": {
+            "pid": 20100,
+            "started_at": "2026-11-27T20:01:45.302745+00:00",
+            "stopped_at": "2026-11-27T20:01:49.255579+00:00",
+            "started_monotonic": 22658.2441837,
+            "stopped_monotonic": 22662.1970342,
+            "deadline_monotonic": 22702.3795358,
+            "exit_code": 0,
+            "job": {
+              "active_before_stop": 0,
+              "active_after_stop": 0,
+              "total_processes": 2,
+              "exit_code": 0
+            },
+            "staging_cleanup_pending": false,
+            "first_byte_monotonic": null,
+            "last_byte_monotonic": null,
+            "sha256_done_monotonic": null,
+            "first_progress_percent": null,
+            "tailcat_summary": {
+              "path": "direct",
+              "streams": 8,
+              "sent": 33599488,
+              "received": 0
+            }
+          },
+          "status": "ok"
+        }
+      },
+      "destination_exists": true,
+      "received_sha256": "25716462de562377f7c3b37dc26507d5cce2d66338af3cc3b415b956b4c2ec8a",
+      "received_bytes": 33554432
+    }
+  ],
+  "profile": {
+    "name": "lab-windows-public-rendezvous",
+    "endpoint": "1.getcroc.com:9009",
+    "min_goodput_bps": 100000000,
+    "setup_ms": 950,
+    "verify_commit_ms": 200,
+    "margin_ms": 200,
+    "route": "unknown",
+    "transport": "derp",
+    "start_gap_s": 0.75
+  },
+  "croc": {
+    "version": "11.6.5",
+    "sha256": "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e",
+    "probes_passed": [
+      "--version",
+      "--help",
+      "send --help",
+      "relay --help"
+    ]
+  },
+  "clipboard_sequence_unchanged": true
+}

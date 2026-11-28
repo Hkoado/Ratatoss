@@ -58,6 +58,20 @@ Issue #60 · R1.4 · Tuyến `integration`. Kịch bản này dùng profile th�
 
 Trong lượt #60 lúc 02:11 ngày 28/11/2026 (UTC+7), A→B chuyển đủ 32 MiB, khớp SHA-256 và đạt **5,47 MiB/s**. Payload đến B trực tiếp qua UDP/IPv6. Chiều phản hồi B→A đi qua DERP khoảng 4,15 giây đầu rồi chuyển sang UDP/IPv6. Đây là kết quả trên mạng thử đã ghi trong hồ sơ. [Profile Tailcat và bộ chạy](../../bench/artifacts/r14-preflight/tailcat/README.md) · [Số đo lượt 02:11](../../bench/artifacts/r14-preflight/tailcat/2026-11-28-0211-concurrent.json)
 
+### Dùng profile ở adapter Windows
+
+Issue #78 · R0.1 · Tuyến `transport`. Với tuyến WAN đã xác minh, cấu hình `RelayProfile(…, transport="derp")` ở adapter để TX yêu cầu Tailcat kể cả khi batch chỉ có 32 MiB. RX dùng cùng điểm ghép phiên và Croc tự nhận lựa chọn từ TX. Điểm ghép có thể là IPv4 hoặc tên DNS đã duyệt kèm cổng. Chỉ dùng `password=None` khi profile đã duyệt dùng mật khẩu công khai mặc định của bản ghim. Dùng `no_compress=True` khi tái hiện ca #60. [Adapter Croc](../../ratatoss/transport.py)
+
+Profile cũ mặc định dùng `transport="relay"`. Tùy chọn `transport="auto"` để Croc tự chọn trong phiên. Ở Croc v11.6.5 trên WAN, `auto` thử Tailcat từ **128 MiB trong một phiên Croc**. Chọn profile trước khi mở assignment, với ngân sách setup, truyền, xác minh và margin của tuyến đã đo. Nếu phải đổi profile, đồng bộ cả hai đầu bằng assignment mới. [Ngưỡng trong mã nguồn Croc](https://github.com/schollz/croc/blob/v11.6.5/src/croc/tailcat_negotiation.go#L209-L240) · [Giao thức phân công](../../docs/control-protocol.md#phân-công-và-báo-cáo)
+
+Với Tailcat, adapter đọc output Croc trong bộ nhớ và chỉ giữ `tailcat_summary` gồm đường cuối tại đầu báo, số luồng và bộ đếm byte Tailcat. Dựa vào socket từng chiều ở bước 3 để xác nhận đường payload. SHA-256 và điều kiện publish áp dụng cho mọi profile. [Adapter Croc](../../ratatoss/transport.py)
+
+Chạy smoke với binary Windows và fixture 32 MiB đã ghim. Cờ `--tailcat` mặc định mở RX trước và kiểm SHA-256 cùng số luồng, byte Tailcat ở hai đầu. Dùng `--start-first tx` để thử thứ tự ngược. Hai đầu chạy trên cùng máy Windows. Mặc định smoke mở relay loopback. Thêm `--rendezvous 1.getcroc.com:9009` để dùng đúng kênh ghép đã chạy ở #60. [Fixture và pin](croc-lab.md) · [Smoke CLI](../../scripts/croc_smoke.py)
+
+```powershell
+python -m scripts.croc_smoke --croc $croc --fixture $fixture --work-parent $lab --report $report --tailcat
+```
+
 ## Preflight ngân sách lease chạy
 
 Issue #25 · tuyến `transport` và điểm bàn giao `control`. Căn cứ [Brief §6.3 và §8 giai đoạn 0](../../docs/source/Ratatoss_Project_Brief_v1.3.md#63-thành-phần-và-trạng-thái), [kế hoạch cổng 0 và lịch cố định](../../plan/ASTRA_PLAN.md), [giao thức phân công và báo cáo](../../docs/control-protocol.md#phân-công-và-báo-cáo) và [runbook thử nghiệm cổng 0–1](../../docs/experiments.md#cổng-0--transport). Phạm vi gồm mục này, [preflight](../../ratatoss/lease_profile.py) và [kiểm thử CLI](../../tests/test_croc_lease.py).

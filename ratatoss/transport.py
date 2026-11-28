@@ -1,4 +1,4 @@
-"""Pinned Croc transport for the R0.1 Windows relay profile."""
+"""Pinned Windows Croc transport with operator-selected relay and Tailcat profiles."""
 
 import asyncio
 import errno
@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from ._croc_process import JobCleanup, WindowsChild
@@ -26,19 +26,43 @@ CROC_VERSION = "11.6.5"
 WINDOWS_X64_SHA256 = "1c59981c97f704baba20c59018c1d19047b67ed9c5a70c460e13d1eb733da22e"
 COMMON_FLAGS = ("--disable-clipboard", "--no-update-check")
 MAX_BATCH_BYTES = 128 * 1024 * 1024
+CrocTransport = Literal["relay", "derp", "auto"]
+
+
+@dataclass(frozen=True)
+class TailcatSummary:
+    # Local final path as reported by Croc, not a classification of RX payload.
+    path: str
+    streams: int
+    sent: int
+    received: int
 
 
 class _PayloadProgress:
-    """Keep only timestamps from Croc's receive progress bar."""
+    """Extract only progress timestamps and a bounded Tailcat summary."""
 
     _frame = re.compile(rb"^\s*(?:1/1 )?batch-[^\r\n]*?\s+(\d{1,3})%\s*\|")
+    _summary = re.compile(
+        rb"\bTailcat transport summary: path=(direct|derp|relay|mixed|unknown) "
+        rb"streams=([0-9]{1,3}) setup=[0-9.hmsu\xc2\xb5]{1,32} sent=([0-9]{1,20}) "
+        rb"received=([0-9]{1,20})(?=\s|$)"
+    )
 
-    def __init__(self):
+    def __init__(self, *, observe_progress: bool = True, observe_tailcat: bool = False):
+        self.observe_progress = observe_progress
+        self.observe_tailcat = observe_tailcat
         self.first = None
         self.last = None
         self.first_percent = None
+        self.tailcat = None
 
-    def feed(self, frame: bytes, observed: float):
+    def feed(self, frame: bytes, observed: float, *, complete: bool = True):
+        if self.observe_tailcat and complete and (summary := self._summary.search(frame)):
+            self.tailcat = TailcatSummary(
+                summary[1].decode("ascii"), int(summary[2]), int(summary[3]), int(summary[4]),
+            )
+        if not self.observe_progress:
+            return
         match = self._frame.match(frame)
         if match is None:
             return
@@ -59,7 +83,7 @@ class _PayloadProgress:
                 *frames, pending = re.split(rb"[\r\n]", pending + chunk)
                 for frame in frames:
                     self.feed(frame, observed)
-                self.feed(pending, observed)
+                self.feed(pending, observed, complete=False)
                 if len(pending) > 4096:
                     pending = b""
             self.feed(pending, time.monotonic())
@@ -87,18 +111,35 @@ class Batch:
 @dataclass(frozen=True)
 class RelayProfile:
     endpoint: str
-    password: str = field(repr=False)
+    password: str | None = field(repr=False)
     min_goodput_bps: int
     setup_ms: int
     verify_commit_ms: int
     margin_ms: int
+    transport: CrocTransport = field(default="relay", kw_only=True)
+    no_compress: bool = field(default=False, kw_only=True)
 
     def __post_init__(self):
+        if self.transport not in ("relay", "derp", "auto"):
+            raise ValueError("Expected relay, derp or auto for Croc transport")
+        if type(self.no_compress) is not bool:
+            raise ValueError("Expected no_compress to be a boolean")
         host, _, port = self.endpoint.rpartition(":")
-        ipaddress.IPv4Address(host)
+        try:
+            ipaddress.IPv4Address(host)
+        except ipaddress.AddressValueError:
+            labels = host.split(".")
+            if (
+                self.transport == "relay" or len(host) > 253 or labels[-1].isdigit()
+                or not all(re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?", label) for label in labels)
+            ):
+                raise ValueError("Invalid relay or rendezvous host for the Croc profile") from None
         if not re.fullmatch(r"[0-9]{1,5}", port) or not 1 <= int(port) <= 65535:
-            raise ValueError("Expected an IPv4 relay endpoint with a TCP port")
-        if not self.password or "\0" in self.password:
+            raise ValueError("Expected a TCP port for the Croc profile")
+        public_default = self.password is None and self.transport != "relay"
+        if not public_default and (
+            not isinstance(self.password, str) or not self.password or "\0" in self.password
+        ):
             raise ValueError("Expected a relay password")
         evaluate_lease_budget(
             batch_bytes=1, min_goodput_bps=self.min_goodput_bps,
@@ -125,6 +166,7 @@ class ProcessRun:
     last_byte_monotonic: float | None = None
     sha256_done_monotonic: float | None = None
     first_progress_percent: int | None = None
+    tailcat_summary: TailcatSummary | None = None
 
 
 class CrocError(RuntimeError):
@@ -241,9 +283,14 @@ class CrocAdapter:
             raise CrocError("CROC_PROBE_FAILED") from None
 
     def argv(self, role: str, batch: Batch) -> list[str]:
-        common = [str(self.executable), *COMMON_FLAGS, "--relay", self.relay.endpoint]
+        common = [str(self.executable), *COMMON_FLAGS]
+        if self.relay.no_compress:
+            common.append("--no-compress")
+        if self.relay.transport != "relay":
+            common.append("--debug")
+        common.extend(("--relay", self.relay.endpoint))
         if role == "tx":
-            return [*common, "send", "--no-local", "--transport", "relay", batch.filename]
+            return [*common, "send", "--no-local", "--transport", self.relay.transport, batch.filename]
         return [*common, "--yes"]
 
     async def send(
@@ -283,9 +330,9 @@ class CrocAdapter:
         delivered = False
         try:
             stage.mkdir(mode=0o700)
-            env = child_environment(work) | {
-                "CROC_SECRET": session_code, "CROC_PASS": self.relay.password,
-            }
+            env = child_environment(work) | {"CROC_SECRET": session_code}
+            if self.relay.password is not None:
+                env["CROC_PASS"] = self.relay.password
             if role == "tx":
                 if _check_path(path, directory=False).st_size != batch.size:
                     raise CrocError("CORRUPT")
@@ -435,21 +482,26 @@ class CrocAdapter:
     async def _run(self, role, batch, stage, env, deadline):
         started = time.monotonic()
         started_at = _utc_now()
-        progress = _PayloadProgress() if role == "rx" and self.observe_payload else None
+        observe_progress = role == "rx" and self.observe_payload
+        observe_tailcat = self.relay.transport != "relay"
+        output = _PayloadProgress(observe_progress=observe_progress, observe_tailcat=observe_tailcat)
         reader = None
         try:
             argv = self.argv(role, batch)
-            if progress is None:
+            if not (observe_progress or observe_tailcat):
                 child = WindowsChild(argv, cwd=stage, env=env)
             else:
                 read_fd, write_fd = os.pipe()
                 try:
-                    with os.fdopen(write_fd, "wb", buffering=0) as stderr:
-                        child = WindowsChild(argv, cwd=stage, env=env, stderr=stderr)
+                    with os.fdopen(write_fd, "wb", buffering=0) as pipe:
+                        handles = {"stderr": pipe}
+                        if observe_tailcat:
+                            handles["stdout"] = pipe
+                        child = WindowsChild(argv, cwd=stage, env=env, **handles)
                 except BaseException:
                     os.close(read_fd)
                     raise
-                reader = threading.Thread(target=progress.drain, args=(read_fd,), daemon=True)
+                reader = threading.Thread(target=output.drain, args=(read_fd,), daemon=True)
                 reader.start()
         except OSError:
             raise CrocError("CROC_SPAWN_FAILED") from None
@@ -479,9 +531,10 @@ class CrocAdapter:
                     reader.join(timeout=1)
         result = ProcessRun(
             child.pid, started_at, _utc_now(), started, time.monotonic(), deadline, cleanup.exit_code, cleanup,
-            first_byte_monotonic=progress.first if progress else None,
-            last_byte_monotonic=progress.last if progress else None,
-            first_progress_percent=progress.first_percent if progress else None,
+            first_byte_monotonic=output.first,
+            last_byte_monotonic=output.last,
+            first_progress_percent=output.first_percent,
+            tailcat_summary=output.tailcat,
         )
         if error:
             error.process = result

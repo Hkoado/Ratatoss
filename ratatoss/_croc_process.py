@@ -77,7 +77,7 @@ class JobCleanup:
 
 
 class WindowsChild:
-    def __init__(self, argv, *, cwd, env, stderr=None):
+    def __init__(self, argv, *, cwd, env, stdout=None, stderr=None):
         if os.name != "nt":
             raise OSError("The Croc process supervisor requires Windows")
 
@@ -93,14 +93,14 @@ class WindowsChild:
             ))
             with open(os.devnull, "r+b", buffering=0) as stream:
                 null_handle = msvcrt.get_osfhandle(stream.fileno())
-                os.set_handle_inheritable(null_handle, True)
+                output_handle = null_handle if stdout is None else msvcrt.get_osfhandle(stdout.fileno())
                 error_handle = null_handle if stderr is None else msvcrt.get_osfhandle(stderr.fileno())
-                handles = list(dict.fromkeys((null_handle, error_handle)))
-                if stderr is not None:
-                    os.set_handle_inheritable(error_handle, True)
+                handles = list(dict.fromkeys((null_handle, output_handle, error_handle)))
+                for handle in handles:
+                    os.set_handle_inheritable(handle, True)
                 startup = subprocess.STARTUPINFO(
                     dwFlags=subprocess.STARTF_USESTDHANDLES,
-                    hStdInput=null_handle, hStdOutput=null_handle, hStdError=error_handle,
+                    hStdInput=null_handle, hStdOutput=output_handle, hStdError=error_handle,
                     lpAttributeList={"handle_list": handles},
                 )
                 self._process, thread, self.pid, _ = _winapi.CreateProcess(
