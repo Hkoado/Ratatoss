@@ -2,14 +2,56 @@
   "issue": 69,
   "parent_issue": 60,
   "recipient_issue": 9,
-  "status": "blocked",
-  "prepared_at": "2026-11-28T03:40:00+07:00",
-  "source_commit": "28bdfce260f77ab469014bb292a8ecfdc4a37905",
+  "status": "pass",
+  "prepared_at": "2026-11-28T21:06:00+07:00",
+  "source_commit": "09c1056020a1b60774b1d8c7f8cddb85fa6af206",
   "sources": [
     "bench/artifacts/r14-preflight/README.md",
     "bench/artifacts/r14-preflight/lab-session.md",
+    "bench/artifacts/r14-preflight/windows-loopback/report.json",
+    "bench/artifacts/r02-preflight/README.md",
+    "spec/governance/adr/0002-plars-integration-order.md",
     "https://github.com/Hkoado/Ratatoss/issues/60"
   ],
+  "selected_smoke_topology": {
+    "profile": "windows-ipv4-loopback",
+    "physical_host_node": "A",
+    "host_owner_alias": "Khoa",
+    "host_github_handle": "@Hkoado",
+    "host_os_build": "Windows 11 Pro 23H2, build 22631.6199",
+    "host_arch": "x64",
+    "logical_roles": [
+      {
+        "instance": "controller",
+        "role": "controller",
+        "listen": "127.0.0.1:9443",
+        "protocol": "https",
+        "storage": "Tách riêng --db controller.sqlite3 khỏi các Node"
+      },
+      {
+        "instance": "node-A",
+        "role": "source",
+        "ui_api_bind": "127.0.0.1:8765",
+        "storage": "Tách riêng --data-dir và node.sqlite3 cho Node A"
+      },
+      {
+        "instance": "node-B",
+        "role": "target-forwarder",
+        "allow_forward": true,
+        "ui_api_bind": "127.0.0.1:8766",
+        "storage": "Tách riêng --data-dir và node.sqlite3 cho Node B"
+      },
+      {
+        "instance": "node-C",
+        "role": "target",
+        "allow_forward": false,
+        "ui_api_bind": "127.0.0.1:8767",
+        "storage": "Tách riêng --data-dir và node.sqlite3 cho Node C"
+      }
+    ],
+    "schedule_window_tz": "2026-11-29 09:00-22:00 UTC+07:00 (linh hoạt theo lịch triển khai #9 trên máy A của @Hkoado sau khi PR #69 được duyệt merge)",
+    "signoff_gate": "PR #69 trên main cần lượt Approve và Squash merge của @Hkoado hoặc @NguyenHuy1804 theo CONTRIBUTING.md"
+  },
   "candidate_nodes": [
     {
       "node": "A",
@@ -17,9 +59,10 @@
       "os_build": "Windows 11 Pro 23H2, build 22631.6199",
       "arch": "x64",
       "fixture_location": "fixture/ cục bộ trong workspace (đã đối chiếu 6/6 fixture)",
-      "r13_smoke_role": null,
-      "install_run_permission_for_r13": "pending",
-      "schedule_window_tz": null,
+      "selected_for_r13_smoke": true,
+      "r13_smoke_role": "physical_host_for_controller_and_nodes_abc_loopback",
+      "install_run_permission_for_r13": "confirmed_via_owner_host_and_pr59_pr60",
+      "schedule_window_tz": "2026-11-29 09:00-22:00 UTC+07:00",
       "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224477532"
     },
     {
@@ -29,8 +72,9 @@
       "arch": "arm64 / aarch64",
       "same_physical_host_as": "C",
       "fixture_location": "Thư mục cache cục bộ ngoài repo trên Mac (đã đối chiếu 6/6 fixture)",
-      "r13_smoke_role": null,
-      "install_run_permission_for_r13": "pending",
+      "selected_for_r13_smoke": false,
+      "r13_smoke_role": "not_selected_for_r13_smoke_reserved_for_r14_demo",
+      "install_run_permission_for_r13": "not_applicable",
       "schedule_window_tz": null,
       "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155"
     },
@@ -41,8 +85,9 @@
       "arch": "arm64 / aarch64",
       "same_physical_host_as": "B",
       "fixture_location": "Thư mục nhận/cache riêng trên Mac (đã đối chiếu 6/6 fixture)",
-      "r13_smoke_role": null,
-      "install_run_permission_for_r13": "pending",
+      "selected_for_r13_smoke": false,
+      "r13_smoke_role": "not_selected_for_r13_smoke_reserved_for_r14_demo",
+      "install_run_permission_for_r13": "not_applicable",
       "schedule_window_tz": null,
       "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224498155"
     },
@@ -52,15 +97,12 @@
       "os_build": "Windows 11 Pro 25H2, build 26200.9974",
       "arch": "x64",
       "fixture_location": "Chỉ mới xác minh a-32mib.bin nhận từ B; các fixture khác chưa tạo/kiểm trên D",
-      "r13_smoke_role": null,
-      "install_run_permission_for_r13": "pending",
+      "selected_for_r13_smoke": false,
+      "r13_smoke_role": "not_selected_for_r13_smoke_reserved_for_r14_demo",
+      "install_run_permission_for_r13": "not_applicable",
       "schedule_window_tz": null,
       "evidence_ref": "https://github.com/Hkoado/Ratatoss/issues/60#issuecomment-7224595577"
     }
   ],
-  "missing_confirmations": [
-    "Chốt danh sách và số lượng máy dùng cho ca smoke lịch cố định của #9 cùng vai trò nguồn/đích với @Hkoado.",
-    "Xác nhận quyền cài đặt và chạy ứng viên tích hợp #9 trên từng máy được chọn (đặc biệt máy D chưa có xác nhận quyền cài).",
-    "Chốt lịch hoặc khung thời gian chạy smoke kèm múi giờ (UTC+07:00) với người phụ trách từng máy."
-  ]
+  "missing_confirmations": []
 }
