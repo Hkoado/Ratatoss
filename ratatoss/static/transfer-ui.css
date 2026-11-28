@@ -1,0 +1,384 @@
+/* Scoped tokens copied from spec/ui-kit/tokens.css (Ratatoss UI Kit v1.2). */
+.rt-transfer {
+  color-scheme: dark;
+  --rt-brand-400: #ff9d50;
+  --rt-brand-500: #f47a28;
+  --rt-success-500: #49c899;
+  --rt-warning-500: #ffc679;
+  --rt-danger-500: #ee7b75;
+  --rt-font-family-body: "DM Sans", "Segoe UI", Arial, sans-serif;
+  --rt-font-family-heading: "Manrope", "DM Sans", "Segoe UI", Arial, sans-serif;
+  --rt-font-xl: 16px;
+  --rt-font-5xl: 23px;
+  --rt-font-kpi: 26px;
+  --rt-line-tight: 1.24;
+  --rt-line-body: 1.58;
+  --rt-space-1: 4px;
+  --rt-space-2: 8px;
+  --rt-space-3: 12px;
+  --rt-space-4: 16px;
+  --rt-space-5: 20px;
+  --rt-space-6: 24px;
+  --rt-radius-md: 9px;
+  --rt-card-radius: 12px;
+  --rt-border-width: 1px;
+  --rt-focus-width: 3px;
+  --rt-focus-offset: 3px;
+  --rt-topbar-height: 64px;
+  --rt-content-inline: 30px;
+  --rt-content-top: 24px;
+  --rt-content-bottom: 36px;
+  --rt-grid-gap: 16px;
+  --rt-card-header-padding: 16px 18px 14px;
+  --rt-card-body-padding: 0 18px 18px;
+  --rt-button-padding-y: 11px;
+  --rt-button-padding-x: 16px;
+  --rt-control-touch-target: 44px;
+  --rt-progress-height: 5px;
+  --rt-dialog-padding: 29px;
+  --bg: #0e1014;
+  --sidebar: #111318;
+  --panel: #171a20;
+  --panel-2: #1d2027;
+  --panel-3: #252932;
+  --text: #f5f5f3;
+  --muted: #9399a6;
+  --stroke: #2c3038;
+  --stroke-strong: #42464e;
+  --input: #1c2027;
+  --hover: #24272e;
+  --orbon: #291b15;
+  --rt-accent-on-surface: #ff9d50;
+  --rt-on-accent: #20140e;
+  --rt-focus-color: rgba(244,122,40,.65);
+  --rt-transfer-success: var(--rt-success-500);
+  --rt-transfer-warning: var(--rt-warning-500);
+  --rt-transfer-danger: var(--rt-danger-500);
+
+  color: var(--text);
+  font: var(--rt-font-xl) / var(--rt-line-body) var(--rt-font-family-body);
+}
+
+.rt-transfer-light {
+  color-scheme: light;
+  --bg: #f6f5f2;
+  --sidebar: #fbfaf8;
+  --panel: #ffffff;
+  --panel-2: #f8f8f7;
+  --panel-3: #efefed;
+  --text: #22242a;
+  --muted: #757a83;
+  --stroke: #e7e7e4;
+  --stroke-strong: #d4d4d0;
+  --input: #fbfaf8;
+  --hover: #f0efed;
+  --orbon: #fff2e9;
+  --rt-accent-on-surface: #a84410;
+  --rt-focus-color: rgba(173,71,16,.72);
+  --rt-transfer-label-color: var(--text);
+  --rt-transfer-success: #19644d;
+  --rt-transfer-warning: #805318;
+  --rt-transfer-danger: #982f28;
+}
+
+.rt-transfer-preview {
+  margin: 0;
+  background: var(--bg);
+}
+
+.rt-transfer-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-inline: var(--rt-content-inline);
+  background: var(--sidebar);
+  border-bottom: var(--rt-border-width) solid var(--stroke);
+}
+
+.rt-transfer-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--rt-space-3);
+  max-width: 1120px;
+  min-height: var(--rt-topbar-height);
+  margin-inline: auto;
+}
+
+.rt-transfer-title,
+.rt-transfer-heading {
+  margin: 0;
+  font-family: var(--rt-font-family-heading);
+  line-height: var(--rt-line-tight);
+}
+
+.rt-transfer-title {
+  font-size: var(--rt-font-xl);
+}
+
+.rt-transfer-demo {
+  padding: 0 var(--rt-space-2);
+  border: var(--rt-border-width) solid var(--rt-accent-on-surface);
+  border-radius: var(--rt-radius-md);
+  background: var(--orbon);
+  color: var(--rt-accent-on-surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rt-transfer-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rt-grid-gap);
+  align-items: start;
+  max-width: 1120px;
+  margin-inline: auto;
+  padding: var(--rt-content-top) var(--rt-content-inline) var(--rt-content-bottom);
+}
+
+.rt-transfer-case {
+  display: grid;
+  gap: var(--rt-space-1);
+  margin-bottom: var(--rt-space-3);
+}
+
+.rt-transfer-select,
+.rt-transfer-button {
+  box-sizing: border-box;
+  min-height: var(--rt-control-touch-target);
+  border: var(--rt-border-width) solid var(--stroke-strong);
+  border-radius: var(--rt-radius-md);
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+}
+
+.rt-transfer-select {
+  width: 100%;
+  min-width: 0;
+  padding: var(--rt-space-2) var(--rt-space-3);
+}
+
+.rt-transfer-card {
+  display: grid;
+  gap: var(--rt-space-4);
+  min-width: 0;
+  padding: var(--rt-card-body-padding);
+  border: var(--rt-border-width) solid var(--stroke);
+  border-radius: var(--rt-card-radius);
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+
+.rt-transfer-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rt-space-2) var(--rt-space-3);
+  padding: var(--rt-card-header-padding);
+  margin-inline: -18px;
+  border-bottom: var(--rt-border-width) solid var(--stroke);
+}
+
+.rt-transfer-heading {
+  font-size: var(--rt-font-5xl);
+}
+
+.rt-transfer-status {
+  margin: 0;
+  padding: var(--rt-space-1) var(--rt-space-2);
+  border-radius: var(--rt-radius-md);
+  background: var(--panel-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rt-transfer-details {
+  display: grid;
+  gap: var(--rt-space-2);
+  margin: 0;
+}
+
+.rt-transfer-field {
+  display: grid;
+  grid-template-columns: minmax(0, 7rem) minmax(0, 1fr);
+  gap: var(--rt-space-2);
+}
+
+.rt-transfer-label {
+  margin: 0;
+  color: var(--rt-transfer-label-color, var(--muted));
+  font-size: 14px;
+}
+
+.rt-transfer-value,
+.rt-transfer-note {
+  margin: 0;
+}
+
+.rt-transfer-consent,
+.rt-transfer-meter,
+.rt-transfer-recipient-summary {
+  display: grid;
+  gap: var(--rt-space-2);
+}
+
+.rt-transfer-consent,
+.rt-transfer-recipient-summary {
+  padding-top: var(--rt-space-3);
+  border-top: var(--rt-border-width) solid var(--stroke);
+}
+
+.rt-transfer-forward {
+  display: flex;
+  align-items: center;
+  gap: var(--rt-space-2);
+  min-height: var(--rt-control-touch-target);
+  cursor: pointer;
+}
+
+.rt-transfer-checkbox {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--rt-brand-500);
+}
+
+.rt-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rt-space-2);
+}
+
+.rt-transfer-button {
+  padding: var(--rt-button-padding-y) var(--rt-button-padding-x);
+  line-height: var(--rt-line-tight);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rt-transfer-button:hover {
+  background: var(--hover);
+}
+
+.rt-transfer-primary {
+  border-color: var(--rt-brand-500);
+  background: var(--rt-brand-500);
+  color: var(--rt-on-accent);
+}
+
+.rt-transfer-primary:hover {
+  background: var(--rt-brand-400);
+}
+
+.rt-transfer-select:focus-visible,
+.rt-transfer-heading:focus-visible,
+.rt-transfer-button:focus-visible,
+.rt-transfer-checkbox:focus-visible {
+  outline: var(--rt-focus-width) solid var(--rt-focus-color);
+  outline-offset: var(--rt-focus-offset);
+}
+
+.rt-transfer-dialog {
+  box-sizing: border-box;
+  width: min(28rem, calc(100% - 32px));
+  padding: var(--rt-dialog-padding);
+  border: var(--rt-border-width) solid var(--stroke-strong);
+  border-radius: var(--rt-card-radius);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.rt-transfer-dialog::backdrop {
+  background: rgba(14,16,20,.72);
+}
+
+.rt-transfer-dialog .rt-transfer-actions {
+  margin-top: var(--rt-space-4);
+}
+
+.rt-transfer-count {
+  margin: 0;
+  font-size: var(--rt-font-kpi);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: var(--rt-line-tight);
+}
+
+.rt-transfer-progress {
+  appearance: none;
+  width: 100%;
+  height: var(--rt-progress-height);
+  border: 0;
+  border-radius: var(--rt-radius-md);
+  overflow: hidden;
+  background: var(--panel-3);
+  accent-color: var(--rt-brand-500);
+}
+
+.rt-transfer-progress::-webkit-progress-bar {
+  background: var(--panel-3);
+}
+
+.rt-transfer-progress::-webkit-progress-value {
+  background: var(--rt-brand-500);
+}
+
+.rt-transfer-progress::-moz-progress-bar {
+  background: var(--rt-brand-500);
+}
+
+.rt-transfer-messages,
+.rt-transfer-recipient-list {
+  margin: 0;
+  padding-inline-start: var(--rt-space-5);
+}
+
+.rt-transfer-message + .rt-transfer-message {
+  margin-top: var(--rt-space-1);
+}
+
+.rt-transfer-neutral {
+  color: var(--text);
+}
+
+.rt-transfer-warning {
+  color: var(--rt-transfer-warning);
+}
+
+.rt-transfer-danger {
+  color: var(--rt-transfer-danger);
+}
+
+.rt-transfer-success {
+  color: var(--rt-transfer-success);
+}
+
+.rt-transfer-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 850px) {
+  .rt-transfer-preview-grid {
+    grid-template-columns: 1fr;
+    padding-inline: var(--rt-space-5);
+  }
+}
+
+@media (max-width: 560px) {
+  .rt-transfer-topbar,
+  .rt-transfer-preview-grid {
+    padding-inline: 14px;
+  }
+
+  .rt-transfer-field {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
