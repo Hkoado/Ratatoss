@@ -5,9 +5,11 @@ Pass a UTF-8 JSON file with an integer seed, repeats (at least 5), and a
 scenarios array. Each scenario has an id and a configurations array. Each
 configuration has an id, a conditions object, and a policies object.
 Conditions describe the shared topology, allowed_routes, bottlenecks,
-batch_mib, rx_slots, tx_slots, and budget. They can also hold other shared
-settings such as the fixture and network profile. The policies object has one
-options object for each baseline: direct, gateway_whole_file, fixed_split,
+batch_mib, rx_slots, tx_slots, and budget. The batch size must be positive.
+RX and TX limits are nonnegative integers, either shared or keyed by node.
+Conditions can also hold settings such as the fixture and network profile.
+The policies object has one options object for each baseline:
+direct, gateway_whole_file, fixed_split,
 gateway_pipeline, plars, and plars_static. Use {} for a policy with no extra
 options. All policies use the shared conditions. plars_static supplies its
 fixed schedule (inline or as a reference) in its schedule option.
@@ -61,6 +63,19 @@ def validate_configuration(configuration, name):
     missing = [key for key in MATCHED_CONDITIONS if conditions.get(key) is None]
     if missing:
         raise ValueError(f"{name} is missing shared conditions: {', '.join(missing)}")
+
+    batch_mib = conditions["batch_mib"]
+    if type(batch_mib) not in (int, float) or batch_mib <= 0:
+        raise ValueError(f"{name}/batch_mib must be a positive number")
+    for field in ("rx_slots", "tx_slots"):
+        limits = conditions[field]
+        if isinstance(limits, dict):
+            entries = ((f"{field}.{node}", limit) for node, limit in limits.items())
+        else:
+            entries = ((field, limits),)
+        for path, limit in entries:
+            if type(limit) is not int or limit < 0:
+                raise ValueError(f"{name}/{path} must be a nonnegative integer")
 
     policies = configuration.get("policies")
     if not isinstance(policies, dict) or policies.keys() != set(BASELINES):

@@ -164,3 +164,37 @@ class TestPlanR22Runs(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
             self.assertIn("error:", result.stderr)
+
+    def assert_cli_rejects_condition(self, field, value, message):
+        specification = copy.deepcopy(self.specification)
+        conditions = specification["scenarios"][0]["configurations"][0]["conditions"]
+        conditions[field] = value
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.json"
+            path.write_text(json.dumps(specification), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(self.script), str(path)], capture_output=True, text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn(message, result.stderr)
+
+    def test_cli_rejects_nonpositive_batch_sizes(self):
+        for value in (0, -32):
+            with self.subTest(value=value):
+                self.assert_cli_rejects_condition("batch_mib", value, "/batch_mib must be a positive number")
+
+    def test_cli_rejects_negative_slot_limits(self):
+        for field, value, expected in (
+            ("rx_slots", {"B": -1}, "/rx_slots.B must be a nonnegative integer"),
+            ("tx_slots", {"A": -1}, "/tx_slots.A must be a nonnegative integer"),
+            ("tx_slots", -1, "/tx_slots must be a nonnegative integer"),
+        ):
+            with self.subTest(field=field, value=value):
+                self.assert_cli_rejects_condition(field, value, expected)
+
+    def test_zero_slot_limits_are_allowed(self):
+        conditions = self.specification["scenarios"][0]["configurations"][0]["conditions"]
+        conditions["rx_slots"] = {"B": 0, "C": 1, "D": 1}
+        conditions["tx_slots"] = 0
+        self.assertEqual(len(self.plan_runs(self.specification)["runs"]), 108)
